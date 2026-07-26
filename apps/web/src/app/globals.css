@@ -36,7 +36,6 @@ body {
 }
 
 html {
-  min-width: 320px;
   scroll-behavior: smooth;
 }
 
@@ -304,6 +303,34 @@ a {
   animation: settle-in 440ms 60ms ease-out both;
 }
 
+.decision-card--secondary {
+  margin-top: var(--space-3);
+  border-radius: 18px 18px 18px 8px;
+  box-shadow: 0 9px 24px rgb(76 55 29 / 7%);
+  animation-delay: 100ms;
+}
+
+.decision-card--secondary .decision-card__rank {
+  border-right: 1px solid var(--tier-line);
+  background: linear-gradient(155deg, rgb(255 255 255 / 54%), transparent 58%), var(--tier-soft);
+  color: var(--tier-accent);
+}
+
+.decision-card--secondary .decision-card__number {
+  font-size: 27px;
+}
+
+.decision-card--secondary .decision-card__header h2 {
+  font-size: 22px;
+}
+
+.decision-card--secondary .decision-card__explanation {
+  padding: 8px 0 0;
+  border-top: 1px solid var(--tier-line);
+  border-left: 0;
+  background: transparent;
+}
+
 .decision-card[data-tier-element="fire"] {
   --tier-accent: var(--accent-cinnabar);
   --tier-line: rgb(182 66 52 / 24%);
@@ -392,7 +419,7 @@ a {
   font-weight: 700;
 }
 
-.decision-card__colors {
+.decision-card .decision-card__colors {
   grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
   gap: 12px 5px;
   margin-top: var(--space-4);
@@ -799,6 +826,44 @@ h1 {
   .color-grid {
     grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
     gap: 13px 6px;
+  }
+}
+
+@media (max-width: 260px) {
+  .page-shell {
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
+
+  .decision-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .decision-card__rank {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-2);
+    padding: 9px 12px;
+  }
+
+  .decision-card__number,
+  .decision-card--secondary .decision-card__number {
+    font-size: 23px;
+  }
+
+  .decision-card__body {
+    padding: 14px 10px 15px;
+  }
+
+  .decision-card .decision-card__colors {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .decision-card .color-swatch {
+    flex: 0 0 42px;
   }
 }
 

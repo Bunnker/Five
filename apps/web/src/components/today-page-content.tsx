@@ -1,3 +1,4 @@
+import { CiJiColorCard } from "./ci-ji-color-card";
 import { DaJiColorCard } from "./da-ji-color-card";
 import { TodayDateRegion } from "./today-date-region";
 import type { TodayPageData } from "../lib/today";
@@ -28,7 +29,12 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
         ) : (
           <>
             <TodayDateRegion today={today} />
-            {today.daJiCard === null ? null : <DaJiColorCard tier={today.daJiCard} />}
+            {today.daJiCard === null ? null : (
+              <>
+                <DaJiColorCard tier={today.daJiCard} />
+                {today.ciJiCard === null ? null : <CiJiColorCard tier={today.ciJiCard} />}
+              </>
+            )}
           </>
         )}
       </div>

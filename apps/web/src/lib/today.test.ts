@@ -1,24 +1,30 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadToday, type DaJiCardData, type TodayDateData, type TodayPageData } from "./today";
+import {
+  loadToday,
+  type CiJiCardData,
+  type DaJiCardData,
+  type TodayDateData,
+  type TodayPageData,
+} from "./today";
 
-const contentVersion = "fd-20260724-r1";
+const contentVersion = "fd-20260715-r1";
 
 const dateData = {
   content: {
     calendar: {
       dayElement: "wood",
       dayElementLabel: "木",
-      ganzhiDay: "己亥",
-      lunarDateText: "六月十一",
-      weekdayText: "星期五",
+      ganzhiDay: "庚寅",
+      lunarDateText: "六月初二",
+      weekdayText: "星期三",
     },
-    fortuneDate: "2026-07-24",
+    fortuneDate: "2026-07-15",
   },
   requestContext: {
-    civilDate: "2026-07-23",
+    civilDate: "2026-07-14",
     crossedDayBoundary: true,
-    fortuneDate: "2026-07-24",
+    fortuneDate: "2026-07-15",
     shichen: "子",
   },
 } satisfies TodayDateData;
@@ -40,6 +46,23 @@ const daJiTier = {
   tierCode: "da_ji",
 };
 
+const ciJiTier = {
+  algorithmLabel: "次吉",
+  colors: [
+    { colorCode: "lake_blue", name: "湖蓝" },
+    { colorCode: "green", name: "绿色" },
+    { colorCode: "cyan", name: "青色" },
+  ],
+  displayLabel: "稳妥选择",
+  displaySection: "primary",
+  element: "wood",
+  elementLabel: "木",
+  explanation: "与今日五行相同，作为稳妥选择。",
+  rank: 2,
+  relationText: "木与木同类",
+  tierCode: "ci_ji",
+};
+
 const versions = {
   algorithmVersion: "algorithm-v1",
   assetManifestVersion: "assets-v1",
@@ -52,7 +75,7 @@ const versions = {
 };
 
 const otherTiers = [
-  { rank: 2, tierCode: "ci_ji" },
+  ciJiTier,
   { rank: 3, tierCode: "ping" },
   { rank: 4, tierCode: "jiao_cha" },
   { rank: 5, tierCode: "bu_li" },
@@ -81,10 +104,29 @@ const daJiCard = {
   explanation: "今日木日，木生火，火为大吉。",
   rank: 1,
   relationText: "木生火",
+  tierCode: "da_ji",
 } satisfies DaJiCardData;
+
+const ciJiCard = {
+  algorithmLabel: "次吉",
+  colors: [
+    { colorCode: "lake_blue", name: "湖蓝" },
+    { colorCode: "green", name: "绿色" },
+    { colorCode: "cyan", name: "青色" },
+  ],
+  contentVersion,
+  displayLabel: "稳妥选择",
+  element: "wood",
+  elementLabel: "木",
+  explanation: "与今日五行相同，作为稳妥选择。",
+  rank: 2,
+  relationText: "木与木同类",
+  tierCode: "ci_ji",
+} satisfies CiJiCardData;
 
 const pageData = {
   ...dateData,
+  ciJiCard,
   daJiCard,
 } satisfies TodayPageData;
 
@@ -118,7 +160,7 @@ describe("loadToday", () => {
     vi.unstubAllGlobals();
   });
 
-  it("selects only da_ji and preserves its element and published color order", async () => {
+  it("selects da_ji and ci_ji by tierCode and preserves each published color order", async () => {
     const fetchMock = vi.fn().mockResolvedValue(readyResponse(apiTodayResponse));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -136,18 +178,64 @@ describe("loadToday", () => {
       },
       signal: expect.any(AbortSignal),
     });
+    expect(pageData.ciJiCard.contentVersion).toBe(pageData.daJiCard.contentVersion);
+    expect(pageData.ciJiCard.colors.map(({ name }) => name)).toEqual(["湖蓝", "绿色", "青色"]);
   });
 
   it.each([
     ["missing da_ji", otherTiers],
     ["non-unique", [otherTiers[0], otherTiers[0], daJiTier, otherTiers[2], otherTiers[3]]],
+    [
+      "wrong ci_ji rank",
+      apiTodayResponse.content.tiers.map((tier) =>
+        tier?.tierCode === "ci_ji" ? { ...ciJiTier, rank: 3 } : tier,
+      ),
+    ],
   ])("keeps the date but hides the whole card when the tier index is %s", async (_case, tiers) => {
     const result = await loadFrom({
       ...apiTodayResponse,
       content: { ...apiTodayResponse.content, tiers },
     });
 
-    expect(result).toEqual({ ...dateData, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+  });
+
+  it.each([
+    ["empty colors", "colors", []],
+    ["wrong algorithm label", "algorithmLabel", "大吉"],
+    ["wrong display label", "displayLabel", "今日优先"],
+    ["wrong display section", "displaySection", "attention"],
+    ["mismatched element label", "elementLabel", "火"],
+    ["forbidden promise copy", "explanation", "保证好运，帮助转运。"],
+  ])(
+    "keeps a valid da_ji but hides the entire ci_ji card when it has %s",
+    async (_case, field, value) => {
+      const result = await loadFrom({
+        ...apiTodayResponse,
+        content: {
+          ...apiTodayResponse.content,
+          tiers: apiTodayResponse.content.tiers.map((tier) =>
+            tier?.tierCode === "ci_ji" ? { ...ciJiTier, [field]: value } : tier,
+          ),
+        },
+      });
+
+      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard });
+    },
+  );
+
+  it("does not display ci_ji by itself when da_ji content is invalid", async () => {
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        tiers: apiTodayResponse.content.tiers.map((tier) =>
+          tier?.tierCode === "da_ji" ? { ...daJiTier, colors: [] } : tier,
+        ),
+      },
+    });
+
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
   });
 
   it.each([
@@ -190,7 +278,7 @@ describe("loadToday", () => {
       },
     });
 
-    expect(result).toEqual({ ...dateData, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
   });
 
   it.each([
@@ -211,7 +299,7 @@ describe("loadToday", () => {
       },
     });
 
-    expect(result).toEqual({ ...dateData, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
   });
 
   it("shows only the valid colors that the published tier actually contains", async () => {
@@ -243,13 +331,14 @@ describe("loadToday", () => {
         },
       });
 
-      expect(result).toEqual({ ...dateData, daJiCard: null });
+      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
     },
   );
 
   it("hides the card when the response header and body content versions differ", async () => {
-    await expect(loadFrom(apiTodayResponse, "fd-20260724-r2")).resolves.toEqual({
+    await expect(loadFrom(apiTodayResponse, "fd-20260715-r2")).resolves.toEqual({
       ...dateData,
+      ciJiCard: null,
       daJiCard: null,
     });
   });
@@ -269,6 +358,7 @@ describe("loadToday", () => {
       }),
     ).resolves.toEqual({
       ...dateData,
+      ciJiCard: null,
       daJiCard: null,
     });
   });
@@ -276,6 +366,7 @@ describe("loadToday", () => {
   it("hides the card when X-Content-Version is missing", async () => {
     await expect(loadFrom(apiTodayResponse, null)).resolves.toEqual({
       ...dateData,
+      ciJiCard: null,
       daJiCard: null,
     });
   });
@@ -291,7 +382,7 @@ describe("loadToday", () => {
       },
     });
 
-    expect(result).toEqual({ ...dateData, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
   });
 
   it.each(["今天穿这个必然暴富。", "不用参考，保证一定有效。", "否则会破财，遇到大凶灾。"])(
@@ -307,7 +398,7 @@ describe("loadToday", () => {
         },
       });
 
-      expect(result).toEqual({ ...dateData, daJiCard: null });
+      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
     },
   );
 

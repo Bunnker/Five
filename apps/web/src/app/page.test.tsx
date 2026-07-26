@@ -9,12 +9,13 @@ const todayResponse = {
     calendar: {
       dayElement: "wood",
       dayElementLabel: "木",
-      ganzhiDay: "己亥",
-      lunarDateText: "六月十一",
-      weekdayText: "星期五",
+      ganzhiDay: "庚寅",
+      lunarDateText: "六月初二",
+      weekdayText: "星期三",
     },
-    fortuneDate: "2026-07-24",
+    fortuneDate: "2026-07-15",
   },
+  ciJiCard: null,
   daJiCard: {
     algorithmLabel: "大吉",
     colors: [
@@ -22,18 +23,19 @@ const todayResponse = {
       { colorCode: "red", name: "红色" },
       { colorCode: "orange", name: "橙色" },
     ],
-    contentVersion: "fd-20260724-r1",
+    contentVersion: "fd-20260715-r1",
     displayLabel: "今日优先",
     element: "fire",
     elementLabel: "火",
     explanation: "今日木日，木生火，火为大吉。",
     rank: 1,
     relationText: "木生火",
+    tierCode: "da_ji",
   },
   requestContext: {
-    civilDate: "2026-07-23",
+    civilDate: "2026-07-14",
     crossedDayBoundary: true,
-    fortuneDate: "2026-07-24",
+    fortuneDate: "2026-07-15",
     shichen: "子",
   },
 } satisfies TodayPageData;
@@ -43,7 +45,7 @@ describe("Today homepage date area", () => {
     render(<TodayPageContent today={todayResponse} />);
 
     expect(screen.getByRole("heading", { name: "今日木日" })).toBeVisible();
-    expect(screen.getByText("2026年7月24日")).toBeVisible();
+    expect(screen.getByText("2026年7月15日")).toBeVisible();
     expect(screen.getByText("大吉")).toBeVisible();
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "紫色",
@@ -59,7 +61,7 @@ describe("Today homepage date area", () => {
   it("keeps the date but renders no partial card when da_ji is unavailable", () => {
     render(<TodayPageContent today={{ ...todayResponse, daJiCard: null }} />);
 
-    expect(screen.getByText("2026年7月24日")).toBeVisible();
+    expect(screen.getByText("2026年7月15日")).toBeVisible();
     expect(screen.getByRole("heading", { name: "今日木日" })).toBeVisible();
     expect(screen.queryByText("大吉")).not.toBeInTheDocument();
     expect(screen.queryByRole("list", { name: "大吉颜色" })).not.toBeInTheDocument();

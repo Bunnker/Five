@@ -9,20 +9,33 @@ type TodayRequestContext = TodayResponse["requestContext"];
 type TodayCalendar = TodayResponse["content"]["calendar"];
 type TodayTier = TodayResponse["content"]["tiers"][number];
 
-export interface DaJiCardData {
-  algorithmLabel: "大吉";
+interface DecisionCardBaseData {
   colors: Array<{
     colorCode: ReviewedColorCode;
     name: string;
   }>;
   contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
-  displayLabel: "今日优先";
   element: TodayTier["element"];
   elementLabel: TodayTier["elementLabel"];
   explanation: TodayTier["explanation"];
-  rank: 1;
   relationText: TodayTier["relationText"];
 }
+
+export interface DaJiCardData extends DecisionCardBaseData {
+  algorithmLabel: "大吉";
+  displayLabel: "今日优先";
+  rank: 1;
+  tierCode: "da_ji";
+}
+
+export interface CiJiCardData extends DecisionCardBaseData {
+  algorithmLabel: "次吉";
+  displayLabel: "稳妥选择";
+  rank: 2;
+  tierCode: "ci_ji";
+}
+
+export type DecisionCardData = CiJiCardData | DaJiCardData;
 
 export interface TodayDateData {
   content: {
@@ -39,6 +52,7 @@ export interface TodayDateData {
 }
 
 export interface TodayPageData extends TodayDateData {
+  ciJiCard: CiJiCardData | null;
   daJiCard: DaJiCardData | null;
 }
 
@@ -65,6 +79,20 @@ const tierRanks = {
   da_ji: 1,
   jiao_cha: 4,
   ping: 3,
+} as const;
+const decisionTierSpecs = {
+  ci_ji: {
+    algorithmLabel: "次吉",
+    displayLabel: "稳妥选择",
+    displaySection: "primary",
+    rank: 2,
+  },
+  da_ji: {
+    algorithmLabel: "大吉",
+    displayLabel: "今日优先",
+    displaySection: "primary",
+    rank: 1,
+  },
 } as const;
 const versionFields = [
   "algorithmVersion",
@@ -153,27 +181,52 @@ function getContentVersion(
     : null;
 }
 
-function toDaJiCardData(
+interface DecisionContent {
+  contentVersion: string;
+  tiers: Array<Record<string, unknown>>;
+}
+
+interface DecisionCardCoreData {
+  colors: DecisionCardData["colors"];
+  contentVersion: DecisionCardData["contentVersion"];
+  element: DecisionCardData["element"];
+  elementLabel: DecisionCardData["elementLabel"];
+  explanation: DecisionCardData["explanation"];
+  relationText: DecisionCardData["relationText"];
+}
+
+function toDecisionContent(
   content: Record<string, unknown>,
   responseContentVersion: string | null,
-): DaJiCardData | null {
+): DecisionContent | null {
   if (!hasCompleteTierIndex(content.tiers)) {
     return null;
   }
 
   const contentVersion = getContentVersion(content.versions, responseContentVersion);
-  const daJiTiers = content.tiers.filter((tier) => tier.tierCode === "da_ji");
-  if (contentVersion === null || daJiTiers.length !== 1) {
+  if (contentVersion === null) {
     return null;
   }
 
-  const [tier] = daJiTiers;
+  return {
+    contentVersion,
+    tiers: content.tiers,
+  };
+}
+
+function toDecisionCardCore(
+  tier: Record<string, unknown> | undefined,
+  contentVersion: string,
+  tierCode: keyof typeof decisionTierSpecs,
+): DecisionCardCoreData | null {
+  const spec = decisionTierSpecs[tierCode];
   if (
     tier === undefined ||
-    tier.rank !== 1 ||
-    tier.algorithmLabel !== "大吉" ||
-    tier.displayLabel !== "今日优先" ||
-    tier.displaySection !== "primary" ||
+    tier.tierCode !== tierCode ||
+    tier.rank !== spec.rank ||
+    tier.algorithmLabel !== spec.algorithmLabel ||
+    tier.displayLabel !== spec.displayLabel ||
+    tier.displaySection !== spec.displaySection ||
     !isMember(dayElements, tier.element) ||
     !isMember(dayElementLabelNames, tier.elementLabel) ||
     tier.elementLabel !== dayElementLabels[tier.element] ||
@@ -188,7 +241,7 @@ function toDaJiCardData(
     return null;
   }
 
-  const colors: DaJiCardData["colors"] = [];
+  const colors: DecisionCardData["colors"] = [];
   const seenColorCodes = new Set<ReviewedColorCode>();
   for (const color of tier.colors) {
     const colorCode =
@@ -210,15 +263,56 @@ function toDaJiCardData(
   }
 
   return {
-    algorithmLabel: tier.algorithmLabel,
     colors,
     contentVersion,
-    displayLabel: tier.displayLabel,
     element: tier.element,
     elementLabel: tier.elementLabel,
     explanation: tier.explanation,
-    rank: tier.rank,
     relationText: tier.relationText,
+  };
+}
+
+function findDecisionTier(
+  decisionContent: DecisionContent,
+  tierCode: keyof typeof decisionTierSpecs,
+): Record<string, unknown> | undefined {
+  return decisionContent.tiers.find((tier) => tier.tierCode === tierCode);
+}
+
+function toDecisionCardData(
+  decisionContent: DecisionContent,
+  tierCode: "da_ji",
+): DaJiCardData | null;
+function toDecisionCardData(
+  decisionContent: DecisionContent,
+  tierCode: "ci_ji",
+): CiJiCardData | null;
+function toDecisionCardData(
+  decisionContent: DecisionContent,
+  tierCode: keyof typeof decisionTierSpecs,
+): DecisionCardData | null {
+  const tier = findDecisionTier(decisionContent, tierCode);
+  const core = toDecisionCardCore(tier, decisionContent.contentVersion, tierCode);
+  if (core === null || tier === undefined) {
+    return null;
+  }
+
+  if (tierCode === "da_ji") {
+    return {
+      ...core,
+      algorithmLabel: tier.algorithmLabel as DaJiCardData["algorithmLabel"],
+      displayLabel: tier.displayLabel as DaJiCardData["displayLabel"],
+      rank: tier.rank as DaJiCardData["rank"],
+      tierCode: tier.tierCode as DaJiCardData["tierCode"],
+    };
+  }
+
+  return {
+    ...core,
+    algorithmLabel: tier.algorithmLabel as CiJiCardData["algorithmLabel"],
+    displayLabel: tier.displayLabel as CiJiCardData["displayLabel"],
+    rank: tier.rank as CiJiCardData["rank"],
+    tierCode: tier.tierCode as CiJiCardData["tierCode"],
   };
 }
 
@@ -329,9 +423,19 @@ export async function loadToday({
       return null;
     }
 
+    const decisionContent = toDecisionContent(
+      body.content,
+      response.headers.get("x-content-version"),
+    );
+    const daJiCard = decisionContent === null ? null : toDecisionCardData(decisionContent, "da_ji");
+
     return {
       ...dateData,
-      daJiCard: toDaJiCardData(body.content, response.headers.get("x-content-version")),
+      ciJiCard:
+        decisionContent === null || daJiCard === null
+          ? null
+          : toDecisionCardData(decisionContent, "ci_ji"),
+      daJiCard,
     };
   } catch {
     return null;

@@ -18,6 +18,7 @@ const daJi = {
   explanation: "今日木日，木生火，火为大吉。",
   rank: 1,
   relationText: "木生火",
+  tierCode: "da_ji",
 } satisfies DaJiCardData;
 
 describe("DaJiColorCard", () => {
