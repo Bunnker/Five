@@ -2,18 +2,33 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TodayPageContent } from "../components/today-page-content";
-import type { TodayDateData } from "../lib/today";
+import type { TodayPageData } from "../lib/today";
 
 const todayResponse = {
   content: {
     calendar: {
-      dayElement: "water",
-      dayElementLabel: "水",
+      dayElement: "wood",
+      dayElementLabel: "木",
       ganzhiDay: "己亥",
       lunarDateText: "六月十一",
       weekdayText: "星期五",
     },
     fortuneDate: "2026-07-24",
+  },
+  daJiCard: {
+    algorithmLabel: "大吉",
+    colors: [
+      { colorCode: "purple", name: "紫色" },
+      { colorCode: "red", name: "红色" },
+      { colorCode: "orange", name: "橙色" },
+    ],
+    contentVersion: "fd-20260724-r1",
+    displayLabel: "今日优先",
+    element: "fire",
+    elementLabel: "火",
+    explanation: "今日木日，木生火，火为大吉。",
+    rank: 1,
+    relationText: "木生火",
   },
   requestContext: {
     civilDate: "2026-07-23",
@@ -21,18 +36,33 @@ const todayResponse = {
     fortuneDate: "2026-07-24",
     shichen: "子",
   },
-} satisfies TodayDateData;
+} satisfies TodayPageData;
 
 describe("Today homepage date area", () => {
   it("renders the server-provided date area instead of the visual sample page", () => {
     render(<TodayPageContent today={todayResponse} />);
 
-    expect(screen.getByRole("heading", { name: "今日水日" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "今日木日" })).toBeVisible();
     expect(screen.getByText("2026年7月24日")).toBeVisible();
+    expect(screen.getByText("大吉")).toBeVisible();
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "紫色",
+      "红色",
+      "橙色",
+    ]);
     expect(screen.queryByText("Five P0 视觉基础")).not.toBeInTheDocument();
     expect(
       screen.queryByText("这里展示基础样式，不代表任何一天的实际结果。"),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps the date but renders no partial card when da_ji is unavailable", () => {
+    render(<TodayPageContent today={{ ...todayResponse, daJiCard: null }} />);
+
+    expect(screen.getByText("2026年7月24日")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "今日木日" })).toBeVisible();
+    expect(screen.queryByText("大吉")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "大吉颜色" })).not.toBeInTheDocument();
   });
 
   it("does not expose history, yesterday, calendar, profile or birth entry points", () => {

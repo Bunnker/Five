@@ -1,8 +1,9 @@
+import { DaJiColorCard } from "./da-ji-color-card";
 import { TodayDateRegion } from "./today-date-region";
-import type { TodayDateData } from "../lib/today";
+import type { TodayPageData } from "../lib/today";
 
 export interface TodayPageContentProps {
-  today: TodayDateData | null;
+  today: TodayPageData | null;
 }
 
 export function TodayPageContent({ today }: TodayPageContentProps) {
@@ -25,7 +26,10 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
             <small>请稍后刷新页面。</small>
           </section>
         ) : (
-          <TodayDateRegion today={today} />
+          <>
+            <TodayDateRegion today={today} />
+            {today.daJiCard === null ? null : <DaJiColorCard tier={today.daJiCard} />}
+          </>
         )}
       </div>
     </main>
