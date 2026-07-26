@@ -189,7 +189,7 @@ function publishedContent(overrides: Partial<DailyContent> = {}): DailyContent {
   return {
     balanceSuggestion: {
       accessoryExamples: ["包", "鞋"],
-      description: "可以用大吉色普通配饰做小面积补充。",
+      description: "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。",
       preferredTierCode: "da_ji",
       title: "已经穿了注意色",
     },

@@ -1033,17 +1033,18 @@ components:
           const: 已经穿了注意色
         description:
           type: string
-          maxLength: 300
+          const: 可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。
         preferredTierCode:
           type: string
           const: da_ji
         accessoryExamples:
           type: array
           minItems: 1
-          maxItems: 12
+          maxItems: 10
+          uniqueItems: true
           items:
             type: string
-            maxLength: 32
+            enum: [丝巾, 围巾, 包, 鞋, 领带, 耳饰, 手机壳, 帽子, 腰带, 首饰]
     Scenario:
       type: object
       additionalProperties: false

@@ -497,9 +497,29 @@ describe("loadToday", () => {
     ["absolute promise synonym", { description: "使用以后百分百有效。" }],
     ["fear copy", { description: "否则会破财，遇到大凶灾。" }],
     ["fear synonym", { description: "不使用就容易受伤。" }],
+    ["resolution language", { description: "可以用当日大吉色普通配饰做小面积补充，不用于化解。" }],
     ["high-risk example", { accessoryExamples: ["助运手链"] }],
     ["unreviewed full-outfit example", { accessoryExamples: ["整套换装"] }],
     ["missing da_ji meaning", { description: "可以用普通配饰做小面积补充。" }],
+    ["wrong-day da_ji meaning", { description: "可以用明天的大吉色普通配饰做小面积补充。" }],
+    [
+      "contradictory day meaning",
+      { description: "不建议用当日大吉色，可以用明天的大吉色普通配饰做小面积补充。" },
+    ],
+    ["negated current suggestion", { description: "不可以用今日大吉色做少量点缀。" }],
+    [
+      "negated small-area suggestion",
+      { description: "可以用今日大吉色的普通配饰，不过不是小面积点缀，而要整套换衣。" },
+    ],
+    ["unapproved mascot in description", { description: "可以用当日大吉色吉祥物做小面积补充。" }],
+    [
+      "guaranteed outcome synonym",
+      { description: "可以用今日大吉色普通配饰做少量点缀，必能改善结果。" },
+    ],
+    [
+      "spaced resolution language",
+      { description: "可以用当日大吉色普通配饰做小面积补充，不用于化 解。" },
+    ],
     ["missing small-area meaning", { description: "可以用当日大吉色更换整套衣服。" }],
   ])(
     "keeps the three positive cards but hides attention when balance suggestion has %s",
@@ -546,6 +566,23 @@ describe("loadToday", () => {
     expect(result?.attentionSection?.balanceSuggestion.accessoryExamples).toEqual(
       accessoryExamples,
     );
+  });
+
+  it("accepts the PRD-approved balance suggestion without changing any published tier result", async () => {
+    const description = "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。";
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        balanceSuggestion: { ...balanceSuggestion, description },
+      },
+    });
+
+    expect(result?.attentionSection?.balanceSuggestion.description).toBe(description);
+    expect(result?.attentionSection?.groups).toEqual(attentionSection.groups);
+    expect(result?.daJiCard).toEqual(daJiCard);
+    expect(result?.ciJiCard).toEqual(ciJiCard);
+    expect(result?.pingCard).toEqual(pingCard);
   });
 
   it("does not display ping by itself when ci_ji content is invalid", async () => {

@@ -442,10 +442,11 @@ export interface components {
         BalanceSuggestion: {
             /** @constant */
             title: "已经穿了注意色";
-            description: string;
+            /** @constant */
+            description: "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。";
             /** @constant */
             preferredTierCode: "da_ji";
-            accessoryExamples: string[];
+            accessoryExamples: ("丝巾" | "围巾" | "包" | "鞋" | "领带" | "耳饰" | "手机壳" | "帽子" | "腰带" | "首饰")[];
         };
         Scenario: {
             code: string;

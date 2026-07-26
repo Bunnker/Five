@@ -94,6 +94,6 @@ describe("AttentionColorSection", () => {
     expect(within(attention).queryByRole("button")).not.toBeInTheDocument();
     expect(within(attention).queryByRole("alert")).not.toBeInTheDocument();
     expect(attention.querySelector('[aria-live="assertive"]')).not.toBeInTheDocument();
-    expect(attention).not.toHaveTextContent(/查看穿法|详情|→|➜|›/u);
+    expect(attention).not.toHaveTextContent(/化解|保证转运|查看穿法|详情|→|➜|›/u);
   });
 });

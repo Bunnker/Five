@@ -9,6 +9,7 @@ type TodayRequestContext = TodayResponse["requestContext"];
 type TodayCalendar = TodayResponse["content"]["calendar"];
 type TodayTier = TodayResponse["content"]["tiers"][number];
 type TodayBalanceSuggestion = TodayResponse["content"]["balanceSuggestion"];
+type TodayBalanceAccessory = TodayBalanceSuggestion["accessoryExamples"][number];
 
 interface DecisionCardBaseData {
   colors: Array<{
@@ -184,8 +185,8 @@ const forbiddenPublicCopyPattern = /保证|必然|转运|暴富|破财|大凶|�
 const forbiddenPingCopyPattern =
   /好运|贵人|助运|加分|事半功倍|运程|吉凶|运势平平|勉强|较差|不利|不推荐|倒霉|晦气/u;
 const forbiddenAttentionCopyPattern =
-  /好运|贵人|助运|加分|事半功倍|运程|吉凶|较差|不利|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题/u;
-const reviewedBalanceAccessories = new Set([
+  /好运|贵人|助运|加分|事半功倍|运程|吉凶|化解|较差|不利|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题/u;
+const reviewedBalanceAccessories = new Set<TodayBalanceAccessory>([
   "丝巾",
   "围巾",
   "包",
@@ -197,7 +198,8 @@ const reviewedBalanceAccessories = new Set([
   "腰带",
   "首饰",
 ]);
-const smallAreaSuggestionPattern = /小面积|少量|点缀/u;
+const reviewedBalanceDescription =
+  "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。" as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -205,6 +207,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isReviewedBalanceAccessory(value: string): value is TodayBalanceAccessory {
+  return reviewedBalanceAccessories.has(value as TodayBalanceAccessory);
 }
 
 function isMember<T extends readonly string[]>(values: T, value: unknown): value is T[number] {
@@ -424,22 +430,20 @@ function toBalanceSuggestion(value: unknown): AttentionSectionData["balanceSugge
     !isRecord(value) ||
     value.title !== "已经穿了注意色" ||
     value.preferredTierCode !== "da_ji" ||
-    !isSafeAttentionCopy(value.description, 300) ||
-    !value.description.includes("大吉色") ||
-    !smallAreaSuggestionPattern.test(value.description) ||
+    value.description !== reviewedBalanceDescription ||
     !Array.isArray(value.accessoryExamples) ||
     value.accessoryExamples.length < 1 ||
-    value.accessoryExamples.length > 12
+    value.accessoryExamples.length > reviewedBalanceAccessories.size
   ) {
     return null;
   }
 
-  const accessoryExamples: string[] = [];
+  const accessoryExamples: TodayBalanceSuggestion["accessoryExamples"] = [];
   const seenExamples = new Set<string>();
   for (const example of value.accessoryExamples) {
     if (
       !isSafeAttentionCopy(example, 32) ||
-      !reviewedBalanceAccessories.has(example) ||
+      !isReviewedBalanceAccessory(example) ||
       seenExamples.has(example)
     ) {
       return null;
