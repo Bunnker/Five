@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "calendar:golden:generate": "node -r ts-node/register/transpile-only scripts/generate-calendar-golden.ts --write",
+    "calendar:golden:check": "node -r ts-node/register/transpile-only scripts/check-calendar-golden.ts",
     "db:migrate": "node-pg-migrate -j mts --envPath ../../.env up",
     "db:rollback": "node-pg-migrate -j mts --envPath ../../.env down"
   },
@@ -26,6 +28,7 @@
   "devDependencies": {
     "@types/pg": "^8.20.0",
     "dotenv": "^17.4.2",
+    "lunar-javascript": "1.7.7",
     "node-pg-migrate": "^9.0.0",
     "ts-node": "^10.9.2"
   }

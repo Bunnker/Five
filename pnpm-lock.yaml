@@ -75,12 +75,15 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      lunar-javascript:
+        specifier: 1.7.7
+        version: 1.7.7
       node-pg-migrate:
         specifier: ^9.0.0
         version: 9.0.0(@types/pg@8.20.0)(pg@8.22.0)
       ts-node:
         specifier: ^10.9.2
-        version: 10.9.2(@types/node@24.13.3)(typescript@5.9.3)
+        version: 10.9.2(@types/node@26.1.1)(typescript@5.9.3)
 
   apps/web:
     dependencies:
@@ -1435,6 +1438,9 @@ packages:
   lru-cache@11.5.2:
     resolution: {integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==}
     engines: {node: 20 || >=22}
+
+  lunar-javascript@1.7.7:
+    resolution: {integrity: sha512-u/KYiwPIBo/0bT+WWfU7qO1d+aqeB90Tuy4ErXenr2Gam0QcWeezUvtiOIyXR7HbVnW2I1DKfU0NBvzMZhbVQw==}
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -3264,6 +3270,8 @@ snapshots:
 
   lru-cache@11.5.2: {}
 
+  lunar-javascript@1.7.7: {}
+
   lz-string@1.5.0: {}
 
   magic-string@0.30.21:
@@ -3677,14 +3685,14 @@ snapshots:
     dependencies:
       typescript: 5.9.3
 
-  ts-node@10.9.2(@types/node@24.13.3)(typescript@5.9.3):
+  ts-node@10.9.2(@types/node@26.1.1)(typescript@5.9.3):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.12
       '@tsconfig/node12': 1.0.11
       '@tsconfig/node14': 1.0.3
       '@tsconfig/node16': 1.0.4
-      '@types/node': 24.13.3
+      '@types/node': 26.1.1
       acorn: 8.17.0
       acorn-walk: 8.3.5
       arg: 4.1.3
