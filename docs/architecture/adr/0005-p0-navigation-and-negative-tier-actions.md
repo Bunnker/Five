@@ -1,6 +1,6 @@
 # ADR-0005：P0 首页、导航与负向档交互
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0009, ADR-0014 and ADR-0016
 - 日期：2026-07-23
 
 ## 背景
