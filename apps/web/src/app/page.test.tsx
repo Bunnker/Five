@@ -33,6 +33,7 @@ const todayResponse = {
     relationText: "木生火",
     tierCode: "da_ji",
   },
+  imagePreviewSection: null,
   outfitPreviewSection: null,
   pingCard: null,
   requestContext: {

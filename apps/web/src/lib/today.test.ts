@@ -7,6 +7,7 @@ import {
   type DaJiCardData,
   type OutfitPreviewSectionData,
   type PingCardData,
+  type TodayImagePreviewSectionData,
   type TodayDateData,
   type TodayPageData,
 } from "./today";
@@ -215,6 +216,122 @@ const tripleFormula = {
 };
 const outfitFormulas = [tripleFormula, monoFormula, dualFormula];
 
+const mainLook = {
+  alternatives: [],
+  audience: formulaAudience,
+  coverImage: {
+    aiDisclosure: "AI 生成穿搭示意图",
+    aiGenerated: true,
+    altText: "红色上衣、绿色下装和白色配饰的通勤穿搭",
+    assetId: "asset-look-main-cover",
+    height: 1600,
+    mediaType: "image/webp",
+    url: "https://cdn.five.test/assets/fd-20260715-r1/main-a1b2c3.webp",
+    width: 1200,
+  },
+  detailImages: [],
+  formulaId: "formula-triple-01",
+  items: [
+    {
+      category: "top",
+      categoryLabel: "上衣",
+      colorCode: "red",
+      description: "红色简洁上衣",
+    },
+    {
+      category: "bottom",
+      categoryLabel: "下装",
+      colorCode: "green",
+      description: "低饱和绿色下装",
+    },
+    {
+      category: "accessory",
+      categoryLabel: "鞋包/配饰",
+      colorCode: "white",
+      description: "白色小面积点缀",
+    },
+  ],
+  lookId: "look-triple-01",
+  requiredForPublish: true,
+  scenario: tripleFormula.scenario,
+  sortOrder: 1,
+  title: "木日通勤主方案",
+};
+
+const alternateLook = {
+  alternatives: [],
+  audience: formulaAudience,
+  coverImage: {
+    aiDisclosure: "AI 生成穿搭示意图",
+    aiGenerated: true,
+    altText: "橙色上衣和湖蓝下装的日常穿搭",
+    assetId: "asset-look-alternate-cover",
+    height: 1600,
+    mediaType: "image/webp",
+    url: "https://cdn.five.test/assets/fd-20260715-r1/alternate-d4e5f6.webp",
+    width: 1200,
+  },
+  detailImages: [],
+  formulaId: "formula-dual-01",
+  items: [
+    {
+      category: "top",
+      categoryLabel: "上衣",
+      colorCode: "orange",
+      description: "橙色上衣",
+    },
+    {
+      category: "bottom",
+      categoryLabel: "下装",
+      colorCode: "lake_blue",
+      description: "湖蓝下装",
+    },
+  ],
+  lookId: "look-dual-01",
+  requiredForPublish: true,
+  scenario: dualFormula.scenario,
+  sortOrder: 2,
+  title: "橙色与湖蓝日常方案",
+};
+
+const supplementalLook = {
+  alternatives: [],
+  audience: formulaAudience,
+  coverImage: {
+    aiDisclosure: null,
+    aiGenerated: false,
+    altText: "红橙同色系日常穿搭",
+    assetId: "asset-look-supplemental-cover",
+    height: 1600,
+    mediaType: "image/webp",
+    url: "https://cdn.five.test/assets/fd-20260715-r1/supplemental-g7h8i9.webp",
+    width: 1200,
+  },
+  detailImages: [],
+  formulaId: "formula-mono-01",
+  items: [
+    {
+      category: "top",
+      categoryLabel: "上衣",
+      colorCode: "orange",
+      description: "橙色上衣",
+    },
+    {
+      category: "bottom",
+      categoryLabel: "下装",
+      colorCode: "red",
+      description: "红色下装",
+    },
+  ],
+  lookId: "look-mono-01",
+  requiredForPublish: false,
+  scenario: monoFormula.scenario,
+  sortOrder: 3,
+  title: "红橙同色系日常方案",
+};
+
+const looks = [supplementalLook, alternateLook, mainLook];
+
 const versions = {
   algorithmVersion: "algorithm-v1",
   assetManifestVersion: "assets-v1",
@@ -232,6 +349,7 @@ const apiTodayResponse = {
   content: {
     ...dateData.content,
     balanceSuggestion,
+    looks,
     outfitFormulas,
     tiers: [otherTiers[0], otherTiers[3], daJiTier, otherTiers[1], otherTiers[2]],
     versions,
@@ -392,11 +510,79 @@ const outfitPreviewSection = {
   contentVersion,
 } satisfies OutfitPreviewSectionData;
 
+const imagePreviewSection = {
+  cards: [
+    {
+      aiDisclosure: "AI 生成穿搭示意图",
+      altText: "红色上衣、绿色下装和白色配饰的通勤穿搭",
+      assetId: "asset-look-main-cover",
+      displayLabel: "主方案",
+      formulaId: "formula-triple-01",
+      height: 1600,
+      items: [
+        { categoryLabel: "上衣", color: { colorCode: "red", name: "红色" } },
+        { categoryLabel: "下装", color: { colorCode: "green", name: "绿色" } },
+        { categoryLabel: "鞋包/配饰", color: { colorCode: "white", name: "白色" } },
+      ],
+      lookId: "look-triple-01",
+      mediaType: "image/webp",
+      placement: "primary",
+      scenarioLabel: "通勤",
+      sortOrder: 1,
+      title: "木日通勤主方案",
+      url: "https://cdn.five.test/assets/fd-20260715-r1/main-a1b2c3.webp",
+      width: 1200,
+    },
+    {
+      aiDisclosure: "AI 生成穿搭示意图",
+      altText: "橙色上衣和湖蓝下装的日常穿搭",
+      assetId: "asset-look-alternate-cover",
+      displayLabel: "替代方案",
+      formulaId: "formula-dual-01",
+      height: 1600,
+      items: [
+        { categoryLabel: "上衣", color: { colorCode: "orange", name: "橙色" } },
+        { categoryLabel: "下装", color: { colorCode: "lake_blue", name: "湖蓝" } },
+      ],
+      lookId: "look-dual-01",
+      mediaType: "image/webp",
+      placement: "alternate",
+      scenarioLabel: "日常",
+      sortOrder: 2,
+      title: "橙色与湖蓝日常方案",
+      url: "https://cdn.five.test/assets/fd-20260715-r1/alternate-d4e5f6.webp",
+      width: 1200,
+    },
+    {
+      aiDisclosure: null,
+      altText: "红橙同色系日常穿搭",
+      assetId: "asset-look-supplemental-cover",
+      displayLabel: "更多场景",
+      formulaId: "formula-mono-01",
+      height: 1600,
+      items: [
+        { categoryLabel: "上衣", color: { colorCode: "orange", name: "橙色" } },
+        { categoryLabel: "下装", color: { colorCode: "red", name: "红色" } },
+      ],
+      lookId: "look-mono-01",
+      mediaType: "image/webp",
+      placement: "supplemental",
+      scenarioLabel: "日常",
+      sortOrder: 3,
+      title: "红橙同色系日常方案",
+      url: "https://cdn.five.test/assets/fd-20260715-r1/supplemental-g7h8i9.webp",
+      width: 1200,
+    },
+  ],
+  contentVersion,
+} satisfies TodayImagePreviewSectionData;
+
 const pageData = {
   ...dateData,
   attentionSection,
   ciJiCard,
   daJiCard,
+  imagePreviewSection,
   outfitPreviewSection,
   pingCard,
 } satisfies TodayPageData;
@@ -662,6 +848,272 @@ describe("loadToday", () => {
     expect(target.searchParams.get("formulaId")).toBe(opaqueFormulaId);
   });
 
+  it("keeps the two required image previews when no supplemental image is published", async () => {
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        looks: [alternateLook, mainLook],
+        outfitFormulas: outfitFormulas.map((formula) =>
+          formula.kind === "mono" ? { ...formula, lookIds: [] } : formula,
+        ),
+      },
+    });
+
+    expect(result?.imagePreviewSection).toEqual({
+      ...imagePreviewSection,
+      cards: imagePreviewSection.cards.slice(0, 2),
+    });
+  });
+
+  it("omits an invalid supplemental image without leaving a blank third card", async () => {
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        looks: [
+          mainLook,
+          alternateLook,
+          {
+            ...supplementalLook,
+            coverImage: {
+              ...supplementalLook.coverImage,
+              aiDisclosure: null,
+              aiGenerated: true,
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result?.imagePreviewSection).toEqual({
+      ...imagePreviewSection,
+      cards: imagePreviewSection.cards.slice(0, 2),
+    });
+    expect(result?.outfitPreviewSection).toEqual(outfitPreviewSection);
+  });
+
+  it.each([
+    ["reuses a required sort order", { ...supplementalLook, sortOrder: 1 }],
+    [
+      "reuses a required image URL",
+      {
+        ...supplementalLook,
+        coverImage: {
+          ...supplementalLook.coverImage,
+          url: mainLook.coverImage.url,
+        },
+      },
+    ],
+  ])("omits a supplemental image that %s", async (_case, invalidSupplementalLook) => {
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        looks: [mainLook, alternateLook, invalidSupplementalLook],
+      },
+    });
+
+    expect(result?.imagePreviewSection).toEqual({
+      ...imagePreviewSection,
+      cards: imagePreviewSection.cards.slice(0, 2),
+    });
+  });
+
+  it.each([
+    [
+      "only one required image",
+      {
+        looks: [mainLook, { ...alternateLook, requiredForPublish: false }],
+        outfitFormulas,
+      },
+    ],
+    [
+      "duplicate required look ids",
+      {
+        looks: [mainLook, { ...alternateLook, lookId: mainLook.lookId }],
+        outfitFormulas,
+      },
+    ],
+    [
+      "duplicate required sort order",
+      {
+        looks: [mainLook, { ...alternateLook, sortOrder: 1 }],
+        outfitFormulas,
+      },
+    ],
+    [
+      "duplicate required assets",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            coverImage: {
+              ...alternateLook.coverImage,
+              assetId: mainLook.coverImage.assetId,
+            },
+          },
+        ],
+        outfitFormulas,
+      },
+    ],
+    [
+      "duplicate required image URLs",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            coverImage: {
+              ...alternateLook.coverImage,
+              url: mainLook.coverImage.url,
+            },
+          },
+        ],
+        outfitFormulas,
+      },
+    ],
+    [
+      "missing formula reference",
+      {
+        looks: [mainLook, { ...alternateLook, formulaId: "formula-missing-01" }],
+        outfitFormulas,
+      },
+    ],
+    [
+      "missing formula backlink",
+      {
+        looks: [mainLook, alternateLook],
+        outfitFormulas: outfitFormulas.map((formula) =>
+          formula.kind === "dual" ? { ...formula, lookIds: [] } : formula,
+        ),
+      },
+    ],
+    [
+      "formula reference to a look that is not published today",
+      {
+        looks: [mainLook, alternateLook],
+        outfitFormulas,
+      },
+    ],
+    [
+      "backup without a ci_ji color",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            formulaId: monoFormula.formulaId,
+            items: [alternateLook.items[0], { ...alternateLook.items[1], colorCode: "red" }],
+          },
+        ],
+        outfitFormulas: outfitFormulas.map((formula) =>
+          formula.kind === "mono"
+            ? { ...formula, lookIds: [...formula.lookIds, alternateLook.lookId] }
+            : formula,
+        ),
+      },
+    ],
+    [
+      "unsafe image URL",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            coverImage: { ...alternateLook.coverImage, url: "javascript:alert(1)" },
+          },
+        ],
+        outfitFormulas,
+      },
+    ],
+    [
+      "AI image without a visible disclosure",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            coverImage: { ...alternateLook.coverImage, aiDisclosure: null },
+          },
+        ],
+        outfitFormulas,
+      },
+    ],
+    [
+      "AI image with a negated disclosure",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            coverImage: {
+              ...alternateLook.coverImage,
+              aiDisclosure: "这不是 AI 生成图片",
+            },
+          },
+        ],
+        outfitFormulas,
+      },
+    ],
+    [
+      "audience that differs from its formula",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            audience: { code: "adult_men", label: "成年男性" },
+          },
+        ],
+        outfitFormulas,
+      },
+    ],
+    [
+      "look id claimed by more than one formula",
+      {
+        looks: [mainLook, alternateLook],
+        outfitFormulas: outfitFormulas.map((formula) =>
+          formula.kind === "mono"
+            ? { ...formula, lookIds: [...formula.lookIds, mainLook.lookId] }
+            : formula,
+        ),
+      },
+    ],
+    [
+      "garment color outside the formula",
+      {
+        looks: [
+          mainLook,
+          {
+            ...alternateLook,
+            items: [{ ...alternateLook.items[0], colorCode: "white" }],
+          },
+        ],
+        outfitFormulas,
+      },
+    ],
+  ])(
+    "hides only the image preview and preserves daily text when required images have %s",
+    async (_case, patch) => {
+      const result = await loadFrom({
+        ...apiTodayResponse,
+        content: {
+          ...apiTodayResponse.content,
+          looks: patch.looks,
+          outfitFormulas: patch.outfitFormulas,
+        },
+      });
+
+      expect(result?.imagePreviewSection).toBeNull();
+      expect(result?.outfitPreviewSection).not.toBeNull();
+      expect(result?.daJiCard).toEqual(daJiCard);
+      expect(result?.ciJiCard).toEqual(ciJiCard);
+      expect(result?.pingCard).toEqual(pingCard);
+    },
+  );
+
   it.each([
     ["missing da_ji", otherTiers],
     ["non-unique", [otherTiers[0], otherTiers[0], daJiTier, otherTiers[2], otherTiers[3]]],
@@ -700,6 +1152,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -730,6 +1183,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard: null,
         daJiCard,
+        imagePreviewSection: null,
         outfitPreviewSection: null,
         pingCard: null,
       });
@@ -763,6 +1217,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard,
         daJiCard,
+        imagePreviewSection: null,
         outfitPreviewSection: null,
         pingCard: null,
       });
@@ -827,6 +1282,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard,
         daJiCard,
+        imagePreviewSection,
         outfitPreviewSection,
         pingCard,
       });
@@ -884,6 +1340,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard,
         daJiCard,
+        imagePreviewSection,
         outfitPreviewSection,
         pingCard,
       });
@@ -949,6 +1406,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -970,6 +1428,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -1020,6 +1479,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -1048,6 +1508,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -1087,6 +1548,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard: null,
         daJiCard: null,
+        imagePreviewSection: null,
         outfitPreviewSection: null,
         pingCard: null,
       });
@@ -1099,6 +1561,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -1122,6 +1585,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -1133,6 +1597,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -1154,6 +1619,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      imagePreviewSection: null,
       outfitPreviewSection: null,
       pingCard: null,
     });
@@ -1177,6 +1643,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard: null,
         daJiCard: null,
+        imagePreviewSection: null,
         outfitPreviewSection: null,
         pingCard: null,
       });

@@ -21,6 +21,7 @@ const baseToday = {
     fortuneDate: "2026-07-15",
     shichen: "午",
   },
+  imagePreviewSection: null,
   outfitPreviewSection: null,
 } satisfies Omit<TodayPageData, "attentionSection" | "ciJiCard" | "daJiCard" | "pingCard">;
 
@@ -165,8 +166,51 @@ const outfitPreviewSection = {
   contentVersion: "fd-20260715-r1",
 } satisfies NonNullable<TodayPageData["outfitPreviewSection"]>;
 
+const imagePreviewSection = {
+  cards: [
+    {
+      aiDisclosure: "AI 生成穿搭示意图",
+      altText: "红色通勤穿搭",
+      assetId: "asset-main",
+      displayLabel: "主方案",
+      formulaId: "formula-triple",
+      height: 1600,
+      items: [{ categoryLabel: "上衣", color: { colorCode: "red", name: "红色" } }],
+      lookId: "look-main",
+      mediaType: "image/webp",
+      placement: "primary",
+      scenarioLabel: "通勤",
+      sortOrder: 1,
+      title: "红色通勤主方案",
+      url: "https://cdn.five.test/assets/fd-20260715-r1/main.webp",
+      width: 1200,
+    },
+    {
+      aiDisclosure: "AI 生成穿搭示意图",
+      altText: "红色上衣和湖蓝下装的日常穿搭",
+      assetId: "asset-alternate",
+      displayLabel: "替代方案",
+      formulaId: "formula-dual",
+      height: 1600,
+      items: [
+        { categoryLabel: "上衣", color: { colorCode: "red", name: "红色" } },
+        { categoryLabel: "下装", color: { colorCode: "lake_blue", name: "湖蓝" } },
+      ],
+      lookId: "look-alternate",
+      mediaType: "image/webp",
+      placement: "alternate",
+      scenarioLabel: "日常",
+      sortOrder: 2,
+      title: "红色与湖蓝替代方案",
+      url: "https://cdn.five.test/assets/fd-20260715-r1/alternate.webp",
+      width: 1200,
+    },
+  ],
+  contentVersion: "fd-20260715-r1",
+} satisfies NonNullable<TodayPageData["imagePreviewSection"]>;
+
 describe("TodayPageContent", () => {
-  it("keeps the fixed date, color decisions and outfit preview page order", () => {
+  it("keeps the fixed date, color decisions, formulas and image preview page order", () => {
     render(
       <TodayPageContent
         today={{
@@ -174,6 +218,7 @@ describe("TodayPageContent", () => {
           attentionSection,
           ciJiCard,
           daJiCard,
+          imagePreviewSection,
           outfitPreviewSection,
           pingCard,
         }}
@@ -186,6 +231,7 @@ describe("TodayPageContent", () => {
     expect(text.indexOf("稳妥选择")).toBeLessThan(text.indexOf("日常可穿"));
     expect(text.indexOf("日常可穿")).toBeLessThan(text.indexOf("注意"));
     expect(text.indexOf("注意")).toBeLessThan(text.indexOf("今日怎么搭"));
+    expect(text.indexOf("今日怎么搭")).toBeLessThan(text.indexOf("今日图片示范"));
 
     const decisionRegions = [
       screen.getByRole("article", { name: "今日优先" }),
@@ -193,9 +239,10 @@ describe("TodayPageContent", () => {
       screen.getByRole("article", { name: "日常可穿" }),
       screen.getByRole("region", { name: "注意" }),
       screen.getByRole("region", { name: "今日怎么搭" }),
+      screen.getByRole("region", { name: "今日图片示范" }),
     ];
     expect(new Set(decisionRegions.map((card) => card.getAttribute("aria-labelledby"))).size).toBe(
-      5,
+      6,
     );
     expect(new Set(decisionRegions.map((card) => card.dataset.contentVersion))).toEqual(
       new Set(["fd-20260715-r1"]),
@@ -259,7 +306,7 @@ describe("TodayPageContent", () => {
     expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
   });
 
-  it("keeps all three positive cards and outfit preview when attention is unavailable", () => {
+  it("keeps positive cards, formulas and images when attention is unavailable", () => {
     render(
       <TodayPageContent
         today={{
@@ -267,6 +314,7 @@ describe("TodayPageContent", () => {
           attentionSection: null,
           ciJiCard,
           daJiCard,
+          imagePreviewSection,
           outfitPreviewSection,
           pingCard,
         }}
@@ -278,5 +326,6 @@ describe("TodayPageContent", () => {
     expect(screen.getByRole("heading", { name: "日常可穿" })).toBeVisible();
     expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "今日怎么搭" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "今日图片示范" })).toBeVisible();
   });
 });

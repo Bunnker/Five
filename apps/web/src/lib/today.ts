@@ -92,6 +92,34 @@ export interface OutfitPreviewSectionData {
   contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
 }
 
+export interface TodayImagePreviewItemData {
+  categoryLabel: string;
+  color: OutfitPreviewColorData;
+}
+
+export interface TodayImagePreviewCardData {
+  aiDisclosure: string | null;
+  altText: string;
+  assetId: string;
+  displayLabel: "主方案" | "替代方案" | "更多场景";
+  formulaId: string;
+  height: number;
+  items: TodayImagePreviewItemData[];
+  lookId: string;
+  mediaType: "image/avif" | "image/jpeg" | "image/png" | "image/webp";
+  placement: "alternate" | "primary" | "supplemental";
+  scenarioLabel: string;
+  sortOrder: 1 | 2 | 3;
+  title: string;
+  url: string;
+  width: number;
+}
+
+export interface TodayImagePreviewSectionData {
+  cards: TodayImagePreviewCardData[];
+  contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
+}
+
 export interface AttentionSectionData {
   balanceSuggestion: {
     accessoryExamples: TodayBalanceSuggestion["accessoryExamples"];
@@ -121,6 +149,7 @@ export interface TodayPageData extends TodayDateData {
   attentionSection: AttentionSectionData | null;
   ciJiCard: CiJiCardData | null;
   daJiCard: DaJiCardData | null;
+  imagePreviewSection: TodayImagePreviewSectionData | null;
   outfitPreviewSection: OutfitPreviewSectionData | null;
   pingCard: PingCardData | null;
 }
@@ -184,6 +213,7 @@ const attentionTierSpecs = {
   },
 } as const;
 const outfitKinds = ["mono", "dual", "triple"] as const;
+const reviewedAiImageDisclosure = "AI 生成穿搭示意图";
 const outfitRoleLabels = {
   accent: "点缀色",
   primary: "主色",
@@ -194,6 +224,16 @@ const outfitRolesByKind = {
   mono: ["primary"],
   triple: ["primary", "secondary", "accent"],
 } as const;
+const imageMediaTypes = ["image/avif", "image/webp", "image/jpeg", "image/png"] as const;
+const garmentCategories = [
+  "top",
+  "bottom",
+  "dress",
+  "outerwear",
+  "shoes",
+  "bag",
+  "accessory",
+] as const;
 const versionFields = [
   "algorithmVersion",
   "assetManifestVersion",
@@ -437,6 +477,12 @@ function isSafeAttentionCopy(value: unknown, maxLength: number): value is string
 
 function isSafeOutfitCopy(value: unknown, maxLength: number): value is string {
   return isSafeAttentionCopy(value, maxLength) && !forbiddenOutfitCopyPattern.test(value);
+}
+
+function isSafeImageCopy(value: unknown, maxLength: number): value is string {
+  return (
+    isSafeOutfitCopy(value, maxLength) && value.trim() === value && !hasAsciiControlCharacter(value)
+  );
 }
 
 function toAttentionGroupData(
@@ -762,6 +808,377 @@ function toOutfitPreviewSectionData(
   };
 }
 
+interface ImageFormulaData {
+  audienceCode: string;
+  audienceLabel: string;
+  formulaId: string;
+  lookIds: string[];
+  scenarioCode: string;
+  scenarioLabel: string;
+  slots: OutfitPreviewSlotData[];
+}
+
+interface ImageAssetData {
+  aiDisclosure: string | null;
+  altText: string;
+  assetId: string;
+  height: number;
+  mediaType: TodayImagePreviewCardData["mediaType"];
+  url: string;
+  width: number;
+}
+
+interface ImageItemData {
+  items: TodayImagePreviewItemData[];
+  tierCodes: Set<OutfitPreviewSlotData["tierCode"]>;
+}
+
+function isSafeImageUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 2_048) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "https:" || url.protocol === "http:") &&
+      url.username === "" &&
+      url.password === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+function imageResourceIdentity(value: string): string {
+  const url = new URL(value);
+  url.hash = "";
+  return url.href;
+}
+
+function toImageAudience(value: unknown): { code: string; label: string } | null {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.code) ||
+    value.code.length > 64 ||
+    !isSafeImageCopy(value.label, 32)
+  ) {
+    return null;
+  }
+
+  return { code: value.code, label: value.label };
+}
+
+function toImageAsset(value: unknown): ImageAssetData | null {
+  if (
+    !isRecord(value) ||
+    !isOpaqueId(value.assetId) ||
+    !isSafeImageUrl(value.url) ||
+    !Number.isInteger(value.width) ||
+    Number(value.width) < 1 ||
+    !Number.isInteger(value.height) ||
+    Number(value.height) < 1 ||
+    !isMember(imageMediaTypes, value.mediaType) ||
+    !isSafeImageCopy(value.altText, 300) ||
+    typeof value.aiGenerated !== "boolean"
+  ) {
+    return null;
+  }
+
+  let aiDisclosure: string | null;
+  if (value.aiGenerated) {
+    if (value.aiDisclosure !== reviewedAiImageDisclosure) {
+      return null;
+    }
+    aiDisclosure = value.aiDisclosure;
+  } else {
+    if (value.aiDisclosure !== null) {
+      return null;
+    }
+    aiDisclosure = null;
+  }
+
+  return {
+    aiDisclosure,
+    altText: value.altText,
+    assetId: value.assetId,
+    height: Number(value.height),
+    mediaType: value.mediaType,
+    url: value.url,
+    width: Number(value.width),
+  };
+}
+
+function toImageFormulaMap(
+  value: unknown,
+  tiers: PositiveDecisionCards,
+): Map<string, ImageFormulaData> | null {
+  if (!Array.isArray(value) || value.length < 3) {
+    return null;
+  }
+
+  const formulas = new Map<string, ImageFormulaData>();
+  const formulaOwnerByLookId = new Map<string, string>();
+  for (const formula of value) {
+    if (
+      !isRecord(formula) ||
+      !isOpaqueId(formula.formulaId) ||
+      !isMember(outfitKinds, formula.kind) ||
+      !Array.isArray(formula.lookIds) ||
+      formula.lookIds.length > 3 ||
+      !isRecord(formula.scenario) ||
+      !isNonEmptyString(formula.scenario.code) ||
+      formula.scenario.code.length > 64 ||
+      !isSafeImageCopy(formula.scenario.label, 32) ||
+      formulas.has(formula.formulaId)
+    ) {
+      return null;
+    }
+
+    const audience = toImageAudience(formula.audience);
+    if (audience === null) {
+      return null;
+    }
+
+    const lookIds: string[] = [];
+    for (const lookId of formula.lookIds) {
+      if (!isOpaqueId(lookId) || lookIds.includes(lookId) || formulaOwnerByLookId.has(lookId)) {
+        return null;
+      }
+      lookIds.push(lookId);
+      formulaOwnerByLookId.set(lookId, formula.formulaId);
+    }
+
+    const slots = toOutfitPreviewSlots(formula.slots, formula.kind, tiers);
+    if (slots === null) {
+      return null;
+    }
+
+    formulas.set(formula.formulaId, {
+      audienceCode: audience.code,
+      audienceLabel: audience.label,
+      formulaId: formula.formulaId,
+      lookIds,
+      scenarioCode: formula.scenario.code,
+      scenarioLabel: formula.scenario.label,
+      slots,
+    });
+  }
+
+  return formulas;
+}
+
+function toImageItems(value: unknown, formula: ImageFormulaData): ImageItemData | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 12) {
+    return null;
+  }
+
+  const formulaColors = new Map<
+    ReviewedColorCode,
+    {
+      color: OutfitPreviewColorData;
+      tierCode: OutfitPreviewSlotData["tierCode"];
+    }
+  >();
+  for (const slot of formula.slots) {
+    for (const color of slot.colors) {
+      if (formulaColors.has(color.colorCode)) {
+        return null;
+      }
+      formulaColors.set(color.colorCode, { color, tierCode: slot.tierCode });
+    }
+  }
+
+  const items: TodayImagePreviewItemData[] = [];
+  const tierCodes = new Set<OutfitPreviewSlotData["tierCode"]>();
+  for (const item of value) {
+    if (
+      !isRecord(item) ||
+      !isMember(garmentCategories, item.category) ||
+      !isSafeImageCopy(item.categoryLabel, 32) ||
+      !isSafeImageCopy(item.description, 120) ||
+      !isReviewedColorCode(item.colorCode)
+    ) {
+      return null;
+    }
+
+    const formulaColor = formulaColors.get(item.colorCode);
+    if (formulaColor === undefined) {
+      return null;
+    }
+
+    items.push({
+      categoryLabel: item.categoryLabel,
+      color: formulaColor.color,
+    });
+    tierCodes.add(formulaColor.tierCode);
+  }
+
+  return { items, tierCodes };
+}
+
+function toTodayImagePreviewCard(
+  value: unknown,
+  placement: TodayImagePreviewCardData["placement"],
+  formulas: Map<string, ImageFormulaData>,
+  primaryScenarioCode: string | null,
+): TodayImagePreviewCardData | null {
+  const presentation = {
+    alternate: { displayLabel: "替代方案", sortOrder: 2 },
+    primary: { displayLabel: "主方案", sortOrder: 1 },
+    supplemental: { displayLabel: "更多场景", sortOrder: 3 },
+  } as const;
+  const expected = presentation[placement];
+
+  if (
+    !isRecord(value) ||
+    !isOpaqueId(value.lookId) ||
+    !isOpaqueId(value.formulaId) ||
+    value.sortOrder !== expected.sortOrder ||
+    value.requiredForPublish !== (placement !== "supplemental") ||
+    !isSafeImageCopy(value.title, 80) ||
+    !isRecord(value.scenario) ||
+    !isNonEmptyString(value.scenario.code) ||
+    value.scenario.code.length > 64 ||
+    !isSafeImageCopy(value.scenario.label, 32)
+  ) {
+    return null;
+  }
+
+  const formula = formulas.get(value.formulaId);
+  const audience = toImageAudience(value.audience);
+  if (
+    formula === undefined ||
+    audience === null ||
+    formula.audienceCode !== audience.code ||
+    formula.audienceLabel !== audience.label ||
+    !formula.lookIds.includes(value.lookId) ||
+    formula.scenarioCode !== value.scenario.code ||
+    formula.scenarioLabel !== value.scenario.label
+  ) {
+    return null;
+  }
+
+  const asset = toImageAsset(value.coverImage);
+  const imageItems = toImageItems(value.items, formula);
+  if (asset === null || imageItems === null || !imageItems.tierCodes.has("da_ji")) {
+    return null;
+  }
+
+  if (placement === "alternate" && !imageItems.tierCodes.has("ci_ji")) {
+    return null;
+  }
+  if (
+    placement === "supplemental" &&
+    !imageItems.tierCodes.has("ping") &&
+    value.scenario.code === primaryScenarioCode
+  ) {
+    return null;
+  }
+
+  return {
+    ...asset,
+    displayLabel: expected.displayLabel,
+    formulaId: formula.formulaId,
+    items: imageItems.items,
+    lookId: value.lookId,
+    placement,
+    scenarioLabel: value.scenario.label,
+    sortOrder: expected.sortOrder,
+    title: value.title,
+  };
+}
+
+function toTodayImagePreviewSectionData(
+  content: Record<string, unknown>,
+  decisionContent: DecisionContent,
+  tiers: PositiveDecisionCards,
+): TodayImagePreviewSectionData | null {
+  if (!Array.isArray(content.looks) || content.looks.length < 2 || content.looks.length > 3) {
+    return null;
+  }
+
+  const requiredCount = content.looks.filter(
+    (look) => isRecord(look) && look.requiredForPublish === true,
+  ).length;
+  if (requiredCount !== 2) {
+    return null;
+  }
+
+  const formulas = toImageFormulaMap(content.outfitFormulas, tiers);
+  if (formulas === null) {
+    return null;
+  }
+
+  const publishedLookIds = new Set(
+    content.looks
+      .filter((look) => isRecord(look) && isOpaqueId(look.lookId))
+      .map((look) => (isRecord(look) ? String(look.lookId) : "")),
+  );
+  if (
+    [...formulas.values()].some((formula) =>
+      formula.lookIds.some((lookId) => !publishedLookIds.has(lookId)),
+    )
+  ) {
+    return null;
+  }
+
+  const primaryCandidates = content.looks.filter(
+    (look) => isRecord(look) && look.requiredForPublish === true && look.sortOrder === 1,
+  );
+  const alternateCandidates = content.looks.filter(
+    (look) => isRecord(look) && look.requiredForPublish === true && look.sortOrder === 2,
+  );
+  if (primaryCandidates.length !== 1 || alternateCandidates.length !== 1) {
+    return null;
+  }
+
+  const primary = toTodayImagePreviewCard(primaryCandidates[0], "primary", formulas, null);
+  const alternate = toTodayImagePreviewCard(alternateCandidates[0], "alternate", formulas, null);
+  if (
+    primary === null ||
+    alternate === null ||
+    primary.lookId === alternate.lookId ||
+    primary.assetId === alternate.assetId ||
+    imageResourceIdentity(primary.url) === imageResourceIdentity(alternate.url)
+  ) {
+    return null;
+  }
+
+  const cards = [primary, alternate];
+  if (content.looks.length === 3) {
+    const supplementalCandidates = content.looks.filter(
+      (look) => isRecord(look) && look.requiredForPublish === false && look.sortOrder === 3,
+    );
+    if (supplementalCandidates.length === 1) {
+      const supplemental = toTodayImagePreviewCard(
+        supplementalCandidates[0],
+        "supplemental",
+        formulas,
+        primaryCandidates[0] && isRecord(primaryCandidates[0].scenario)
+          ? String(primaryCandidates[0].scenario.code)
+          : null,
+      );
+      if (
+        supplemental !== null &&
+        !cards.some(
+          (card) =>
+            card.lookId === supplemental.lookId ||
+            card.assetId === supplemental.assetId ||
+            imageResourceIdentity(card.url) === imageResourceIdentity(supplemental.url),
+        )
+      ) {
+        cards.push(supplemental);
+      }
+    }
+  }
+
+  return {
+    cards,
+    contentVersion: decisionContent.contentVersion,
+  };
+}
+
 function findDecisionTier(
   decisionContent: DecisionContent,
   tierCode: keyof typeof decisionTierSpecs,
@@ -940,6 +1357,23 @@ export async function loadToday({
       decisionContent === null || daJiCard === null || ciJiCard === null
         ? null
         : toDecisionCardData(decisionContent, "ping");
+    const positiveTiers =
+      daJiCard === null || ciJiCard === null || pingCard === null
+        ? null
+        : {
+            ci_ji: ciJiCard,
+            da_ji: daJiCard,
+            ping: pingCard,
+          };
+    const outfitPreviewSection =
+      decisionContent === null || positiveTiers === null
+        ? null
+        : toOutfitPreviewSectionData(
+            body.content,
+            decisionContent,
+            positiveTiers,
+            dateData.content.fortuneDate,
+          );
 
     return {
       ...dateData,
@@ -949,19 +1383,11 @@ export async function loadToday({
           : toAttentionSectionData(body.content, decisionContent),
       ciJiCard,
       daJiCard,
-      outfitPreviewSection:
-        decisionContent === null || daJiCard === null || ciJiCard === null || pingCard === null
+      imagePreviewSection:
+        decisionContent === null || positiveTiers === null || outfitPreviewSection === null
           ? null
-          : toOutfitPreviewSectionData(
-              body.content,
-              decisionContent,
-              {
-                ci_ji: ciJiCard,
-                da_ji: daJiCard,
-                ping: pingCard,
-              },
-              dateData.content.fortuneDate,
-            ),
+          : toTodayImagePreviewSectionData(body.content, decisionContent, positiveTiers),
+      outfitPreviewSection,
       pingCard,
     };
   } catch {

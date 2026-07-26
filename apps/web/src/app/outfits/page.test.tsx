@@ -31,6 +31,7 @@ const today = {
     fortuneDate: "2026-07-15",
   },
   daJiCard: null,
+  imagePreviewSection: null,
   outfitPreviewSection: {
     cards: [
       {

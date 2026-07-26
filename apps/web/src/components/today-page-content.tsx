@@ -3,6 +3,7 @@ import { CiJiColorCard } from "./ci-ji-color-card";
 import { DaJiColorCard } from "./da-ji-color-card";
 import { OutfitPreviewSection } from "./outfit-preview-section";
 import { PingColorCard } from "./ping-color-card";
+import { TodayImagePreviewSection } from "./today-image-preview-section";
 import { TodayDateRegion } from "./today-date-region";
 import type { TodayPageData } from "../lib/today";
 
@@ -46,6 +47,9 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
                         )}
                         {today.outfitPreviewSection === null ? null : (
                           <OutfitPreviewSection section={today.outfitPreviewSection} />
+                        )}
+                        {today.imagePreviewSection === null ? null : (
+                          <TodayImagePreviewSection section={today.imagePreviewSection} />
                         )}
                       </>
                     )}

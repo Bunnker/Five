@@ -13,11 +13,11 @@ function publishedContent(overrides: Partial<DailyContent> = {}): DailyContent {
   const image = {
     aiDisclosure: null,
     aiGenerated: false,
-    altText: "蓝色通勤穿搭",
+    altText: "绿色通勤穿搭",
     assetId: "asset-1",
     height: 1_200,
     mediaType: "image/webp" as const,
-    url: "https://cdn.example.com/look.webp",
+    url: "https://cdn.example.com/assets/fd-20260724-r1/look-1-a1b2c3.webp",
     width: 900,
   };
   const tiers: DailyContent["tiers"] = [
@@ -168,17 +168,41 @@ function publishedContent(overrides: Partial<DailyContent> = {}): DailyContent {
   const looks: DailyContent["looks"] = ["look-1", "look-2"].map((lookId, index) => ({
     alternatives: [],
     audience,
-    coverImage: { ...image, assetId: `asset-${index + 1}` },
+    coverImage: {
+      ...image,
+      altText: index === 0 ? "绿色通勤穿搭" : "绿色上衣和蓝色下装的日常穿搭",
+      assetId: `asset-${index + 1}`,
+      url:
+        index === 0
+          ? image.url
+          : "https://cdn.example.com/assets/fd-20260724-r1/look-2-d4e5f6.webp",
+    },
     detailImages: [],
     formulaId: index === 0 ? "formula-mono" : "formula-dual",
-    items: [
-      {
-        category: "top",
-        categoryLabel: "上衣",
-        colorCode: index === 0 ? "green" : "blue",
-        description: "适合日常通勤",
-      },
-    ],
+    items:
+      index === 0
+        ? [
+            {
+              category: "top",
+              categoryLabel: "上衣",
+              colorCode: "green",
+              description: "绿色日常上衣",
+            },
+          ]
+        : [
+            {
+              category: "top",
+              categoryLabel: "上衣",
+              colorCode: "green",
+              description: "绿色日常上衣",
+            },
+            {
+              category: "bottom",
+              categoryLabel: "下装",
+              colorCode: "blue",
+              description: "蓝色日常下装",
+            },
+          ],
     lookId,
     requiredForPublish: true,
     scenario,
