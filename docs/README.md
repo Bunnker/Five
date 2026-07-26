@@ -28,6 +28,7 @@ DOCX 是 Markdown 规范源的同步导出件，不得单独修改后成为另�
 | [领域词汇表](domain/glossary.md) | Current | 统一时间、版本、内容和渠道术语 |
 | [ADR 索引](architecture/adr/README.md) | Accepted | 关键架构与产品技术决策 |
 | [P0 设计修订说明](design/p0-design-brief.md) | Current | 首页、导航、页面和状态设计约束 |
+| [UI Prototype V2 图集](design/references/prototype-v2/README.md) | Reference | GPT 探索原型留档，非开发基线 |
 | [Fable5 评审处理记录](reviews/2026-07-23-fable5-review-resolution.md) | Historical | 记录采纳、修正和不采纳项 |
 | [变更记录](CHANGELOG.md) | Current | 文档版本变化 |
 
