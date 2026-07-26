@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  description: "Five 本地工程运行状态页",
-  title: "Five · 本地工程",
+  description: "Five P0 手机网页视觉基础",
+  title: "Five · P0 视觉基础",
 };
 
 export const viewport: Viewport = {

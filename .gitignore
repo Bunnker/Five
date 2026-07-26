@@ -14,3 +14,4 @@ coverage/
 .env
 *.tsbuildinfo
 .pnpm-debug.log
+.playwright-cli/

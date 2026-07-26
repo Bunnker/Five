@@ -93,7 +93,7 @@ try {
     }),
     waitForUrl("http://127.0.0.1:3000", async (response) => {
       const html = await response.text();
-      return html.includes("Five 本地工程已启动");
+      return html.includes("Five P0 视觉基础");
     }),
   ]);
 

@@ -16,7 +16,8 @@
 - 区分网页内容版本、草稿修订号、生命周期修订号和活跃版本冲突，移除 P0 中失效的 `platform`、`sourcePlatform`、`targetPlatform`；
 - 冻结公开图片与后台图片字段，公开端不返回文件校验值、权利材料和内部检查状态；
 - 扩展根目录 `AGENTS.md`，集中记录 P0 范围、代码架构、关键领域规则、编码测试规约、文档优先级和当前阻塞；
-- 完成 GitHub Issue #4：建立 pnpm 工作区、Next.js 网页、NestJS HTTP 与 Worker、本地 PostgreSQL、版本化迁移和统一自检命令。
+- 完成 GitHub Issue #4：建立 pnpm 工作区、Next.js 网页、NestJS HTTP 与 Worker、本地 PostgreSQL、版本化迁移和统一自检命令；
+- 完成 GitHub Issue #5：从探索原型提取米白纸张、卡片、编号色带、色名圆点和移动端间距，建立可复用的 P0 视觉基础。
 
 ## V2.2 - 2026-07-23
 
