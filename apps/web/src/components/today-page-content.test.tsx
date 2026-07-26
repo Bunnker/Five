@@ -21,7 +21,7 @@ const baseToday = {
     fortuneDate: "2026-07-15",
     shichen: "午",
   },
-} satisfies Omit<TodayPageData, "ciJiCard" | "daJiCard" | "pingCard">;
+} satisfies Omit<TodayPageData, "attentionSection" | "ciJiCard" | "daJiCard" | "pingCard">;
 
 const daJiCard = {
   algorithmLabel: "大吉",
@@ -62,12 +62,43 @@ const pingCard = {
   tierCode: "ping",
 } satisfies NonNullable<TodayPageData["pingCard"]>;
 
+const attentionSection = {
+  balanceSuggestion: {
+    accessoryExamples: ["丝巾", "包"],
+    description: "可以用当日大吉色的普通配饰做小面积补充。",
+    preferredTierCode: "da_ji",
+    title: "已经穿了注意色",
+  },
+  contentVersion: "fd-20260715-r1",
+  groups: [
+    {
+      colors: [{ colorCode: "black", name: "黑色" }],
+      element: "water",
+      elementLabel: "水",
+      explanation: "今日建议降低大面积使用比例。",
+      rank: 4,
+      relationText: "水生木",
+      tierCode: "jiao_cha",
+    },
+    {
+      colors: [{ colorCode: "yellow", name: "黄色" }],
+      element: "earth",
+      elementLabel: "土",
+      explanation: "今日建议减少使用。",
+      rank: 5,
+      relationText: "木克土",
+      tierCode: "bu_li",
+    },
+  ],
+} satisfies NonNullable<TodayPageData["attentionSection"]>;
+
 describe("TodayPageContent", () => {
-  it("keeps the fixed date, da_ji, ci_ji, ping page order", () => {
+  it("keeps the fixed date, three positive cards and attention page order", () => {
     render(
       <TodayPageContent
         today={{
           ...baseToday,
+          attentionSection,
           ciJiCard,
           daJiCard,
           pingCard,
@@ -79,13 +110,20 @@ describe("TodayPageContent", () => {
     expect(text.indexOf("今日 木 日")).toBeLessThan(text.indexOf("今日优先"));
     expect(text.indexOf("今日优先")).toBeLessThan(text.indexOf("稳妥选择"));
     expect(text.indexOf("稳妥选择")).toBeLessThan(text.indexOf("日常可穿"));
+    expect(text.indexOf("日常可穿")).toBeLessThan(text.indexOf("注意"));
 
-    const decisionCards = [
+    const decisionRegions = [
       screen.getByRole("article", { name: "今日优先" }),
       screen.getByRole("article", { name: "稳妥选择" }),
       screen.getByRole("article", { name: "日常可穿" }),
+      screen.getByRole("region", { name: "注意" }),
     ];
-    expect(new Set(decisionCards.map((card) => card.getAttribute("aria-labelledby"))).size).toBe(3);
+    expect(new Set(decisionRegions.map((card) => card.getAttribute("aria-labelledby"))).size).toBe(
+      4,
+    );
+    expect(new Set(decisionRegions.map((card) => card.dataset.contentVersion))).toEqual(
+      new Set(["fd-20260715-r1"]),
+    );
   });
 
   it("keeps da_ji but does not show an orphan ping card when ci_ji is unavailable", () => {
@@ -93,6 +131,7 @@ describe("TodayPageContent", () => {
       <TodayPageContent
         today={{
           ...baseToday,
+          attentionSection,
           ciJiCard: null,
           daJiCard,
           pingCard,
@@ -103,6 +142,7 @@ describe("TodayPageContent", () => {
     expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "稳妥选择" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
   });
 
   it("does not show orphan ci_ji or ping cards when da_ji is unavailable", () => {
@@ -110,6 +150,7 @@ describe("TodayPageContent", () => {
       <TodayPageContent
         today={{
           ...baseToday,
+          attentionSection,
           ciJiCard,
           daJiCard: null,
           pingCard,
@@ -120,6 +161,7 @@ describe("TodayPageContent", () => {
     expect(screen.queryByRole("heading", { name: "今日优先" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "稳妥选择" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
   });
 
   it("keeps da_ji and ci_ji when ping is unavailable", () => {
@@ -127,6 +169,7 @@ describe("TodayPageContent", () => {
       <TodayPageContent
         today={{
           ...baseToday,
+          attentionSection,
           ciJiCard,
           daJiCard,
           pingCard: null,
@@ -137,5 +180,25 @@ describe("TodayPageContent", () => {
     expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "稳妥选择" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
+  });
+
+  it("keeps all three positive cards when attention is unavailable", () => {
+    render(
+      <TodayPageContent
+        today={{
+          ...baseToday,
+          attentionSection: null,
+          ciJiCard,
+          daJiCard,
+          pingCard,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "稳妥选择" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "日常可穿" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
   });
 });

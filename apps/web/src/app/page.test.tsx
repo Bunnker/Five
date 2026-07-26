@@ -5,6 +5,7 @@ import { TodayPageContent } from "../components/today-page-content";
 import type { TodayPageData } from "../lib/today";
 
 const todayResponse = {
+  attentionSection: null,
   content: {
     calendar: {
       dayElement: "wood",

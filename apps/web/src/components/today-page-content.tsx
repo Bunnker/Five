@@ -1,3 +1,4 @@
+import { AttentionColorSection } from "./attention-color-section";
 import { CiJiColorCard } from "./ci-ji-color-card";
 import { DaJiColorCard } from "./da-ji-color-card";
 import { PingColorCard } from "./ping-color-card";
@@ -36,7 +37,14 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
                 {today.ciJiCard === null ? null : (
                   <>
                     <CiJiColorCard tier={today.ciJiCard} />
-                    {today.pingCard === null ? null : <PingColorCard tier={today.pingCard} />}
+                    {today.pingCard === null ? null : (
+                      <>
+                        <PingColorCard tier={today.pingCard} />
+                        {today.attentionSection === null ? null : (
+                          <AttentionColorSection section={today.attentionSection} />
+                        )}
+                      </>
+                    )}
                   </>
                 )}
               </>

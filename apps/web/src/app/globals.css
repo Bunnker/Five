@@ -369,6 +369,161 @@ a {
   background: transparent;
 }
 
+.attention-section {
+  --attention-accent: #756a50;
+  --attention-line: rgb(117 106 80 / 24%);
+  margin-top: 10px;
+  padding: 14px 13px 13px;
+  border: 1px solid var(--attention-line);
+  border-radius: 15px 15px 15px 7px;
+  background: linear-gradient(145deg, rgb(255 255 255 / 64%), transparent 54%), #f5f0e5;
+  box-shadow: 0 3px 12px rgb(76 55 29 / 4%);
+  animation: settle-in 440ms 180ms ease-out both;
+}
+
+.attention-section__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.attention-section__header h2 {
+  margin: 1px 0 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.attention-section__header > p {
+  margin: 0 0 1px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.attention-section__eyebrow,
+.attention-balance__eyebrow {
+  margin: 0;
+  color: var(--attention-accent);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.attention-section__groups {
+  margin-top: 8px;
+  border-top: 1px solid var(--attention-line);
+}
+
+.attention-group {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.attention-group + .attention-group {
+  border-top: 1px dashed var(--attention-line);
+}
+
+.attention-group__header {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+}
+
+.attention-group__header p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.attention-group__header p span {
+  display: block;
+  margin: 0 0 1px;
+  color: var(--attention-accent);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.attention-group__header small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.attention-group .attention-group__colors {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px 4px;
+  margin: 0;
+}
+
+.attention-group .color-swatch {
+  flex: 0 0 42px;
+}
+
+.attention-group .color-swatch__dot {
+  width: 32px;
+  height: 32px;
+}
+
+.attention-group .color-swatch__name {
+  font-size: 12px;
+}
+
+.attention-balance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 12px;
+  padding: 11px 12px;
+  border: 1px solid rgb(53 109 88 / 18%);
+  border-radius: 11px;
+  background: rgb(53 109 88 / 6%);
+}
+
+.attention-balance h3 {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.attention-balance div > p:last-child {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.attention-balance ul {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: end;
+  gap: 5px;
+  max-width: 106px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-balance li {
+  padding: 3px 7px;
+  border: 1px solid rgb(53 109 88 / 18%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 56%);
+  color: var(--accent-pine);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .decision-card[data-tier-element="fire"] {
   --tier-accent: var(--accent-cinnabar);
   --tier-line: rgb(182 66 52 / 24%);
@@ -868,6 +1023,15 @@ h1 {
 }
 
 @media (max-width: 340px) {
+  .attention-balance {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .attention-balance ul {
+    justify-content: start;
+    max-width: none;
+  }
+
   .decision-card .decision-card__colors {
     display: flex;
     flex-wrap: wrap;
@@ -887,6 +1051,28 @@ h1 {
 
   .decision-card {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .attention-section__header {
+    align-items: start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .attention-group {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .attention-group__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .attention-group__header p span {
+    display: inline;
+    margin: 0 5px 0 0;
   }
 
   .decision-card__rank {
@@ -919,6 +1105,7 @@ h1 {
   .foundation-action,
   .foundation-hero,
   .numbered-card,
+  .attention-section,
   .decision-card,
   .today-date-card,
   .today-unavailable {

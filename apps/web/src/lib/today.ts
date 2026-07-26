@@ -8,6 +8,7 @@ type TodayResponse =
 type TodayRequestContext = TodayResponse["requestContext"];
 type TodayCalendar = TodayResponse["content"]["calendar"];
 type TodayTier = TodayResponse["content"]["tiers"][number];
+type TodayBalanceSuggestion = TodayResponse["content"]["balanceSuggestion"];
 
 interface DecisionCardBaseData {
   colors: Array<{
@@ -44,6 +45,37 @@ export interface PingCardData extends DecisionCardBaseData {
 
 export type DecisionCardData = CiJiCardData | DaJiCardData | PingCardData;
 
+interface AttentionGroupBaseData {
+  colors: DecisionCardBaseData["colors"];
+  element: TodayTier["element"];
+  elementLabel: TodayTier["elementLabel"];
+  explanation: TodayTier["explanation"];
+  relationText: TodayTier["relationText"];
+}
+
+export interface JiaoChaAttentionGroupData extends AttentionGroupBaseData {
+  rank: 4;
+  tierCode: "jiao_cha";
+}
+
+export interface BuLiAttentionGroupData extends AttentionGroupBaseData {
+  rank: 5;
+  tierCode: "bu_li";
+}
+
+export type AttentionGroupData = BuLiAttentionGroupData | JiaoChaAttentionGroupData;
+
+export interface AttentionSectionData {
+  balanceSuggestion: {
+    accessoryExamples: TodayBalanceSuggestion["accessoryExamples"];
+    description: TodayBalanceSuggestion["description"];
+    preferredTierCode: "da_ji";
+    title: "已经穿了注意色";
+  };
+  contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
+  groups: [JiaoChaAttentionGroupData, BuLiAttentionGroupData];
+}
+
 export interface TodayDateData {
   content: {
     calendar: Pick<
@@ -59,6 +91,7 @@ export interface TodayDateData {
 }
 
 export interface TodayPageData extends TodayDateData {
+  attentionSection: AttentionSectionData | null;
   ciJiCard: CiJiCardData | null;
   daJiCard: DaJiCardData | null;
   pingCard: PingCardData | null;
@@ -108,6 +141,20 @@ const decisionTierSpecs = {
     rank: 3,
   },
 } as const;
+const attentionTierSpecs = {
+  bu_li: {
+    algorithmLabel: "不利",
+    displayLabel: "注意",
+    displaySection: "attention",
+    rank: 5,
+  },
+  jiao_cha: {
+    algorithmLabel: "较差",
+    displayLabel: "注意",
+    displaySection: "attention",
+    rank: 4,
+  },
+} as const;
 const versionFields = [
   "algorithmVersion",
   "assetManifestVersion",
@@ -136,6 +183,21 @@ const fortuneDatePattern = /^\d{4}-\d{2}-\d{2}$/u;
 const forbiddenPublicCopyPattern = /保证|必然|转运|暴富|破财|大凶|灾|一定有效/u;
 const forbiddenPingCopyPattern =
   /好运|贵人|助运|加分|事半功倍|运程|吉凶|运势平平|勉强|较差|不利|不推荐|倒霉|晦气/u;
+const forbiddenAttentionCopyPattern =
+  /好运|贵人|助运|加分|事半功倍|运程|吉凶|较差|不利|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题/u;
+const reviewedBalanceAccessories = new Set([
+  "丝巾",
+  "围巾",
+  "包",
+  "鞋",
+  "领带",
+  "耳饰",
+  "手机壳",
+  "帽子",
+  "腰带",
+  "首饰",
+]);
+const smallAreaSuggestionPattern = /小面积|少量|点缀/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -211,6 +273,35 @@ interface DecisionCardCoreData {
   relationText: DecisionCardData["relationText"];
 }
 
+function toReviewedColors(value: unknown): DecisionCardData["colors"] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 12) {
+    return null;
+  }
+
+  const colors: DecisionCardData["colors"] = [];
+  const seenColorCodes = new Set<ReviewedColorCode>();
+  for (const color of value) {
+    const colorCode =
+      isRecord(color) && isReviewedColorCode(color.colorCode) ? color.colorCode : null;
+    if (
+      colorCode === null ||
+      !isNonEmptyString(color.name) ||
+      color.name !== reviewedColorPalette[colorCode].name ||
+      seenColorCodes.has(colorCode)
+    ) {
+      return null;
+    }
+
+    seenColorCodes.add(colorCode);
+    colors.push({
+      colorCode,
+      name: color.name,
+    });
+  }
+
+  return colors;
+}
+
 function toDecisionContent(
   content: Record<string, unknown>,
   responseContentVersion: string | null,
@@ -252,33 +343,14 @@ function toDecisionCardCore(
     forbiddenPublicCopyPattern.test(tier.explanation) ||
     (tierCode === "ping" &&
       (forbiddenPingCopyPattern.test(tier.relationText) ||
-        forbiddenPingCopyPattern.test(tier.explanation))) ||
-    !Array.isArray(tier.colors) ||
-    tier.colors.length < 1 ||
-    tier.colors.length > 12
+        forbiddenPingCopyPattern.test(tier.explanation)))
   ) {
     return null;
   }
 
-  const colors: DecisionCardData["colors"] = [];
-  const seenColorCodes = new Set<ReviewedColorCode>();
-  for (const color of tier.colors) {
-    const colorCode =
-      isRecord(color) && isReviewedColorCode(color.colorCode) ? color.colorCode : null;
-    if (
-      colorCode === null ||
-      !isNonEmptyString(color.name) ||
-      color.name !== reviewedColorPalette[colorCode].name ||
-      seenColorCodes.has(colorCode)
-    ) {
-      return null;
-    }
-
-    seenColorCodes.add(colorCode);
-    colors.push({
-      colorCode,
-      name: color.name,
-    });
+  const colors = toReviewedColors(tier.colors);
+  if (colors === null) {
+    return null;
   }
 
   return {
@@ -288,6 +360,118 @@ function toDecisionCardCore(
     elementLabel: tier.elementLabel,
     explanation: tier.explanation,
     relationText: tier.relationText,
+  };
+}
+
+function isSafeAttentionCopy(value: unknown, maxLength: number): value is string {
+  return (
+    isNonEmptyString(value) &&
+    value.length <= maxLength &&
+    !forbiddenPublicCopyPattern.test(value) &&
+    !forbiddenAttentionCopyPattern.test(value)
+  );
+}
+
+function toAttentionGroupData(
+  decisionContent: DecisionContent,
+  tierCode: "jiao_cha",
+): JiaoChaAttentionGroupData | null;
+function toAttentionGroupData(
+  decisionContent: DecisionContent,
+  tierCode: "bu_li",
+): BuLiAttentionGroupData | null;
+function toAttentionGroupData(
+  decisionContent: DecisionContent,
+  tierCode: keyof typeof attentionTierSpecs,
+): AttentionGroupData | null {
+  const spec = attentionTierSpecs[tierCode];
+  const tier = decisionContent.tiers.find((candidate) => candidate.tierCode === tierCode);
+  if (
+    tier === undefined ||
+    tier.rank !== spec.rank ||
+    tier.algorithmLabel !== spec.algorithmLabel ||
+    tier.displayLabel !== spec.displayLabel ||
+    tier.displaySection !== spec.displaySection ||
+    !isMember(dayElements, tier.element) ||
+    !isMember(dayElementLabelNames, tier.elementLabel) ||
+    tier.elementLabel !== dayElementLabels[tier.element] ||
+    !isSafeAttentionCopy(tier.relationText, 64) ||
+    !isSafeAttentionCopy(tier.explanation, 300)
+  ) {
+    return null;
+  }
+
+  const colors = toReviewedColors(tier.colors);
+  if (colors === null) {
+    return null;
+  }
+
+  const group = {
+    colors,
+    element: tier.element,
+    elementLabel: tier.elementLabel,
+    explanation: tier.explanation,
+    rank: spec.rank,
+    relationText: tier.relationText,
+    tierCode,
+  };
+
+  return group as AttentionGroupData;
+}
+
+function toBalanceSuggestion(value: unknown): AttentionSectionData["balanceSuggestion"] | null {
+  if (
+    !isRecord(value) ||
+    value.title !== "已经穿了注意色" ||
+    value.preferredTierCode !== "da_ji" ||
+    !isSafeAttentionCopy(value.description, 300) ||
+    !value.description.includes("大吉色") ||
+    !smallAreaSuggestionPattern.test(value.description) ||
+    !Array.isArray(value.accessoryExamples) ||
+    value.accessoryExamples.length < 1 ||
+    value.accessoryExamples.length > 12
+  ) {
+    return null;
+  }
+
+  const accessoryExamples: string[] = [];
+  const seenExamples = new Set<string>();
+  for (const example of value.accessoryExamples) {
+    if (
+      !isSafeAttentionCopy(example, 32) ||
+      !reviewedBalanceAccessories.has(example) ||
+      seenExamples.has(example)
+    ) {
+      return null;
+    }
+
+    seenExamples.add(example);
+    accessoryExamples.push(example);
+  }
+
+  return {
+    accessoryExamples,
+    description: value.description,
+    preferredTierCode: "da_ji",
+    title: "已经穿了注意色",
+  };
+}
+
+function toAttentionSectionData(
+  content: Record<string, unknown>,
+  decisionContent: DecisionContent,
+): AttentionSectionData | null {
+  const jiaoChaGroup = toAttentionGroupData(decisionContent, "jiao_cha");
+  const buLiGroup = toAttentionGroupData(decisionContent, "bu_li");
+  const balanceSuggestion = toBalanceSuggestion(content.balanceSuggestion);
+  if (jiaoChaGroup === null || buLiGroup === null || balanceSuggestion === null) {
+    return null;
+  }
+
+  return {
+    balanceSuggestion,
+    contentVersion: decisionContent.contentVersion,
+    groups: [jiaoChaGroup, buLiGroup],
   };
 }
 
@@ -465,15 +649,20 @@ export async function loadToday({
       decisionContent === null || daJiCard === null
         ? null
         : toDecisionCardData(decisionContent, "ci_ji");
+    const pingCard =
+      decisionContent === null || daJiCard === null || ciJiCard === null
+        ? null
+        : toDecisionCardData(decisionContent, "ping");
 
     return {
       ...dateData,
+      attentionSection:
+        decisionContent === null || daJiCard === null || ciJiCard === null || pingCard === null
+          ? null
+          : toAttentionSectionData(body.content, decisionContent),
       ciJiCard,
       daJiCard,
-      pingCard:
-        decisionContent === null || daJiCard === null || ciJiCard === null
-          ? null
-          : toDecisionCardData(decisionContent, "ping"),
+      pingCard,
     };
   } catch {
     return null;
