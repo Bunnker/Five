@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  description: "Five P0 手机网页视觉基础",
-  title: "Five · P0 视觉基础",
+  description: "每天十秒看懂今日五行穿衣颜色建议。",
+  title: "Five · 今日五行穿衣",
 };
 
 export const viewport: Viewport = {
