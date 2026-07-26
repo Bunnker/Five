@@ -5,6 +5,7 @@ import {
   type AttentionSectionData,
   type CiJiCardData,
   type DaJiCardData,
+  type OutfitPreviewSectionData,
   type PingCardData,
   type TodayDateData,
   type TodayPageData,
@@ -129,6 +130,91 @@ const balanceSuggestion = {
   title: "已经穿了注意色",
 } satisfies AttentionSectionData["balanceSuggestion"];
 
+const formulaAudience = { code: "adult_women", label: "成年女性" };
+const formulaScenario = { code: "daily", label: "日常" };
+const monoFormula = {
+  audience: formulaAudience,
+  disclaimer: "同色系深浅变化属于穿搭参考。",
+  formulaId: "formula-mono-01",
+  kind: "mono",
+  lookIds: ["look-mono-01"],
+  scenario: formulaScenario,
+  slots: [
+    {
+      colorCodes: ["red", "orange"],
+      garmentParts: ["上衣", "下装"],
+      ratioPercent: 100,
+      role: "primary",
+      roleLabel: "主色",
+      tierCode: "da_ji",
+    },
+  ],
+  title: "红橙同色系",
+};
+const dualFormula = {
+  audience: formulaAudience,
+  disclaimer: "双色比例未确认时不编造百分比。",
+  formulaId: "formula-dual-01",
+  kind: "dual",
+  lookIds: ["look-dual-01"],
+  scenario: formulaScenario,
+  slots: [
+    {
+      colorCodes: ["orange"],
+      garmentParts: ["上衣"],
+      ratioPercent: null,
+      role: "primary",
+      roleLabel: "主色",
+      tierCode: "da_ji",
+    },
+    {
+      colorCodes: ["lake_blue"],
+      garmentParts: ["下装"],
+      ratioPercent: null,
+      role: "secondary",
+      roleLabel: "辅助色",
+      tierCode: "ci_ji",
+    },
+  ],
+  title: "橙色与湖蓝",
+};
+const tripleFormula = {
+  audience: formulaAudience,
+  disclaimer: "60/30/10 为穿搭参考，不是五行推算规则。",
+  formulaId: "formula-triple-01",
+  kind: "triple",
+  lookIds: ["look-triple-01"],
+  scenario: { code: "commute", label: "通勤" },
+  slots: [
+    {
+      colorCodes: ["red"],
+      garmentParts: ["上衣"],
+      ratioPercent: 60,
+      role: "primary",
+      roleLabel: "主色",
+      tierCode: "da_ji",
+    },
+    {
+      colorCodes: ["green"],
+      garmentParts: ["下装"],
+      ratioPercent: 30,
+      role: "secondary",
+      roleLabel: "辅助色",
+      tierCode: "ci_ji",
+    },
+    {
+      colorCodes: ["white"],
+      garmentParts: ["鞋包", "配饰"],
+      ratioPercent: 10,
+      role: "accent",
+      roleLabel: "点缀色",
+      tierCode: "ping",
+    },
+  ],
+  title: "通勤三色搭配",
+};
+const outfitFormulas = [tripleFormula, monoFormula, dualFormula];
+
 const versions = {
   algorithmVersion: "algorithm-v1",
   assetManifestVersion: "assets-v1",
@@ -146,6 +232,7 @@ const apiTodayResponse = {
   content: {
     ...dateData.content,
     balanceSuggestion,
+    outfitFormulas,
     tiers: [otherTiers[0], otherTiers[3], daJiTier, otherTiers[1], otherTiers[2]],
     versions,
   },
@@ -230,11 +317,87 @@ const attentionSection = {
   ],
 } satisfies AttentionSectionData;
 
+const outfitPreviewSection = {
+  cards: [
+    {
+      formulaId: "formula-mono-01",
+      href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-01",
+      kind: "mono",
+      slots: [
+        {
+          colors: [
+            { colorCode: "red", name: "红色" },
+            { colorCode: "orange", name: "橙色" },
+          ],
+          ratioPercent: 100,
+          role: "primary",
+          roleLabel: "主色",
+          tierCode: "da_ji",
+        },
+      ],
+      title: "红橙同色系",
+    },
+    {
+      formulaId: "formula-dual-01",
+      href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-dual-01",
+      kind: "dual",
+      slots: [
+        {
+          colors: [{ colorCode: "orange", name: "橙色" }],
+          ratioPercent: null,
+          role: "primary",
+          roleLabel: "主色",
+          tierCode: "da_ji",
+        },
+        {
+          colors: [{ colorCode: "lake_blue", name: "湖蓝" }],
+          ratioPercent: null,
+          role: "secondary",
+          roleLabel: "辅助色",
+          tierCode: "ci_ji",
+        },
+      ],
+      title: "橙色与湖蓝",
+    },
+    {
+      formulaId: "formula-triple-01",
+      href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01",
+      kind: "triple",
+      slots: [
+        {
+          colors: [{ colorCode: "red", name: "红色" }],
+          ratioPercent: 60,
+          role: "primary",
+          roleLabel: "主色",
+          tierCode: "da_ji",
+        },
+        {
+          colors: [{ colorCode: "green", name: "绿色" }],
+          ratioPercent: 30,
+          role: "secondary",
+          roleLabel: "辅助色",
+          tierCode: "ci_ji",
+        },
+        {
+          colors: [{ colorCode: "white", name: "白色" }],
+          ratioPercent: 10,
+          role: "accent",
+          roleLabel: "点缀色",
+          tierCode: "ping",
+        },
+      ],
+      title: "通勤三色搭配",
+    },
+  ],
+  contentVersion,
+} satisfies OutfitPreviewSectionData;
+
 const pageData = {
   ...dateData,
   attentionSection,
   ciJiCard,
   daJiCard,
+  outfitPreviewSection,
   pingCard,
 } satisfies TodayPageData;
 
@@ -317,6 +480,186 @@ describe("loadToday", () => {
       "卡其",
       "褐色系",
     ]);
+    expect(pageData.outfitPreviewSection.cards.map(({ kind }) => kind)).toEqual([
+      "mono",
+      "dual",
+      "triple",
+    ]);
+  });
+
+  it("uses the first published formula of each kind and resolves every Chinese color name from its tier", async () => {
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        outfitFormulas: [
+          { ...monoFormula, formulaId: "formula-mono-first", title: "第一套单色" },
+          { ...monoFormula, formulaId: "formula-mono-second", title: "第二套单色" },
+          tripleFormula,
+          dualFormula,
+        ],
+      },
+    });
+
+    expect(result?.outfitPreviewSection).toEqual({
+      ...outfitPreviewSection,
+      cards: [
+        {
+          ...outfitPreviewSection.cards[0],
+          formulaId: "formula-mono-first",
+          href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-first",
+          title: "第一套单色",
+        },
+        outfitPreviewSection.cards[1],
+        outfitPreviewSection.cards[2],
+      ],
+    });
+  });
+
+  it.each([
+    ["missing dual formula", outfitFormulas.filter(({ kind }) => kind !== "dual")],
+    [
+      "duplicate formula ids",
+      outfitFormulas.map((formula) =>
+        formula.kind === "dual" ? { ...formula, formulaId: monoFormula.formulaId } : formula,
+      ),
+    ],
+    [
+      "control character in formula id",
+      outfitFormulas.map((formula) =>
+        formula.kind === "mono" ? { ...formula, formulaId: "formula\nmono" } : formula,
+      ),
+    ],
+    [
+      "unsafe title",
+      outfitFormulas.map((formula) =>
+        formula.kind === "mono" ? { ...formula, title: "保证转运的单色穿法" } : formula,
+      ),
+    ],
+    [
+      "out-of-scope product title",
+      outfitFormulas.map((formula) =>
+        formula.kind === "mono" ? { ...formula, title: "吉祥物购买方案" } : formula,
+      ),
+    ],
+    [
+      "mono with two slots",
+      outfitFormulas.map((formula) =>
+        formula.kind === "mono"
+          ? { ...formula, slots: [formula.slots[0], dualFormula.slots[1]] }
+          : formula,
+      ),
+    ],
+    [
+      "attention tier in a public outfit",
+      outfitFormulas.map((formula) =>
+        formula.kind === "dual"
+          ? {
+              ...formula,
+              slots: [
+                formula.slots[0],
+                { ...formula.slots[1], colorCodes: ["black"], tierCode: "jiao_cha" },
+              ],
+            }
+          : formula,
+      ),
+    ],
+    [
+      "color outside its declared tier",
+      outfitFormulas.map((formula) =>
+        formula.kind === "mono"
+          ? { ...formula, slots: [{ ...formula.slots[0], colorCodes: ["white"] }] }
+          : formula,
+      ),
+    ],
+    [
+      "mismatched role label",
+      outfitFormulas.map((formula) =>
+        formula.kind === "triple"
+          ? {
+              ...formula,
+              slots: [
+                { ...formula.slots[0], roleLabel: "辅助色" },
+                formula.slots[1],
+                formula.slots[2],
+              ],
+            }
+          : formula,
+      ),
+    ],
+    [
+      "partially specified dual ratios",
+      outfitFormulas.map((formula) =>
+        formula.kind === "dual"
+          ? {
+              ...formula,
+              slots: [{ ...formula.slots[0], ratioPercent: 60 }, formula.slots[1]],
+            }
+          : formula,
+      ),
+    ],
+    [
+      "triple ratios that do not total 100",
+      outfitFormulas.map((formula) =>
+        formula.kind === "triple"
+          ? {
+              ...formula,
+              slots: [formula.slots[0], formula.slots[1], { ...formula.slots[2], ratioPercent: 5 }],
+            }
+          : formula,
+      ),
+    ],
+    [
+      "triple ratios omitted",
+      outfitFormulas.map((formula) =>
+        formula.kind === "triple"
+          ? {
+              ...formula,
+              slots: formula.slots.map((slot) => ({ ...slot, ratioPercent: null })),
+            }
+          : formula,
+      ),
+    ],
+  ])(
+    "hides the whole outfit preview but preserves daily decisions when it has %s",
+    async (_case, formulas) => {
+      const result = await loadFrom({
+        ...apiTodayResponse,
+        content: { ...apiTodayResponse.content, outfitFormulas: formulas },
+      });
+
+      expect(result?.outfitPreviewSection).toBeNull();
+      expect(result?.daJiCard).toEqual(daJiCard);
+      expect(result?.ciJiCard).toEqual(ciJiCard);
+      expect(result?.pingCard).toEqual(pingCard);
+      expect(result?.attentionSection).toEqual(attentionSection);
+    },
+  );
+
+  it("URL-encodes opaque versions and formula ids without parsing them", async () => {
+    const opaqueContentVersion = "version /?&= alpha";
+    const opaqueFormulaId = "单色 /?&= one";
+    const result = await loadFrom(
+      {
+        ...apiTodayResponse,
+        content: {
+          ...apiTodayResponse.content,
+          outfitFormulas: outfitFormulas.map((formula) =>
+            formula.kind === "mono" ? { ...formula, formulaId: opaqueFormulaId } : formula,
+          ),
+          versions: { ...versions, contentVersion: opaqueContentVersion },
+        },
+      },
+      opaqueContentVersion,
+    );
+
+    const href = result?.outfitPreviewSection?.cards[0].href;
+    expect(href).toBeDefined();
+    const target = new URL(href ?? "", "https://five.test");
+    expect(target.pathname).toBe("/outfits");
+    expect(target.searchParams.get("fortuneDate")).toBe("2026-07-15");
+    expect(target.searchParams.get("expectedContentVersion")).toBe(opaqueContentVersion);
+    expect(target.searchParams.get("formulaId")).toBe(opaqueFormulaId);
   });
 
   it.each([
@@ -357,6 +700,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -386,6 +730,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard: null,
         daJiCard,
+        outfitPreviewSection: null,
         pingCard: null,
       });
     },
@@ -418,6 +763,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard,
         daJiCard,
+        outfitPreviewSection: null,
         pingCard: null,
       });
     },
@@ -481,6 +827,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard,
         daJiCard,
+        outfitPreviewSection,
         pingCard,
       });
     },
@@ -537,6 +884,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard,
         daJiCard,
+        outfitPreviewSection,
         pingCard,
       });
     },
@@ -601,6 +949,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -621,6 +970,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -670,6 +1020,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -697,6 +1048,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -735,6 +1087,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard: null,
         daJiCard: null,
+        outfitPreviewSection: null,
         pingCard: null,
       });
     },
@@ -746,6 +1099,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -768,6 +1122,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -778,6 +1133,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -798,6 +1154,7 @@ describe("loadToday", () => {
       attentionSection: null,
       ciJiCard: null,
       daJiCard: null,
+      outfitPreviewSection: null,
       pingCard: null,
     });
   });
@@ -820,6 +1177,7 @@ describe("loadToday", () => {
         attentionSection: null,
         ciJiCard: null,
         daJiCard: null,
+        outfitPreviewSection: null,
         pingCard: null,
       });
     },

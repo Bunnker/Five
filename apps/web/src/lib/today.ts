@@ -66,6 +66,32 @@ export interface BuLiAttentionGroupData extends AttentionGroupBaseData {
 
 export type AttentionGroupData = BuLiAttentionGroupData | JiaoChaAttentionGroupData;
 
+export interface OutfitPreviewColorData {
+  colorCode: ReviewedColorCode;
+  name: string;
+}
+
+export interface OutfitPreviewSlotData {
+  colors: OutfitPreviewColorData[];
+  ratioPercent: number | null;
+  role: "accent" | "primary" | "secondary";
+  roleLabel: "主色" | "辅助色" | "点缀色";
+  tierCode: "ci_ji" | "da_ji" | "ping";
+}
+
+export interface OutfitPreviewCardData {
+  formulaId: string;
+  href: string;
+  kind: "dual" | "mono" | "triple";
+  slots: OutfitPreviewSlotData[];
+  title: string;
+}
+
+export interface OutfitPreviewSectionData {
+  cards: [OutfitPreviewCardData, OutfitPreviewCardData, OutfitPreviewCardData];
+  contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
+}
+
 export interface AttentionSectionData {
   balanceSuggestion: {
     accessoryExamples: TodayBalanceSuggestion["accessoryExamples"];
@@ -95,6 +121,7 @@ export interface TodayPageData extends TodayDateData {
   attentionSection: AttentionSectionData | null;
   ciJiCard: CiJiCardData | null;
   daJiCard: DaJiCardData | null;
+  outfitPreviewSection: OutfitPreviewSectionData | null;
   pingCard: PingCardData | null;
 }
 
@@ -156,6 +183,17 @@ const attentionTierSpecs = {
     rank: 4,
   },
 } as const;
+const outfitKinds = ["mono", "dual", "triple"] as const;
+const outfitRoleLabels = {
+  accent: "点缀色",
+  primary: "主色",
+  secondary: "辅助色",
+} as const;
+const outfitRolesByKind = {
+  dual: ["primary", "secondary"],
+  mono: ["primary"],
+  triple: ["primary", "secondary", "accent"],
+} as const;
 const versionFields = [
   "algorithmVersion",
   "assetManifestVersion",
@@ -185,7 +223,9 @@ const forbiddenPublicCopyPattern = /保证|必然|转运|暴富|破财|大凶|�
 const forbiddenPingCopyPattern =
   /好运|贵人|助运|加分|事半功倍|运程|吉凶|运势平平|勉强|较差|不利|不推荐|倒霉|晦气/u;
 const forbiddenAttentionCopyPattern =
-  /好运|贵人|助运|加分|事半功倍|运程|吉凶|化解|较差|不利|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题/u;
+  /好运|贵人|助运|加分|事半功倍|运程|吉凶|化解|较差|不利|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|必能|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题/u;
+const forbiddenOutfitCopyPattern =
+  /收藏|购买|商品|吉祥物|登录|账户|账号|出生|八字|个人运势|拍照试搭/u;
 const reviewedBalanceAccessories = new Set<TodayBalanceAccessory>([
   "丝巾",
   "围巾",
@@ -207,6 +247,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasAsciiControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+  });
+}
+
+function isOpaqueId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= 128 &&
+    value.trim() === value &&
+    !hasAsciiControlCharacter(value)
+  );
 }
 
 function isReviewedBalanceAccessory(value: string): value is TodayBalanceAccessory {
@@ -378,6 +435,10 @@ function isSafeAttentionCopy(value: unknown, maxLength: number): value is string
   );
 }
 
+function isSafeOutfitCopy(value: unknown, maxLength: number): value is string {
+  return isSafeAttentionCopy(value, maxLength) && !forbiddenOutfitCopyPattern.test(value);
+}
+
 function toAttentionGroupData(
   decisionContent: DecisionContent,
   tierCode: "jiao_cha",
@@ -476,6 +537,228 @@ function toAttentionSectionData(
     balanceSuggestion,
     contentVersion: decisionContent.contentVersion,
     groups: [jiaoChaGroup, buLiGroup],
+  };
+}
+
+interface PositiveDecisionCards {
+  ci_ji: CiJiCardData;
+  da_ji: DaJiCardData;
+  ping: PingCardData;
+}
+
+function toOutfitPreviewColors(
+  value: unknown,
+  tier: DecisionCardData,
+): OutfitPreviewColorData[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 12) {
+    return null;
+  }
+
+  const colors: OutfitPreviewColorData[] = [];
+  const seenColorCodes = new Set<ReviewedColorCode>();
+  for (const colorCode of value) {
+    if (!isReviewedColorCode(colorCode) || seenColorCodes.has(colorCode)) {
+      return null;
+    }
+
+    const publishedColor = tier.colors.find((color) => color.colorCode === colorCode);
+    if (publishedColor === undefined) {
+      return null;
+    }
+
+    seenColorCodes.add(colorCode);
+    colors.push({
+      colorCode,
+      name: publishedColor.name,
+    });
+  }
+
+  return colors;
+}
+
+function isRatioPercent(value: unknown): value is number | null {
+  return value === null || (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 100);
+}
+
+function isAllowedOutfitTierCode(
+  kind: (typeof outfitKinds)[number],
+  role: keyof typeof outfitRoleLabels,
+  value: unknown,
+): value is keyof PositiveDecisionCards {
+  if (kind === "mono") {
+    return role === "primary" && value === "da_ji";
+  }
+
+  if (kind === "dual") {
+    return (
+      (role === "primary" && value === "da_ji") ||
+      (role === "secondary" && (value === "ci_ji" || value === "ping"))
+    );
+  }
+
+  return (
+    (role === "primary" && value === "da_ji") ||
+    (role === "secondary" && value === "ci_ji") ||
+    (role === "accent" && value === "ping")
+  );
+}
+
+function toOutfitPreviewSlot(
+  value: unknown,
+  kind: (typeof outfitKinds)[number],
+  role: keyof typeof outfitRoleLabels,
+  tiers: PositiveDecisionCards,
+): OutfitPreviewSlotData | null {
+  if (!isRecord(value) || value.role !== role || value.roleLabel !== outfitRoleLabels[role]) {
+    return null;
+  }
+
+  const tierCode = isAllowedOutfitTierCode(kind, role, value.tierCode) ? value.tierCode : null;
+  if (tierCode === null || !isRatioPercent(value.ratioPercent)) {
+    return null;
+  }
+
+  const colors = toOutfitPreviewColors(value.colorCodes, tiers[tierCode]);
+  if (colors === null) {
+    return null;
+  }
+
+  return {
+    colors,
+    ratioPercent: value.ratioPercent,
+    role,
+    roleLabel: outfitRoleLabels[role],
+    tierCode,
+  };
+}
+
+function toOutfitPreviewSlots(
+  value: unknown,
+  kind: (typeof outfitKinds)[number],
+  tiers: PositiveDecisionCards,
+): OutfitPreviewSlotData[] | null {
+  const expectedRoles = outfitRolesByKind[kind];
+  if (!Array.isArray(value) || value.length !== expectedRoles.length) {
+    return null;
+  }
+
+  const slots: OutfitPreviewSlotData[] = [];
+  for (const role of expectedRoles) {
+    const matchingSlots = value.filter((slot) => isRecord(slot) && slot.role === role);
+    if (matchingSlots.length !== 1) {
+      return null;
+    }
+
+    const slot = toOutfitPreviewSlot(matchingSlots[0], kind, role, tiers);
+    if (slot === null) {
+      return null;
+    }
+    slots.push(slot);
+  }
+
+  const ratios = slots.map((slot) => slot.ratioPercent);
+  if (kind === "mono") {
+    return ratios[0] === null || ratios[0] === 100 ? slots : null;
+  }
+
+  if (kind === "dual" && ratios.every((ratio) => ratio === null)) {
+    return slots;
+  }
+
+  if (ratios.some((ratio) => ratio === null)) {
+    return null;
+  }
+
+  return ratios.reduce<number>((total, ratio) => total + Number(ratio), 0) === 100 ? slots : null;
+}
+
+function buildOutfitPreviewHref(
+  fortuneDate: string,
+  contentVersion: string,
+  formulaId: string,
+): string {
+  const searchParams = new URLSearchParams({
+    fortuneDate,
+    expectedContentVersion: contentVersion,
+    formulaId,
+  });
+
+  return `/outfits?${searchParams.toString()}`;
+}
+
+function toOutfitPreviewCard(
+  value: unknown,
+  kind: (typeof outfitKinds)[number],
+  tiers: PositiveDecisionCards,
+  fortuneDate: string,
+  contentVersion: string,
+): OutfitPreviewCardData | null {
+  if (
+    !isRecord(value) ||
+    value.kind !== kind ||
+    !isOpaqueId(value.formulaId) ||
+    !isSafeOutfitCopy(value.title, 80)
+  ) {
+    return null;
+  }
+
+  const slots = toOutfitPreviewSlots(value.slots, kind, tiers);
+  if (slots === null) {
+    return null;
+  }
+
+  return {
+    formulaId: value.formulaId,
+    href: buildOutfitPreviewHref(fortuneDate, contentVersion, value.formulaId),
+    kind,
+    slots,
+    title: value.title,
+  };
+}
+
+function toOutfitPreviewSectionData(
+  content: Record<string, unknown>,
+  decisionContent: DecisionContent,
+  tiers: PositiveDecisionCards,
+  fortuneDate: string,
+): OutfitPreviewSectionData | null {
+  if (!Array.isArray(content.outfitFormulas) || content.outfitFormulas.length < 3) {
+    return null;
+  }
+
+  const seenFormulaIds = new Set<string>();
+  for (const formula of content.outfitFormulas) {
+    if (
+      !isRecord(formula) ||
+      !isOpaqueId(formula.formulaId) ||
+      seenFormulaIds.has(formula.formulaId)
+    ) {
+      return null;
+    }
+    seenFormulaIds.add(formula.formulaId);
+  }
+
+  const cards: OutfitPreviewCardData[] = [];
+  for (const kind of outfitKinds) {
+    const formula = content.outfitFormulas.find(
+      (candidate) => isRecord(candidate) && candidate.kind === kind,
+    );
+    const card = toOutfitPreviewCard(
+      formula,
+      kind,
+      tiers,
+      fortuneDate,
+      decisionContent.contentVersion,
+    );
+    if (card === null) {
+      return null;
+    }
+    cards.push(card);
+  }
+
+  return {
+    cards: cards as OutfitPreviewSectionData["cards"],
+    contentVersion: decisionContent.contentVersion,
   };
 }
 
@@ -666,6 +949,19 @@ export async function loadToday({
           : toAttentionSectionData(body.content, decisionContent),
       ciJiCard,
       daJiCard,
+      outfitPreviewSection:
+        decisionContent === null || daJiCard === null || ciJiCard === null || pingCard === null
+          ? null
+          : toOutfitPreviewSectionData(
+              body.content,
+              decisionContent,
+              {
+                ci_ji: ciJiCard,
+                da_ji: daJiCard,
+                ping: pingCard,
+              },
+              dateData.content.fortuneDate,
+            ),
       pingCard,
     };
   } catch {

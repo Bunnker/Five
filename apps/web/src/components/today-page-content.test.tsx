@@ -21,6 +21,7 @@ const baseToday = {
     fortuneDate: "2026-07-15",
     shichen: "午",
   },
+  outfitPreviewSection: null,
 } satisfies Omit<TodayPageData, "attentionSection" | "ciJiCard" | "daJiCard" | "pingCard">;
 
 const daJiCard = {
@@ -92,8 +93,80 @@ const attentionSection = {
   ],
 } satisfies NonNullable<TodayPageData["attentionSection"]>;
 
+const outfitPreviewSection = {
+  cards: [
+    {
+      formulaId: "formula-mono",
+      href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono",
+      kind: "mono",
+      slots: [
+        {
+          colors: [{ colorCode: "red", name: "红色" }],
+          ratioPercent: 100,
+          role: "primary",
+          roleLabel: "主色",
+          tierCode: "da_ji",
+        },
+      ],
+      title: "红色同色系",
+    },
+    {
+      formulaId: "formula-dual",
+      href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-dual",
+      kind: "dual",
+      slots: [
+        {
+          colors: [{ colorCode: "red", name: "红色" }],
+          ratioPercent: null,
+          role: "primary",
+          roleLabel: "主色",
+          tierCode: "da_ji",
+        },
+        {
+          colors: [{ colorCode: "lake_blue", name: "湖蓝" }],
+          ratioPercent: null,
+          role: "secondary",
+          roleLabel: "辅助色",
+          tierCode: "ci_ji",
+        },
+      ],
+      title: "红色与湖蓝",
+    },
+    {
+      formulaId: "formula-triple",
+      href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple",
+      kind: "triple",
+      slots: [
+        {
+          colors: [{ colorCode: "red", name: "红色" }],
+          ratioPercent: 60,
+          role: "primary",
+          roleLabel: "主色",
+          tierCode: "da_ji",
+        },
+        {
+          colors: [{ colorCode: "lake_blue", name: "湖蓝" }],
+          ratioPercent: 30,
+          role: "secondary",
+          roleLabel: "辅助色",
+          tierCode: "ci_ji",
+        },
+        {
+          colors: [{ colorCode: "white", name: "白色" }],
+          ratioPercent: 10,
+          role: "accent",
+          roleLabel: "点缀色",
+          tierCode: "ping",
+        },
+      ],
+      title: "三色通勤",
+    },
+  ],
+  contentVersion: "fd-20260715-r1",
+} satisfies NonNullable<TodayPageData["outfitPreviewSection"]>;
+
 describe("TodayPageContent", () => {
-  it("keeps the fixed date, three positive cards and attention page order", () => {
+  it("keeps the fixed date, color decisions and outfit preview page order", () => {
     render(
       <TodayPageContent
         today={{
@@ -101,6 +174,7 @@ describe("TodayPageContent", () => {
           attentionSection,
           ciJiCard,
           daJiCard,
+          outfitPreviewSection,
           pingCard,
         }}
       />,
@@ -111,15 +185,17 @@ describe("TodayPageContent", () => {
     expect(text.indexOf("今日优先")).toBeLessThan(text.indexOf("稳妥选择"));
     expect(text.indexOf("稳妥选择")).toBeLessThan(text.indexOf("日常可穿"));
     expect(text.indexOf("日常可穿")).toBeLessThan(text.indexOf("注意"));
+    expect(text.indexOf("注意")).toBeLessThan(text.indexOf("今日怎么搭"));
 
     const decisionRegions = [
       screen.getByRole("article", { name: "今日优先" }),
       screen.getByRole("article", { name: "稳妥选择" }),
       screen.getByRole("article", { name: "日常可穿" }),
       screen.getByRole("region", { name: "注意" }),
+      screen.getByRole("region", { name: "今日怎么搭" }),
     ];
     expect(new Set(decisionRegions.map((card) => card.getAttribute("aria-labelledby"))).size).toBe(
-      4,
+      5,
     );
     expect(new Set(decisionRegions.map((card) => card.dataset.contentVersion))).toEqual(
       new Set(["fd-20260715-r1"]),
@@ -183,7 +259,7 @@ describe("TodayPageContent", () => {
     expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
   });
 
-  it("keeps all three positive cards when attention is unavailable", () => {
+  it("keeps all three positive cards and outfit preview when attention is unavailable", () => {
     render(
       <TodayPageContent
         today={{
@@ -191,6 +267,7 @@ describe("TodayPageContent", () => {
           attentionSection: null,
           ciJiCard,
           daJiCard,
+          outfitPreviewSection,
           pingCard,
         }}
       />,
@@ -200,5 +277,6 @@ describe("TodayPageContent", () => {
     expect(screen.getByRole("heading", { name: "稳妥选择" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "日常可穿" })).toBeVisible();
     expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "今日怎么搭" })).toBeVisible();
   });
 });

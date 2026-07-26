@@ -1,6 +1,7 @@
 import { AttentionColorSection } from "./attention-color-section";
 import { CiJiColorCard } from "./ci-ji-color-card";
 import { DaJiColorCard } from "./da-ji-color-card";
+import { OutfitPreviewSection } from "./outfit-preview-section";
 import { PingColorCard } from "./ping-color-card";
 import { TodayDateRegion } from "./today-date-region";
 import type { TodayPageData } from "../lib/today";
@@ -42,6 +43,9 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
                         <PingColorCard tier={today.pingCard} />
                         {today.attentionSection === null ? null : (
                           <AttentionColorSection section={today.attentionSection} />
+                        )}
+                        {today.outfitPreviewSection === null ? null : (
+                          <OutfitPreviewSection section={today.outfitPreviewSection} />
                         )}
                       </>
                     )}
