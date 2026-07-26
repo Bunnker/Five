@@ -46,6 +46,18 @@ _Avoid_: 内容版本、审核版本
 草稿提交审核时产生的不可变业务内容副本，由唯一 `contentVersion` 标识；不包含之后才产生的审核和发布事件。
 _Avoid_: 草稿、当前内容
 
+**内容版本（`contentVersion`）**：
+标识一份不可变内容快照的不透明字符串。调用方只能比较是否相等，不能从字符串中推断日期、修订次数或规则版本。
+_Avoid_: 版本号解析、当前修订号
+
+**草稿修订号（`draftRevision`）**：
+草稿每次成功修改后增加的并发保护值，通过草稿 ETag 返回。它只保护可编辑草稿，不等同于 `contentVersion`。
+_Avoid_: 内容版本、生命周期修订号
+
+**生命周期修订号（`lifecycleRevision`）**：
+登记大师依据、批准、退回、排期、发布、下线或恢复后增加的并发保护值，通过内容版本 ETag 返回。它不改变不可变内容快照。
+_Avoid_: 内容版本、草稿修订号
+
 **生命周期投影（`ContentLifecycleProjection`）**：
 由追加写入的大师确认、检查、排期、发布、撤回和回滚事件计算出的当前状态。P0 状态固定为 `draft`、`in_review`、`changes_requested`、`approved`、`scheduled`、`published`、`superseded`、`withdrawn`。
 _Avoid_: 修改后的内容快照、状态快照
@@ -104,9 +116,9 @@ _Avoid_: 当前主端、P0 依赖
 维护者或大师把普通网页链接人工发到微信群，用户点击后访问公开网页。Five 不读取群成员、不自动发消息，也不把微信群当作系统内功能。
 _Avoid_: 微信群机器人、小程序分享链路
 
-**分享平台字段**：
-P0 中 `sourcePlatform`、`targetPlatform` 与 `platform` 均为 `web`；`channelId` 用于区分分发渠道，但不得改变正文。
-_Avoid_: 用一个 platform 同时表达来源和目标
+**分发渠道（`channelId`）**：
+用于区分普通链接、海报或其他人工分发来源的短标识。P0 只有网页端，不再传 `platform`、`sourcePlatform` 或 `targetPlatform`；`channelId` 不得改变正文、日期、档位或图片。
+_Avoid_: 客户端平台、用渠道决定内容
 
 **每日内容路由（`/daily/{fortuneDate}`）**：
 用于分享落地、已外发海报和既有日期链接解析的公开路由。该路由存在不代表 P0 提供历史列表、昨日入口或日期浏览功能。

@@ -5,13 +5,13 @@
 
 ## 背景
 
-每日内容需要审核、排期、发布、撤回和回滚，同时还会按平台与渠道生成不同海报。若直接修改已审核内容或让海报反向覆盖内容版本，将失去审计与安全回滚能力。
+每日内容需要审核、排期、发布、撤回和回滚，同时还会按分发渠道生成不同海报。若直接修改已审核内容或让海报反向覆盖内容版本，将失去审计与安全回滚能力。
 
 ## 决策
 
-Five 在草稿提交时冻结 `ContentSnapshotPayload` 并生成 `contentVersion`。模块审核、排期、发布、撤回、回滚和失败记录以追加事件保存，由 `fortuneDate` 级 `ContentLifecycleProjection` 与 `lifecycleRevision` 提供并发安全的当前状态；任何编辑过模块的人不得审核同一模块。
+Five 在草稿提交时冻结 `ContentSnapshotPayload` 并生成 `contentVersion`。审核、排期、发布、撤回、回滚和失败记录以追加事件保存，由 `fortuneDate` 级 `ContentLifecycleProjection` 与 `lifecycleRevision` 提供并发安全的当前状态。P0 由一名维护者操作，大师在系统外核对并留下依据，具体保护规则见 ADR-0011 与 ADR-0015。
 
-`posterTemplateVersion` 属于内容快照并参与审核。按 `sourcePlatform + targetPlatform + channelId` 生成的 `posterInstanceId` 是派生制品，只记录 `sourceContentVersion`，不反向修改内容快照。
+`posterTemplateVersion` 属于内容快照并参与审核。按 `channelId` 生成的 `posterInstanceId` 是派生制品，只记录 `sourceContentVersion`，不反向修改内容快照。
 
 ## 影响
 

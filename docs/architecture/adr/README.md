@@ -33,3 +33,4 @@
 - [ADR-0014：公开保留吉档名称并用配饰给出平衡建议](0014-public-tier-labels-and-accessory-balance-advice.md)
 - [ADR-0015：单人维护版使用八个清晰的内容状态](0015-single-operator-content-states.md)
 - [ADR-0016：提前批量生成每日图片，Codex 为主、中转为备用](0016-offline-image-batches-with-codex-and-relay-fallback.md)
+- [ADR-0017：OpenAPI 是网页、后台和后端接口的唯一事实源](0017-openapi-as-interface-source-of-truth.md)

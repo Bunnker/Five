@@ -5,7 +5,7 @@
 > 首发形态：手机优先的响应式公开网页，用户通过微信群里的普通链接直接访问
 > 当前开发范围：公共每日五行、穿搭方案、每日图片、分享、设置与帮助、单人运营后台
 > 暂不开发：微信小程序、App、登录、账户、收藏、主动提醒、出生信息、个人五行、商品和吉祥物
-> 文档状态：技术启动评审有条件通过；完成接口字段冻结和后台登录方案后可进入功能开发，完成部署与上线门槛后才可公开测试
+> 文档状态：技术启动评审有条件通过；公共网页和后台接口已经冻结，可开始工程骨架与公共读取功能，后台写操作仍需先确认登录方案，完成部署与上线门槛后才可公开测试
 > 本次修订：确认网页、后端、缓存、内容状态、日历黄金数据和图片主管线，并把原双端方案收束为网页验证版
 
 [[PAGEBREAK]]
@@ -494,7 +494,7 @@ P0 不显示收藏、登录、购买、商品、吉祥物或“即将上线”�
 
 ### 共同要求
 
-- 分享参数至少包含 `fortuneDate`、`expectedContentVersion` 和 `channelId`；`platform` 固定为 `web`；
+- 分享参数至少包含 `fortuneDate`、`expectedContentVersion` 和 `channelId`；P0 只有网页，不额外传端类型；
 - 分享链接不得携带出生信息、账户标识等敏感字段；
 - 渠道参数不得改变五行、档位和搭配正文；
 - 同一内容可按 `channelId` 生成多个海报实例，正文与 `sourceContentVersion` 一致，只允许入口码和渠道标识不同。
@@ -639,7 +639,7 @@ P1 的 O02B 增加：自定义标签管理、场景与人群筛选 UI、穿搭�
 - 接口错误、图片失败、内容错误和投诉；
 - 每日内容生成、审核、发布和回滚状态；
 - 23:00 切换成功率；
-- 按 `platform`、`channelId` 和 `contentVersion` 筛选。
+- 按 `channelId` 和 `contentVersion` 筛选。
 
 ## 16.5 O04B 增长分析（P1）
 
@@ -793,6 +793,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
 
 ## 17.1 API 通用约定
 
+- 字段、请求、响应、状态枚举、错误码和示例的唯一事实源是 [`docs/api/openapi.yaml`](../api/openapi.yaml)；本章解释业务含义，不另行维护第二套接口；
 - 公共接口前缀：`/api/v1`；后台接口前缀：`/admin/api/v1`；
 - 时间使用带时区的 ISO 8601，命理日期使用 `YYYY-MM-DD`；
 - 固定业务时区为 `Asia/Shanghai`；
@@ -800,8 +801,8 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
 - 服务端负责计算 `responseGeneratedAt`、`civilDate`、`fortuneDate` 和 `shichen`，不信任客户端设备时间；
 - `responseGeneratedAt` 表示当前响应表示在源站或边缘层生成时的服务端时刻，不承诺等于用户收到缓存响应时的实时服务器时钟；客户端不得用它自行推进业务日期或时辰；
 - 公开网页使用同一业务 API，后台只通过后台接口操作内容；
-- 客户端使用 `X-Client-Platform: web` 上报平台，该字段不得影响算法结果；
-- 客户端可使用 `X-Channel-Id` 上报渠道，渠道字段不得改变正文；
+- P0 只有网页端，接口不传 `platform`、`sourcePlatform` 或 `targetPlatform`；
+- 需要区分普通链接、海报或其他分发来源时使用 `channelId`，该字段不得改变正文、日期、档位或图片；
 - API 版本与 `algorithmVersion` 相互独立，客户端不得从版本字符串推断规则；
 - `contentVersion` 是不透明唯一标识，客户端不得解析其字符串含义；
 - 公共 API 只返回活跃的已发布快照，不返回内部审核状态；
@@ -842,6 +843,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
         "tierCode": "da_ji",
         "algorithmLabel": "大吉",
         "displayLabel": "今日优先",
+        "displaySection": "primary",
         "element": "fire",
         "elementLabel": "火",
         "colors": [
@@ -858,6 +860,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
         "tierCode": "ci_ji",
         "algorithmLabel": "次吉",
         "displayLabel": "稳妥选择",
+        "displaySection": "primary",
         "element": "wood",
         "elementLabel": "木",
         "colors": [
@@ -875,6 +878,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
         "tierCode": "ping",
         "algorithmLabel": "平",
         "displayLabel": "日常可穿",
+        "displaySection": "primary",
         "element": "metal",
         "elementLabel": "金",
         "colors": [
@@ -892,6 +896,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
         "tierCode": "jiao_cha",
         "algorithmLabel": "较差",
         "displayLabel": "注意",
+        "displaySection": "attention",
         "element": "water",
         "elementLabel": "水",
         "colors": [
@@ -909,6 +914,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
         "tierCode": "bu_li",
         "algorithmLabel": "不利",
         "displayLabel": "注意",
+        "displaySection": "attention",
         "element": "earth",
         "elementLabel": "土",
         "colors": [
@@ -922,6 +928,12 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
         "explanation": "今日建议减少使用；已经穿了可用大吉色小配饰做平衡。"
       }
     ],
+    "balanceSuggestion": {
+      "title": "已经穿了注意色",
+      "description": "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。",
+      "preferredTierCode": "da_ji",
+      "accessoryExamples": ["丝巾", "包", "鞋", "耳饰"]
+    },
     "outfitFormulas": [
       {
         "formulaId": "formula-mono-01",
@@ -978,11 +990,13 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
           "url": "https://cdn.example.com/assets/hash.webp",
           "width": 1200,
           "height": 1600,
+          "mediaType": "image/webp",
           "altText": "红色上衣、绿色下装和白色配饰的通勤穿搭",
-          "aiGenerated": true
+          "aiGenerated": true,
+          "aiDisclosure": "AI 生成穿搭示意图"
         },
         "detailImages": [
-          {"assetId": "asset_look_main_detail", "url": "https://cdn.example.com/assets/main-detail-hash.webp", "altText": "红色上衣、绿色下装和白色配饰的细节"}
+          {"assetId": "asset_look_main_detail", "url": "https://cdn.example.com/assets/main-detail-hash.webp", "width": 1200, "height": 1600, "mediaType": "image/webp", "altText": "红色上衣、绿色下装和白色配饰的细节", "aiGenerated": true, "aiDisclosure": "AI 生成穿搭示意图"}
         ],
         "items": [
           {"category": "top", "categoryLabel": "上衣", "colorCode": "red", "description": "红色简洁上衣"},
@@ -991,8 +1005,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
         ],
         "alternatives": [
           {"replaceCategory": "accessory", "description": "无法更换整套衣服时，可用白色包或耳饰替代。"}
-        ],
-        "aiDisclosure": "AI 生成穿搭示意图"
+        ]
       },
       {
         "lookId": "look-alt-01",
@@ -1008,18 +1021,19 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
           "url": "https://cdn.example.com/assets/alt-01-cover-hash.webp",
           "width": 1200,
           "height": 1600,
+          "mediaType": "image/webp",
           "altText": "红粉同色系日常穿搭",
-          "aiGenerated": true
+          "aiGenerated": true,
+          "aiDisclosure": "AI 生成穿搭示意图"
         },
         "detailImages": [
-          {"assetId": "asset_look_alt_01_detail", "url": "https://cdn.example.com/assets/alt-01-detail-hash.webp", "altText": "红粉同色系材质细节"}
+          {"assetId": "asset_look_alt_01_detail", "url": "https://cdn.example.com/assets/alt-01-detail-hash.webp", "width": 1200, "height": 1600, "mediaType": "image/webp", "altText": "红粉同色系材质细节", "aiGenerated": true, "aiDisclosure": "AI 生成穿搭示意图"}
         ],
         "items": [
           {"category": "top", "categoryLabel": "上衣", "colorCode": "pink_family", "description": "低饱和粉色上衣"},
           {"category": "bottom", "categoryLabel": "下装", "colorCode": "red", "description": "深红色下装"}
         ],
-        "alternatives": [],
-        "aiDisclosure": "AI 生成穿搭示意图"
+        "alternatives": []
       },
       {
         "lookId": "look-alt-02",
@@ -1035,18 +1049,19 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
           "url": "https://cdn.example.com/assets/alt-02-cover-hash.webp",
           "width": 1200,
           "height": 1600,
+          "mediaType": "image/webp",
           "altText": "红色上衣和绿色下装的日常穿搭",
-          "aiGenerated": true
+          "aiGenerated": true,
+          "aiDisclosure": "AI 生成穿搭示意图"
         },
         "detailImages": [
-          {"assetId": "asset_look_alt_02_detail", "url": "https://cdn.example.com/assets/alt-02-detail-hash.webp", "altText": "红绿双色穿搭细节"}
+          {"assetId": "asset_look_alt_02_detail", "url": "https://cdn.example.com/assets/alt-02-detail-hash.webp", "width": 1200, "height": 1600, "mediaType": "image/webp", "altText": "红绿双色穿搭细节", "aiGenerated": true, "aiDisclosure": "AI 生成穿搭示意图"}
         ],
         "items": [
           {"category": "top", "categoryLabel": "上衣", "colorCode": "red", "description": "红色上衣"},
           {"category": "bottom", "categoryLabel": "下装", "colorCode": "green", "description": "绿色下装"}
         ],
-        "alternatives": [],
-        "aiDisclosure": "AI 生成穿搭示意图"
+        "alternatives": []
       }
     ],
     "basis": {
@@ -1056,10 +1071,8 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
     "share": {
       "summaryText": "今日木日，优先参考红、橙、紫、粉色系。",
       "copyText": "今日穿搭参考：优先火色，稳妥选择木色。",
-      "poster": {
-        "posterTemplateVersion": "poster-template-v3",
-        "jobEndpoint": "/api/v1/poster-jobs"
-      }
+      "posterTemplateVersion": "poster-template-v3",
+      "posterJobEndpoint": "/api/v1/poster-jobs"
     },
     "versions": {
       "contentVersion": "fd-20260715-r3",
@@ -1081,15 +1094,17 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
 - 客户端只消费服务端给出的日期、时辰和跨日结果，不根据 `responseGeneratedAt` 或设备时钟自行重算；
 - `tiers` 必须恰好五项，`rank` 为 1–5 且不可重复；
 - `tierCode` 固定为 `da_ji`、`ci_ji`、`ping`、`jiao_cha`、`bu_li`；
-- `tiers` 是内部完整答案；公开网页把 `jiao_cha` 与 `bu_li` 合并为一张“注意”卡，同时保留两组颜色和各自关系说明；
+- `tiers` 是内部完整答案；`displaySection` 固定告诉网页把前三档放入 `primary`、把 `jiao_cha` 与 `bu_li` 合并到 `attention`，网页不得重新推算分组；
+- `balanceSuggestion` 单独返回，始终只建议用大吉色普通配饰做小面积补充；
 - `element` 固定为 `wood`、`fire`、`earth`、`metal`、`water`；
 - `colorCode` 只能来自已审核颜色表，前端不得根据 HEX 或图片色相重新归行；
 - `outfitFormulas` 至少包含单色、双色、三色各一项；
 - 三色方案填写比例时，比例之和必须等于 100；未确认的比例返回 `null`；
 - 每日恰有 2 个 `requiredForPublish = true` 的图片方案，第 3 个方案为可选；必备图不可用时必须明确使用已审核降级模板；
+- 公开图片只返回展示所需的 URL、尺寸、格式、替代文字和 AI 说明；文件校验值、权利记录和内部检查状态只出现在后台；
 - 所有 `formulaId`、`lookId`、`colorCode` 和 `assetId` 引用在发布前通过完整性校验；
 - 图片 URL 必须包含内容哈希或版本路径，禁止覆盖同一 URL 下的文件；
-- `posterTemplateVersion` 被 `contentVersion` 锁定；按平台与渠道生成的 `posterInstanceId` 是派生制品，不回写内容快照，也不改变 `contentVersion`；
+- `posterTemplateVersion` 被 `contentVersion` 锁定；按渠道生成的 `posterInstanceId` 是派生制品，不回写内容快照，也不改变 `contentVersion`；
 - `civilDate` 只属于请求上下文，不写入不可变内容快照；
 - `reviewStatus` 只出现在后台接口，不出现在公共响应。
 
@@ -1112,15 +1127,13 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
 {
   "fortuneDate": "2026-07-15",
   "expectedContentVersion": "fd-20260715-r3",
-    "sourcePlatform": "web",
-    "targetPlatform": "web",
   "channelId": "organic"
 }
 ```
 
 `Idempotency-Key` 使用 UUID v4 或等价的高熵不透明值。同一业务意图的网络重试必须复用同一键；请求参数、`fortuneDate` 或 `expectedContentVersion` 变化时必须生成新键。服务端按“调用方 + 接口 + 幂等键”确定作用域并保留足以覆盖客户端重试窗口的结果；同一键配不同规范化请求体返回 `409 IDEMPOTENCY_KEY_REUSED`。
 
-P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expectedContentVersion` 不是该 `fortuneDate` 的当前活跃版本，服务端必须返回 `409 CONTENT_VERSION_CHANGED`，不得创建任务；客户端整包刷新后再重试。创建与查询任务使用同一响应结构；`status` 只允许 `processing`、`ready`、`failed` 或 `version_changed`，非 `ready` 时可为空的制品字段返回 `null`：
+P0 只有网页端，不传来源平台或目标平台。如果 `expectedContentVersion` 不是该 `fortuneDate` 的当前活跃版本，服务端必须返回 `409 CONTENT_VERSION_CHANGED`，不得创建任务；客户端整包刷新后再重试。创建与查询任务使用同一响应结构；`status` 只允许 `processing`、`ready`、`failed` 或 `version_changed`，非 `ready` 时可为空的制品字段返回 `null`：
 
 ```json
 {
@@ -1129,9 +1142,7 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
   "sourceContentVersion": "fd-20260715-r3",
   "currentActiveContentVersion": "fd-20260715-r3",
   "posterTemplateVersion": "poster-template-v3",
-  "posterInstanceId": "poster_fd-20260715-r3_web_web_organic_01",
-  "sourcePlatform": "web",
-  "targetPlatform": "web",
+  "posterInstanceId": "poster_fd-20260715-r3_organic_01",
   "channelId": "organic",
   "assetUrl": "https://cdn.example.com/posters/instance-hash.webp",
   "entry": {
@@ -1155,7 +1166,6 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
   "message": "图片主色与文字配方不一致",
   "fortuneDate": "2026-07-15",
   "contentVersion": "fd-20260715-r3",
-  "platform": "web",
   "channelId": "organic",
   "contact": null
 }
@@ -1163,15 +1173,15 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
 
 `category` 只允许 `content_error` 或 `product_feedback`；`message` 必填并限制长度，`contact` 可空且单独取得用户同意。成功返回 `202` 和 `feedbackId`，服务端记录 `X-Request-Id`、限流结果与处理状态。
 
-`GET /api/v1/daily/{fortuneDate}` 可携带 `expectedContentVersion`。旧版本被回滚或撤回时，接口返回当前安全版本，并附带：
+`GET /api/v1/daily/{fortuneDate}` 可携带 `expectedContentVersion`。链接绑定的旧版本已经被新版本替代时，接口返回当前安全版本，并附带：
 
 ```json
 {
   "resolution": {
-    "expectedContentVersion": "fd-20260715-r3",
-    "servedContentVersion": "fd-20260715-r2",
+    "expectedContentVersion": "fd-20260715-r2",
+    "servedContentVersion": "fd-20260715-r3",
     "versionChanged": true,
-    "reason": "rolled_back"
+    "reason": "replaced"
   }
 }
 ```
@@ -1189,7 +1199,7 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
 | `GET` | `/admin/api/v1/daily-content-versions?fortuneDate=...` | 查看该日全部版本 |
 | `GET` | `/admin/api/v1/daily-content-versions/{contentVersion}` | 查看快照、检查项、大师确认依据和发布记录 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/master-review-evidence` | 登记大师在系统外的确认依据 |
-| `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/approve` | 运行必审检查并批准或退回 |
+| `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/review-decision` | 运行必审检查并批准或退回 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/schedule` | 设置定时生效 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/cancel-schedule` | 取消排期并回到已批准 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/publish` | 立即发布 |
@@ -1224,7 +1234,7 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
 }
 ```
 
-模块内容沿用第 17.2 节对象、枚举与引用约束：`calendar_algorithm` 管理 `calendar + tiers + calendar versions`，`copy_and_formula` 管理摘要、依据与 `outfitFormulas`，`visual_and_rights` 管理 `looks`、素材哈希与权利记录，`poster_consistency` 管理海报模板选择和渲染样张。编辑接口只允许修改 `draft`，成功返回更新后的模块与 `draftRevision`。
+模块内容沿用第 17.2 节对象、枚举与引用约束：`calendar_algorithm` 管理 `calendar`、`tiers` 和日历/算法版本，`copy_and_formula` 管理摘要、依据、`outfitFormulas` 和文案/搭配版本，`visual_and_rights` 管理 `looks`、素材哈希、素材清单版本与权利记录，`poster_consistency` 管理海报模板版本和渲染样张。编辑接口只允许修改 `draft`，成功返回更新后的模块与 `draftRevision`。
 
 `submit` 不接收业务内容，请求体为空，必须携带当前草稿 `If-Match` 和 `Idempotency-Key`。成功冻结载荷并返回：
 
@@ -1241,16 +1251,16 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
 
 ### 后台写操作约定
 
-- `PATCH` 草稿必须使用 `If-Match: "<draftRevision>"`；成功响应通过 `ETag` 返回新的草稿修订号；
+- `PATCH` 草稿必须原样回传上次响应中的草稿 `ETag`，例如 `If-Match: "draft:7"`；成功响应返回新的草稿 ETag；
 - `submit` 使用草稿 `If-Match` 校验冻结前版本并必须携带 `Idempotency-Key`；成功后的 `ETag` 改为表示新建生命周期聚合的 `lifecycleRevision`；
-- 登记大师确认依据、批准、排期、取消排期、发布、撤回和回滚必须使用 `If-Match: "<lifecycleRevision>"`；
+- 登记大师确认依据、批准、排期、取消排期、发布、撤回和回滚必须原样回传内容版本 ETag，例如 `If-Match: "lifecycle:12"`；
 - `submit` 及所有状态变化动作必须携带 `Idempotency-Key`，网络重试不得重复创建快照或重复发布；
 - 批准动作必须一次检查：大师确认依据、366 日机器比对状态、文案、两张必备图片、权利记录、AI 标识、海报样张和引用完整性；
 - 退回时必须填写原因；发布、撤回和回滚必须记录操作者、原因、请求标识、前后状态及内容版本；
-- `expectedActiveVersion` 必填但允许为 `null`，用于防止旧页面覆盖新版本；
+- `expectedActiveContentVersion` 必填但允许为 `null`，用于防止旧页面覆盖新版本；
 - 撤回可带安全替代版本；不带替代版本时公共端进入“今日内容校验中”；
 - 动作成功必须返回新的 `lifecycleRevision`、全部状态变化和事务完成后的 `activeContentVersion`；
-- 后台登录方式必须在正式开发前按 ADR-0011 和 Issue #2 的阻塞清单冻结；本节只固定行为，不代表字段已经完成最终冻结。
+- 字段、枚举、错误码和示例已经冻结在 OpenAPI；后台登录、二次确认、找回和紧急停止方式仍需按 ADR-0011 与 Issue #31 确认。
 
 ## 17.5 错误响应
 
@@ -1272,10 +1282,11 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
 | 400 | `INVALID_FORTUNE_DATE` | 命理日期格式或范围错误 |
 | 401 | `UNAUTHENTICATED` | 后台未登录 |
 | 403 | `FORBIDDEN` | 无对应权限 |
+| 404 | `RESOURCE_NOT_FOUND` | 后台资源或海报任务不存在 |
 | 404 | `CONTENT_NOT_FOUND` | 指定日期没有可公开内容 |
 | 404 | `LOOK_NOT_FOUND` | 搭配不存在于当前版本 |
 | 409 | `CONTENT_VERSION_CHANGED` | 客户端版本与活跃版本不同 |
-| 409 | `VERSION_CONFLICT` | 草稿被他人更新或活跃指针已变化 |
+| 409 | `ACTIVE_CONTENT_VERSION_CHANGED` | 后台旧页面看到的活跃版本已经变化 |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | 同一幂等键被用于不同请求体 |
 | 409 | `INVALID_STATE_TRANSITION` | 当前状态不允许该操作 |
 | 409 | `VERSION_WITHDRAWN` | 尝试发布或回滚到已撤回版本 |
@@ -1320,7 +1331,7 @@ P0 中 `sourcePlatform` 与 `targetPlatform` 都固定为 `web`。如果 `expect
 }
 ```
 
-任一业务内容组成部分或海报模板变化都生成新的 `contentVersion` 并重新走对应模块审核。按既定模板、平台和渠道派生的 `posterInstanceId` 不属于该组合；只重渲染入口码或渠道标识不生成新 `contentVersion`。不得只替换图片或文案而继续沿用旧版本。
+任一业务内容组成部分或海报模板变化都生成新的 `contentVersion` 并重新走对应模块审核。按既定模板和 `channelId` 派生的 `posterInstanceId` 不属于该组合；只重渲染入口码或渠道标识不生成新 `contentVersion`。不得只替换图片或文案而继续沿用旧版本。
 
 ## 17.8 网页、后台与 Worker 的复用边界
 
@@ -1341,18 +1352,14 @@ P0 不使用跨端框架，也不开发小程序客户端。所有埋点至少�
 
 ```json
 {
-  "platform": "web",
-  "sourcePlatform": "web | null",
-  "targetPlatform": "web | null",
   "fortuneDate": "2026-07-15",
   "contentVersion": "fd-20260715-r3",
   "channelId": "organic",
-  "anonymousId": "channel_local_id",
-  "userId": null
+  "anonymousId": "channel_local_id"
 }
 ```
 
-`platform` 是事件实际运行端；`sourcePlatform` 与 `targetPlatform` 只在分享、海报和落地链路中填写，其他事件可为 `null`。`anonymousId` 仅用于隐私政策允许的匿名分析，P0 不建立用户账户或跨设备身份。
+P0 只有网页端，因此事件不传端类型、来源端、目标端或用户账号字段。`channelId` 只表示普通链接、海报等分发来源；`anonymousId` 仅用于隐私政策允许的匿名分析，P0 不建立用户账户、跨设备身份或个人画像。
 
 # 18. 个人五行/八字模块（P2，方向记录）
 
@@ -1493,7 +1500,7 @@ P0 不使用跨端框架，也不开发小程序客户端。所有埋点至少�
 - `share_summary_initiated`：用户触发系统分享或复制摘要链接时记录，不宣称外部发送成功；
 - `share_poster_initiated`：用户从海报页发起可观测分享动作时记录；
 - `poster_save_requested`、`poster_save_succeeded`、`poster_save_failed`：分别记录保存请求及最终结果；
-- `poster_landing_view`：入口页成功解析后记录，属性至少含 `posterInstanceId`、`sourcePlatform`、`targetPlatform`、`sourceContentVersion` 和 `servedContentVersion`；
+- `poster_landing_view`：入口页成功解析后记录，属性至少含 `posterInstanceId`、`channelId`、`sourceContentVersion` 和 `servedContentVersion`；
 - `fortune_date_switch_result`：页面内跨日检查完成时记录，属性含 `result = succeeded | failed`、切换前后日期和失败原因；
 - `open_algorithm_basis`；
 - `submit_feedback`：提交反馈时记录，属性含 `category = content_error | product_feedback` 与提交结果；
@@ -1586,7 +1593,7 @@ P2：
 
 - `tiers` 数量不为 5、排名重复或颜色引用无效时发布预检失败；
 - 旧 `contentVersion` 的搭配详情请求返回 `CONTENT_VERSION_CHANGED`，客户端整包刷新；
-- 旧页面修改已更新草稿时收到 `VERSION_CONFLICT`；
+- 旧页面修改已更新草稿时收到 `REVISION_MISMATCH`；
 - 大师确认依据缺失时收到 `MASTER_REVIEW_EVIDENCE_MISSING`；
 - 任一必审检查未通过时收到 `REQUIRED_REVIEW_MISSING`；
 - 重复发送相同幂等键的发布或回滚请求只执行一次；
@@ -1642,10 +1649,10 @@ P0 技术启动评审已确认：
 - 日历黄金数据：工程侧固定答案表覆盖连续 366 个命理日，大师书面复核连续 30 日及边界样本；
 - 图片主管线：离线批量生成，Codex + GPT Image 2 为首选，现有中转接口为可替换备用；每天 2 张必备、最多 1 张可选，先做 30 天再决定是否扩到一年；
 - 公开档位：展示大吉、次吉、平和“注意”；内部仍保留完整五档。
+- 接口契约：公共网页和单人后台的字段、枚举、错误码、版本并发保护与完整例子统一冻结在 `docs/api/openapi.yaml`；P0 不传端类型，只在需要区分分发来源时传 `channelId`。
 
 尚未解除的开发阻塞：
 
-- 必须先冻结 OpenAPI 字段、枚举、错误码和 `contentVersion` 语义，才能开始依赖接口的功能开发；
 - 必须先确定单人后台登录方案，才能开发后台写操作。
 
 尚未解除的公开上线阻塞：
@@ -1682,16 +1689,16 @@ P0 技术启动评审已确认：
 
 ## 26.1 当前结论
 
-V2.3 已完成 P0 技术启动评审并有条件通过。文档、工程骨架、日历黄金数据和静态页面准备可以开始；依赖接口的功能开发必须等接口字段冻结，后台写功能必须等登录方案冻结。服务器与 CDN 暂未确认，不阻止本地开发，但阻止公开上线。
+V2.3 已完成 P0 技术启动评审并有条件通过，公共网页和后台接口也已冻结。工程骨架、日历黄金数据、公共读取接口和网页功能可以开始；后台写功能必须等登录方案冻结。服务器与 CDN 暂未确认，不阻止本地开发，但阻止公开上线。
 
 ## 26.2 建议工作流
 
 建议按 GitHub Issues 中的 P0 票据顺序推进：
 
-1. 同步并确认 V2.3 文档；
-2. 冻结公共 API、后台 API、字段枚举与 `contentVersion` 语义；
-3. 冻结单人后台登录和安全边界；
-4. 建立 Next.js、NestJS、PostgreSQL 的工程骨架；
+1. 已同步并确认 V2.3 文档；
+2. 已冻结公共 API、后台 API、字段枚举与 `contentVersion` 语义；
+3. 建立 Next.js、NestJS、PostgreSQL 的工程骨架，并按 OpenAPI 生成或校验接口类型；
+4. 冻结单人后台登录和安全边界；
 5. 完成 366 日黄金数据和边界测试；
 6. 实现公开网页，再实现单人后台；
 7. 接入发布、撤回、回滚、缓存失效和图片降级；
@@ -1705,7 +1712,8 @@ V2.3 已完成 P0 技术启动评审并有条件通过。文档、工程骨架�
 - 公开保留大吉、次吉、平，把两个负向档合并为“注意”，加入大吉色普通配饰平衡建议；
 - 确认固定日历答案表、366 日机器比对和 30 日大师复核；
 - 确认图片离线批量生成，Codex + GPT Image 2 为首选，中转接口为可替换备用，每天 2 张必备、最多 1 张可选；
-- 明确接口和后台登录是功能开发阻塞，服务器、域名、存储、CDN 和真实微信验收是公开上线阻塞。
+- 冻结公共网页和后台接口，使用单一 OpenAPI 文件作为字段、枚举、错误码和例子的唯一来源；
+- 明确后台登录是后台写功能的开发阻塞，服务器、域名、存储、CDN 和真实微信验收是公开上线阻塞。
 
 ## 26.4 V2.2 主要变化
 

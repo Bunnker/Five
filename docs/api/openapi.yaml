@@ -1,0 +1,2808 @@
+openapi: 3.1.0
+info:
+  title: Five 网页验证版接口
+  version: 1.0.0
+  summary: 公开网页、单人后台与后端共同使用的 P0 接口契约
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  description: |
+    本文件是 Five P0 接口字段、状态、错误码和版本保护规则的唯一事实源。
+    `contentVersion`、各种 ID 和修订号都是不透明值，调用方不得解析其字符串。
+    P0 只有网页端，因此接口不包含 `platform`、`sourcePlatform` 或 `targetPlatform`。
+    `channelId` 只用于区分链接分发来源，不得改变日期、档位、正文或图片。
+servers:
+  - url: /
+    description: 与网页同源的后端
+tags:
+  - name: Public content
+    description: 匿名用户读取已经发布的内容
+  - name: Public sharing
+    description: 海报、分享落地和反馈
+  - name: Admin drafts
+    description: 单一维护者编辑草稿并提交为不可变内容版本
+  - name: Admin lifecycle
+    description: 大师外部确认、检查、排期、发布、下线与恢复
+  - name: Admin audit
+    description: 单一维护者查看审计记录
+security: []
+
+paths:
+  /api/v1/today:
+    get:
+      operationId: getToday
+      tags: [Public content]
+      summary: 获取服务端当前命理日的已发布内容
+      description: |
+        服务端按 `Asia/Shanghai` 一次性计算完整 `requestContext`。
+        网页不得使用设备时钟重新计算 `civilDate`、`fortuneDate` 或 `shichen`。
+      responses:
+        "200":
+          description: 当前命理日存在可以公开读取的内容
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            X-Content-Version:
+              $ref: "#/components/headers/XContentVersion"
+            ETag:
+              $ref: "#/components/headers/RepresentationETag"
+            Cache-Control:
+              $ref: "#/components/headers/DynamicCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodayResponse"
+              examples:
+                woodDay:
+                  $ref: "#/components/examples/TodaySuccess"
+        "304":
+          description: "`If-None-Match` 对应的完整响应表示仍有效"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            ETag:
+              $ref: "#/components/headers/RepresentationETag"
+            Cache-Control:
+              $ref: "#/components/headers/DynamicCacheControl"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/ContentNotReady"
+
+  /api/v1/daily/{fortuneDate}:
+    get:
+      operationId: getDailyContent
+      tags: [Public content]
+      summary: 获取指定命理日当前安全的公开内容
+      description: |
+        用于分享落地页和既有日期链接，不表示产品提供历史浏览入口。
+        如果调用方提供的预期版本已经被替换、回滚或下线，服务端返回当前安全版本，
+        并在 `resolution` 中说明发生了版本变化。
+      parameters:
+        - $ref: "#/components/parameters/FortuneDate"
+        - $ref: "#/components/parameters/ExpectedContentVersionOptional"
+      responses:
+        "200":
+          description: 返回指定日期当前安全的公开内容
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            X-Content-Version:
+              $ref: "#/components/headers/XContentVersion"
+            ETag:
+              $ref: "#/components/headers/RepresentationETag"
+            Cache-Control:
+              $ref: "#/components/headers/DynamicCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyContentResponse"
+              examples:
+                current:
+                  $ref: "#/components/examples/DailyCurrentSuccess"
+                rolledBack:
+                  $ref: "#/components/examples/DailyVersionChangedSuccess"
+        "400":
+          $ref: "#/components/responses/InvalidFortuneDate"
+        "404":
+          $ref: "#/components/responses/ContentNotFound"
+        "410":
+          $ref: "#/components/responses/HistoricalContentExpired"
+
+  /api/v1/daily/{fortuneDate}/looks/{lookId}:
+    get:
+      operationId: getLookDetail
+      tags: [Public content]
+      summary: 获取指定内容版本中的穿搭详情
+      parameters:
+        - $ref: "#/components/parameters/FortuneDate"
+        - $ref: "#/components/parameters/LookId"
+        - $ref: "#/components/parameters/ExpectedContentVersionRequired"
+      responses:
+        "200":
+          description: 返回与预期内容版本一致的穿搭详情
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            X-Content-Version:
+              $ref: "#/components/headers/XContentVersion"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LookDetailResponse"
+              examples:
+                commute:
+                  $ref: "#/components/examples/LookDetailSuccess"
+        "400":
+          $ref: "#/components/responses/InvalidFortuneDate"
+        "404":
+          $ref: "#/components/responses/LookNotFound"
+        "409":
+          $ref: "#/components/responses/ContentVersionChanged"
+
+  /api/v1/poster-jobs:
+    post:
+      operationId: createPosterJob
+      tags: [Public sharing]
+      summary: 获取已有海报或创建海报渲染任务
+      description: |
+        海报只使用已经发布的内容、已审核图片和已冻结模板，不调用 AI 生图。
+        相同业务意图的网络重试必须复用同一个 `Idempotency-Key`。
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePosterJobRequest"
+            examples:
+              organic:
+                value:
+                  fortuneDate: "2026-07-15"
+                  expectedContentVersion: fd-20260715-r3
+                  channelId: organic
+      responses:
+        "200":
+          description: 已有相同海报实例
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PosterJob"
+        "202":
+          description: 已接受新的渲染任务
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PosterJob"
+              examples:
+                processing:
+                  $ref: "#/components/examples/PosterJobProcessing"
+        "409":
+          description: 内容版本已变化或幂等键被用于另一请求
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/PosterUnavailable"
+
+  /api/v1/poster-jobs/{jobId}:
+    get:
+      operationId: getPosterJob
+      tags: [Public sharing]
+      summary: 查询海报任务状态
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: 返回当前任务状态
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PosterJob"
+              examples:
+                ready:
+                  $ref: "#/components/examples/PosterJobReady"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+
+  /api/v1/feedback-reports:
+    post:
+      operationId: createFeedbackReport
+      tags: [Public sharing]
+      summary: 提交内容纠错或产品建议
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFeedbackRequest"
+            examples:
+              contentError:
+                value:
+                  category: content_error
+                  message: 图片主色与文字配方不一致
+                  fortuneDate: "2026-07-15"
+                  contentVersion: fd-20260715-r3
+                  channelId: organic
+                  contact: null
+      responses:
+        "202":
+          description: 已接收反馈
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateFeedbackResponse"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /admin/api/v1/daily-content-drafts:
+    post:
+      operationId: createDailyContentDraft
+      tags: [Admin drafts]
+      summary: 创建某个命理日的草稿
+      security:
+        - AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDraftRequest"
+            examples:
+              empty:
+                value:
+                  fortuneDate: "2026-07-15"
+                  copyFromContentVersion: null
+      responses:
+        "201":
+          description: 已创建草稿
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            ETag:
+              $ref: "#/components/headers/DraftETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraft"
+              examples:
+                created:
+                  $ref: "#/components/examples/DraftCreated"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /admin/api/v1/daily-content-drafts/{draftId}:
+    get:
+      operationId: getDailyContentDraft
+      tags: [Admin drafts]
+      summary: 查看草稿
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          description: 返回草稿及当前修订号
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            ETag:
+              $ref: "#/components/headers/DraftETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraft"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+
+  /admin/api/v1/daily-content-drafts/{draftId}/modules/{moduleCode}:
+    patch:
+      operationId: updateDailyContentDraftModule
+      tags: [Admin drafts]
+      summary: 修改草稿中的一个内容模块
+      description: |
+        只允许修改 `draft`。请求体必须与路径中的 `moduleCode` 对应。
+        成功后服务端增加 `draftRevision` 并返回新的草稿 ETag。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+        - $ref: "#/components/parameters/ModuleCode"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DraftModuleUpdate"
+      responses:
+        "200":
+          description: 返回更新后的模块和草稿修订号
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            ETag:
+              $ref: "#/components/headers/DraftETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdatedDraftModule"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/InvalidStateTransition"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-drafts/{draftId}/submit:
+    post:
+      operationId: submitDailyContentDraft
+      tags: [Admin drafts]
+      summary: 冻结草稿并创建不可修改的内容版本
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: 已创建 `in_review` 内容版本
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            ETag:
+              $ref: "#/components/headers/LifecycleETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitDraftResult"
+              examples:
+                submitted:
+                  $ref: "#/components/examples/DraftSubmitted"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-versions:
+    get:
+      operationId: listDailyContentVersions
+      tags: [Admin lifecycle]
+      summary: 查看某命理日的全部内容版本
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/FortuneDateQuery"
+      responses:
+        "200":
+          description: 按创建时间倒序返回版本
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [fortuneDate, activeContentVersion, items]
+                properties:
+                  fortuneDate:
+                    $ref: "#/components/schemas/FortuneDate"
+                  activeContentVersion:
+                    oneOf:
+                      - $ref: "#/components/schemas/ContentVersion"
+                      - type: "null"
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ContentVersionSummary"
+        "400":
+          $ref: "#/components/responses/InvalidFortuneDate"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /admin/api/v1/daily-content-versions/{contentVersion}:
+    get:
+      operationId: getDailyContentVersion
+      tags: [Admin lifecycle]
+      summary: 查看不可变内容、状态、检查和大师确认依据
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/ContentVersionPath"
+      responses:
+        "200":
+          description: 返回一个完整内容版本
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            ETag:
+              $ref: "#/components/headers/LifecycleETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminContentVersion"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+
+  /admin/api/v1/daily-content-versions/{contentVersion}/master-review-evidence:
+    post:
+      operationId: addMasterReviewEvidence
+      tags: [Admin lifecycle]
+      summary: 登记大师在系统外留下的确认依据
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/ContentVersionPath"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMasterReviewEvidenceRequest"
+      responses:
+        "200":
+          description: 已登记依据并增加生命周期修订号
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            ETag:
+              $ref: "#/components/headers/LifecycleETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminContentVersion"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/InvalidStateTransition"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-versions/{contentVersion}/review-decision:
+    post:
+      operationId: decideDailyContentReview
+      tags: [Admin lifecycle]
+      summary: 运行必审检查并批准或退回当前内容版本
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/ContentVersionPath"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LifecycleActionSucceeded"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/InvalidStateTransition"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/ReviewMissing"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-versions/{contentVersion}/schedule:
+    post:
+      operationId: scheduleDailyContentVersion
+      tags: [Admin lifecycle]
+      summary: 安排内容版本在指定时间上线
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/ContentVersionPath"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LifecycleActionSucceeded"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/PublishPrecheckFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-versions/{contentVersion}/cancel-schedule:
+    post:
+      operationId: cancelDailyContentSchedule
+      tags: [Admin lifecycle]
+      summary: 取消未生效排期并回到 `approved`
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/ContentVersionPath"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpectedActiveVersionRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LifecycleActionSucceeded"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-versions/{contentVersion}/publish:
+    post:
+      operationId: publishDailyContentVersion
+      tags: [Admin lifecycle]
+      summary: 立即发布已批准的内容版本
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/ContentVersionPath"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpectedActiveVersionRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LifecycleActionSucceeded"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/PublishPrecheckFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-versions/{contentVersion}/withdraw:
+    post:
+      operationId: withdrawDailyContentVersion
+      tags: [Admin lifecycle]
+      summary: 下线当前版本并可同时恢复安全旧版本
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/ContentVersionPath"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LifecycleActionSucceeded"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/PublishPrecheckFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/daily-content-days/{fortuneDate}/rollback:
+    post:
+      operationId: rollbackDailyContentDay
+      tags: [Admin lifecycle]
+      summary: 恢复同一命理日曾经发布且仍安全的旧版本
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/FortuneDate"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/LifecycleActionSucceeded"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/PublishPrecheckFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
+  /admin/api/v1/audit-events:
+    get:
+      operationId: listAuditEvents
+      tags: [Admin audit]
+      summary: 查询内容生命周期审计记录
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/FortuneDateQueryOptional"
+        - name: contentVersion
+          in: query
+          schema:
+            $ref: "#/components/schemas/ContentVersion"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 256
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 返回审计记录
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEventPage"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+components:
+  securitySchemes:
+    AdminSession:
+      type: apiKey
+      in: cookie
+      name: five_admin_session
+      description: |
+        后台受同源安全会话保护。登录、二次确认、找回和紧急控制的具体接口由 Issue #31 冻结；
+        本契约只固定后台业务接口必须经过身份验证。
+
+  parameters:
+    FortuneDate:
+      name: fortuneDate
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/FortuneDate"
+    FortuneDateQuery:
+      name: fortuneDate
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/FortuneDate"
+    FortuneDateQueryOptional:
+      name: fortuneDate
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/FortuneDate"
+    LookId:
+      name: lookId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/OpaqueId"
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/OpaqueId"
+    DraftId:
+      name: draftId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/OpaqueId"
+    ContentVersionPath:
+      name: contentVersion
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/ContentVersion"
+    ModuleCode:
+      name: moduleCode
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/ModuleCode"
+    ExpectedContentVersionOptional:
+      name: expectedContentVersion
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/ContentVersion"
+    ExpectedContentVersionRequired:
+      name: expectedContentVersion
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/ContentVersion"
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: |
+        草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
+        调用方必须原样回传，不能自行拼接。
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 256
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 同一业务意图的网络重试必须复用同一个高熵不透明值。
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+
+  headers:
+    XRequestId:
+      description: 当前外部请求的追踪编号；缓存命中时也必须按请求生成。
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    XContentVersion:
+      description: 当前响应中的业务内容版本。
+      schema:
+        $ref: "#/components/schemas/ContentVersion"
+    RepresentationETag:
+      description: 完整 HTTP 响应表示的校验值，与 `contentVersion` 不是同一概念。
+      schema:
+        type: string
+    DraftETag:
+      description: 草稿当前修订号的强 ETag，例如 `"draft:7"`。
+      schema:
+        type: string
+        example: '"draft:7"'
+    LifecycleETag:
+      description: 内容生命周期当前修订号的强 ETag，例如 `"lifecycle:12"`。
+      schema:
+        type: string
+        example: '"lifecycle:12"'
+    DynamicCacheControl:
+      description: |
+        `public, max-age=0, s-maxage=N, must-revalidate`。
+        N 是 60 秒、内容结束、下一时辰和下一民用午夜剩余秒数中的最小值。
+      schema:
+        type: string
+        example: public, max-age=0, s-maxage=42, must-revalidate
+
+  schemas:
+    FortuneDate:
+      type: string
+      format: date
+      description: Five 命理日；北京时间 23:00 进入下一命理日。
+      example: "2026-07-15"
+    ZonedDateTime:
+      type: string
+      format: date-time
+      example: "2026-07-14T23:30:00+08:00"
+    ContentVersion:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: 不透明内容版本；调用方只能比较相等，不得解析。
+      example: fd-20260715-r3
+    OpaqueId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: 不透明标识；调用方不得解析。
+    NullableContentVersion:
+      oneOf:
+        - $ref: "#/components/schemas/ContentVersion"
+        - type: "null"
+    ElementCode:
+      type: string
+      enum: [wood, fire, earth, metal, water]
+    TierCode:
+      type: string
+      enum: [da_ji, ci_ji, ping, jiao_cha, bu_li]
+    ContentState:
+      type: string
+      enum:
+        - draft
+        - in_review
+        - changes_requested
+        - approved
+        - scheduled
+        - published
+        - superseded
+        - withdrawn
+    ModuleCode:
+      type: string
+      enum:
+        - calendar_algorithm
+        - copy_and_formula
+        - visual_and_rights
+        - poster_consistency
+    RequestContext:
+      type: object
+      additionalProperties: false
+      required:
+        - responseGeneratedAt
+        - civilDate
+        - fortuneDate
+        - shichen
+        - timezone
+        - dayBoundary
+        - crossedDayBoundary
+      properties:
+        responseGeneratedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        civilDate:
+          type: string
+          format: date
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        shichen:
+          type: string
+          enum: [子, 丑, 寅, 卯, 辰, 巳, 午, 未, 申, 酉, 戌, 亥]
+        timezone:
+          type: string
+          const: Asia/Shanghai
+        dayBoundary:
+          type: string
+          const: "23:00"
+        crossedDayBoundary:
+          type: boolean
+    CalendarInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - weekdayText
+        - lunarDateText
+        - ganzhiDay
+        - branch
+        - dayElement
+        - dayElementLabel
+      properties:
+        weekdayText:
+          type: string
+          minLength: 1
+          maxLength: 16
+        lunarDateText:
+          type: string
+          minLength: 1
+          maxLength: 32
+        ganzhiDay:
+          type: string
+          minLength: 2
+          maxLength: 8
+        branch:
+          type: string
+          enum: [子, 丑, 寅, 卯, 辰, 巳, 午, 未, 申, 酉, 戌, 亥]
+        dayElement:
+          $ref: "#/components/schemas/ElementCode"
+        dayElementLabel:
+          type: string
+          enum: [木, 火, 土, 金, 水]
+    ColorRef:
+      type: object
+      additionalProperties: false
+      required: [colorCode, name]
+      properties:
+        colorCode:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+    Tier:
+      type: object
+      additionalProperties: false
+      required:
+        - rank
+        - tierCode
+        - algorithmLabel
+        - displayLabel
+        - displaySection
+        - element
+        - elementLabel
+        - colors
+        - relationText
+        - explanation
+      properties:
+        rank:
+          type: integer
+          minimum: 1
+          maximum: 5
+        tierCode:
+          $ref: "#/components/schemas/TierCode"
+        algorithmLabel:
+          type: string
+          enum: [大吉, 次吉, 平, 较差, 不利]
+        displayLabel:
+          type: string
+          enum: [今日优先, 稳妥选择, 日常可穿, 注意]
+        displaySection:
+          type: string
+          enum: [primary, attention]
+          description: |
+            大吉、次吉、平为 `primary`；较差和不利为 `attention`。
+            网页按此字段合并展示，不自行重算五行关系。
+        element:
+          $ref: "#/components/schemas/ElementCode"
+        elementLabel:
+          type: string
+          enum: [木, 火, 土, 金, 水]
+        colors:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/ColorRef"
+        relationText:
+          type: string
+          minLength: 1
+          maxLength: 64
+        explanation:
+          type: string
+          minLength: 1
+          maxLength: 300
+    BalanceSuggestion:
+      type: object
+      additionalProperties: false
+      required: [title, description, preferredTierCode, accessoryExamples]
+      properties:
+        title:
+          type: string
+          const: 已经穿了注意色
+        description:
+          type: string
+          maxLength: 300
+        preferredTierCode:
+          type: string
+          const: da_ji
+        accessoryExamples:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            type: string
+            maxLength: 32
+    Scenario:
+      type: object
+      additionalProperties: false
+      required: [code, label]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+        label:
+          type: string
+          minLength: 1
+          maxLength: 32
+    Audience:
+      type: object
+      additionalProperties: false
+      required: [code, label]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 64
+        label:
+          type: string
+          minLength: 1
+          maxLength: 32
+    OutfitSlot:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+        - roleLabel
+        - tierCode
+        - colorCodes
+        - ratioPercent
+        - garmentParts
+      properties:
+        role:
+          type: string
+          enum: [primary, secondary, accent]
+        roleLabel:
+          type: string
+          enum: [主色, 辅助色, 点缀色]
+        tierCode:
+          $ref: "#/components/schemas/TierCode"
+        colorCodes:
+          type: array
+          minItems: 1
+          maxItems: 12
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 64
+        ratioPercent:
+          oneOf:
+            - type: integer
+              minimum: 1
+              maximum: 100
+            - type: "null"
+        garmentParts:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            type: string
+            maxLength: 32
+    OutfitFormula:
+      type: object
+      additionalProperties: false
+      required:
+        - formulaId
+        - kind
+        - title
+        - scenario
+        - audience
+        - slots
+        - lookIds
+        - disclaimer
+      properties:
+        formulaId:
+          $ref: "#/components/schemas/OpaqueId"
+        kind:
+          type: string
+          enum: [mono, dual, triple]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 80
+        scenario:
+          $ref: "#/components/schemas/Scenario"
+        audience:
+          $ref: "#/components/schemas/Audience"
+        slots:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/OutfitSlot"
+        lookIds:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/OpaqueId"
+        disclaimer:
+          type: string
+          minLength: 1
+          maxLength: 300
+    PublicImageAsset:
+      type: object
+      additionalProperties: false
+      required:
+        - assetId
+        - url
+        - width
+        - height
+        - mediaType
+        - altText
+        - aiGenerated
+        - aiDisclosure
+      properties:
+        assetId:
+          $ref: "#/components/schemas/OpaqueId"
+        url:
+          type: string
+          format: uri
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        mediaType:
+          type: string
+          enum: [image/avif, image/webp, image/jpeg, image/png]
+        altText:
+          type: string
+          minLength: 1
+          maxLength: 300
+        aiGenerated:
+          type: boolean
+        aiDisclosure:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 100
+            - type: "null"
+    GarmentItem:
+      type: object
+      additionalProperties: false
+      required: [category, categoryLabel, colorCode, description]
+      properties:
+        category:
+          type: string
+          enum: [top, bottom, dress, outerwear, shoes, bag, accessory]
+        categoryLabel:
+          type: string
+          minLength: 1
+          maxLength: 32
+        colorCode:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          minLength: 1
+          maxLength: 120
+    LookAlternative:
+      type: object
+      additionalProperties: false
+      required: [replaceCategory, description]
+      properties:
+        replaceCategory:
+          type: string
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 200
+    PublicLook:
+      type: object
+      additionalProperties: false
+      required:
+        - lookId
+        - formulaId
+        - requiredForPublish
+        - sortOrder
+        - title
+        - scenario
+        - audience
+        - coverImage
+        - detailImages
+        - items
+        - alternatives
+      properties:
+        lookId:
+          $ref: "#/components/schemas/OpaqueId"
+        formulaId:
+          $ref: "#/components/schemas/OpaqueId"
+        requiredForPublish:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 1
+          maximum: 3
+        title:
+          type: string
+          minLength: 1
+          maxLength: 80
+        scenario:
+          $ref: "#/components/schemas/Scenario"
+        audience:
+          $ref: "#/components/schemas/Audience"
+        coverImage:
+          $ref: "#/components/schemas/PublicImageAsset"
+        detailImages:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/PublicImageAsset"
+        items:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/GarmentItem"
+        alternatives:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/LookAlternative"
+    Basis:
+      type: object
+      additionalProperties: false
+      required: [steps, disclaimer]
+      properties:
+        steps:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            type: string
+            maxLength: 300
+        disclaimer:
+          type: string
+          minLength: 1
+          maxLength: 300
+    ShareContent:
+      type: object
+      additionalProperties: false
+      required: [summaryText, copyText, posterTemplateVersion, posterJobEndpoint]
+      properties:
+        summaryText:
+          type: string
+          minLength: 1
+          maxLength: 200
+        copyText:
+          type: string
+          minLength: 1
+          maxLength: 500
+        posterTemplateVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        posterJobEndpoint:
+          type: string
+          const: /api/v1/poster-jobs
+    ContentVersionSet:
+      type: object
+      additionalProperties: false
+      required:
+        - contentVersion
+        - calendarDataVersion
+        - calendarRuleVersion
+        - algorithmVersion
+        - copyVersion
+        - outfitVersion
+        - assetManifestVersion
+        - posterTemplateVersion
+      properties:
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        calendarDataVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        calendarRuleVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        algorithmVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        copyVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        outfitVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        assetManifestVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        posterTemplateVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+    DailyContent:
+      type: object
+      additionalProperties: false
+      required:
+        - fortuneDate
+        - effectiveFrom
+        - effectiveTo
+        - calendar
+        - tiers
+        - balanceSuggestion
+        - outfitFormulas
+        - looks
+        - basis
+        - share
+        - versions
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        effectiveFrom:
+          $ref: "#/components/schemas/ZonedDateTime"
+        effectiveTo:
+          $ref: "#/components/schemas/ZonedDateTime"
+        calendar:
+          $ref: "#/components/schemas/CalendarInfo"
+        tiers:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/Tier"
+        balanceSuggestion:
+          $ref: "#/components/schemas/BalanceSuggestion"
+        outfitFormulas:
+          type: array
+          minItems: 3
+          items:
+            $ref: "#/components/schemas/OutfitFormula"
+        looks:
+          type: array
+          minItems: 2
+          maxItems: 3
+          description: 恰好两项 `requiredForPublish=true`，第三项如果存在必须为可选。
+          items:
+            $ref: "#/components/schemas/PublicLook"
+        basis:
+          $ref: "#/components/schemas/Basis"
+        share:
+          $ref: "#/components/schemas/ShareContent"
+        versions:
+          $ref: "#/components/schemas/ContentVersionSet"
+    TodayResponse:
+      type: object
+      additionalProperties: false
+      required: [requestContext, content]
+      properties:
+        requestContext:
+          $ref: "#/components/schemas/RequestContext"
+        content:
+          $ref: "#/components/schemas/DailyContent"
+    VersionResolution:
+      type: object
+      additionalProperties: false
+      required:
+        - expectedContentVersion
+        - servedContentVersion
+        - versionChanged
+        - reason
+      properties:
+        expectedContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        servedContentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        versionChanged:
+          type: boolean
+        reason:
+          type: string
+          enum: [current, replaced, rolled_back, withdrawn]
+    DailyContentResponse:
+      type: object
+      additionalProperties: false
+      required: [requestedFortuneDate, content, resolution]
+      properties:
+        requestedFortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        content:
+          $ref: "#/components/schemas/DailyContent"
+        resolution:
+          $ref: "#/components/schemas/VersionResolution"
+    LookDetailResponse:
+      type: object
+      additionalProperties: false
+      required: [fortuneDate, contentVersion, look]
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        look:
+          $ref: "#/components/schemas/PublicLook"
+    CreatePosterJobRequest:
+      type: object
+      additionalProperties: false
+      required: [fortuneDate, expectedContentVersion, channelId]
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        expectedContentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        channelId:
+          type: string
+          minLength: 1
+          maxLength: 64
+    PosterEntry:
+      type: object
+      additionalProperties: false
+      required: [type, landingUrl]
+      properties:
+        type:
+          type: string
+          const: web_qr
+        landingUrl:
+          type: string
+          format: uri
+    PosterJob:
+      type: object
+      additionalProperties: false
+      required:
+        - jobId
+        - status
+        - sourceContentVersion
+        - currentActiveContentVersion
+        - posterTemplateVersion
+        - posterInstanceId
+        - channelId
+        - assetUrl
+        - entry
+      properties:
+        jobId:
+          $ref: "#/components/schemas/OpaqueId"
+        status:
+          type: string
+          enum: [processing, ready, failed, version_changed]
+        sourceContentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        currentActiveContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        posterTemplateVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        posterInstanceId:
+          oneOf:
+            - $ref: "#/components/schemas/OpaqueId"
+            - type: "null"
+        channelId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        assetUrl:
+          oneOf:
+            - type: string
+              format: uri
+            - type: "null"
+        entry:
+          oneOf:
+            - $ref: "#/components/schemas/PosterEntry"
+            - type: "null"
+    CreateFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - category
+        - message
+        - fortuneDate
+        - contentVersion
+        - channelId
+        - contact
+      properties:
+        category:
+          type: string
+          enum: [content_error, product_feedback]
+        message:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        channelId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        contact:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 200
+            - type: "null"
+          description: 只有用户单独同意后才可填写。
+    CreateFeedbackResponse:
+      type: object
+      additionalProperties: false
+      required: [feedbackId, status]
+      properties:
+        feedbackId:
+          $ref: "#/components/schemas/OpaqueId"
+        status:
+          type: string
+          const: received
+    DraftRevision:
+      type: integer
+      minimum: 1
+    LifecycleRevision:
+      type: integer
+      minimum: 1
+    CalendarAlgorithmModule:
+      type: object
+      additionalProperties: false
+      required:
+        - calendar
+        - tiers
+        - calendarDataVersion
+        - calendarRuleVersion
+        - algorithmVersion
+      properties:
+        calendar:
+          $ref: "#/components/schemas/CalendarInfo"
+        tiers:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/Tier"
+        calendarDataVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        calendarRuleVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        algorithmVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+    CopyAndFormulaModule:
+      type: object
+      additionalProperties: false
+      required:
+        - balanceSuggestion
+        - outfitFormulas
+        - basis
+        - share
+        - copyVersion
+        - outfitVersion
+      properties:
+        balanceSuggestion:
+          $ref: "#/components/schemas/BalanceSuggestion"
+        outfitFormulas:
+          type: array
+          minItems: 3
+          items:
+            $ref: "#/components/schemas/OutfitFormula"
+        basis:
+          $ref: "#/components/schemas/Basis"
+        share:
+          $ref: "#/components/schemas/ShareContent"
+        copyVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        outfitVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+    ImageRightsStatus:
+      type: string
+      enum: [pending, cleared, rejected, revoked]
+    ImageReviewStatus:
+      type: string
+      enum: [pending, approved, rejected, withdrawn]
+    AiLabelStatus:
+      type: string
+      enum: [not_applicable, pending, complete, failed]
+    AdminImageAsset:
+      type: object
+      additionalProperties: false
+      required:
+        - assetId
+        - fileUrl
+        - width
+        - height
+        - mediaType
+        - altText
+        - sha256
+        - sourceType
+        - declaredModel
+        - promptVersion
+        - generatedAt
+        - reviewStatus
+        - rightsStatus
+        - aiLabelStatus
+        - rightsRecordIds
+      properties:
+        assetId:
+          $ref: "#/components/schemas/OpaqueId"
+        fileUrl:
+          oneOf:
+            - type: string
+              format: uri
+            - type: "null"
+          description: 上传完成前可为空；公开响应只返回已经审核通过的不可变 URL。
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        mediaType:
+          type: string
+          enum: [image/avif, image/webp, image/jpeg, image/png]
+        altText:
+          type: string
+          minLength: 1
+          maxLength: 300
+        sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        sourceType:
+          type: string
+          enum: [licensed, ai_generated, fallback_template]
+        declaredModel:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 128
+            - type: "null"
+        promptVersion:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 128
+            - type: "null"
+        generatedAt:
+          oneOf:
+            - $ref: "#/components/schemas/ZonedDateTime"
+            - type: "null"
+        reviewStatus:
+          $ref: "#/components/schemas/ImageReviewStatus"
+        rightsStatus:
+          $ref: "#/components/schemas/ImageRightsStatus"
+        aiLabelStatus:
+          $ref: "#/components/schemas/AiLabelStatus"
+        rightsRecordIds:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/OpaqueId"
+    LookDraft:
+      type: object
+      additionalProperties: false
+      required:
+        - lookId
+        - formulaId
+        - requiredForPublish
+        - sortOrder
+        - title
+        - scenario
+        - audience
+        - coverAssetId
+        - detailAssetIds
+        - items
+        - alternatives
+      properties:
+        lookId:
+          $ref: "#/components/schemas/OpaqueId"
+        formulaId:
+          $ref: "#/components/schemas/OpaqueId"
+        requiredForPublish:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 1
+          maximum: 3
+        title:
+          type: string
+          minLength: 1
+          maxLength: 80
+        scenario:
+          $ref: "#/components/schemas/Scenario"
+        audience:
+          $ref: "#/components/schemas/Audience"
+        coverAssetId:
+          $ref: "#/components/schemas/OpaqueId"
+        detailAssetIds:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/OpaqueId"
+        items:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/GarmentItem"
+        alternatives:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/LookAlternative"
+    RightsRecord:
+      type: object
+      additionalProperties: false
+      required: [rightsRecordId, kind, reference, recordedAt]
+      properties:
+        rightsRecordId:
+          $ref: "#/components/schemas/OpaqueId"
+        kind:
+          type: string
+          enum: [license, terms_snapshot, purchase_receipt, consent, internal_record]
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 500
+        recordedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+    VisualAndRightsModule:
+      type: object
+      additionalProperties: false
+      required: [looks, assets, rightsRecords, assetManifestVersion]
+      properties:
+        looks:
+          type: array
+          minItems: 2
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/LookDraft"
+        assets:
+          type: array
+          minItems: 2
+          items:
+            $ref: "#/components/schemas/AdminImageAsset"
+        rightsRecords:
+          type: array
+          items:
+            $ref: "#/components/schemas/RightsRecord"
+        assetManifestVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+    PosterConsistencyModule:
+      type: object
+      additionalProperties: false
+      required: [posterTemplateVersion, templateId, sampleAssetId]
+      properties:
+        posterTemplateVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        templateId:
+          $ref: "#/components/schemas/OpaqueId"
+        sampleAssetId:
+          $ref: "#/components/schemas/OpaqueId"
+    DraftModules:
+      type: object
+      additionalProperties: false
+      required:
+        - calendar_algorithm
+        - copy_and_formula
+        - visual_and_rights
+        - poster_consistency
+      properties:
+        calendar_algorithm:
+          oneOf:
+            - $ref: "#/components/schemas/CalendarAlgorithmModule"
+            - type: "null"
+        copy_and_formula:
+          oneOf:
+            - $ref: "#/components/schemas/CopyAndFormulaModule"
+            - type: "null"
+        visual_and_rights:
+          oneOf:
+            - $ref: "#/components/schemas/VisualAndRightsModule"
+            - type: "null"
+        poster_consistency:
+          oneOf:
+            - $ref: "#/components/schemas/PosterConsistencyModule"
+            - type: "null"
+    ContentDraft:
+      type: object
+      additionalProperties: false
+      required: [draftId, fortuneDate, state, draftRevision, modules, createdAt, updatedAt]
+      properties:
+        draftId:
+          $ref: "#/components/schemas/OpaqueId"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        state:
+          type: string
+          const: draft
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        modules:
+          $ref: "#/components/schemas/DraftModules"
+        createdAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        updatedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+    CreateDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [fortuneDate, copyFromContentVersion]
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        copyFromContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+    DraftModuleUpdate:
+      oneOf:
+        - $ref: "#/components/schemas/CalendarAlgorithmModule"
+        - $ref: "#/components/schemas/CopyAndFormulaModule"
+        - $ref: "#/components/schemas/VisualAndRightsModule"
+        - $ref: "#/components/schemas/PosterConsistencyModule"
+    UpdatedDraftModule:
+      type: object
+      additionalProperties: false
+      required: [draftId, moduleCode, draftRevision, module]
+      properties:
+        draftId:
+          $ref: "#/components/schemas/OpaqueId"
+        moduleCode:
+          $ref: "#/components/schemas/ModuleCode"
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        module:
+          $ref: "#/components/schemas/DraftModuleUpdate"
+    SubmitDraftResult:
+      type: object
+      additionalProperties: false
+      required: [draftId, contentVersion, state, lifecycleRevision]
+      properties:
+        draftId:
+          $ref: "#/components/schemas/OpaqueId"
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        state:
+          type: string
+          const: in_review
+        lifecycleRevision:
+          $ref: "#/components/schemas/LifecycleRevision"
+    PreflightCheck:
+      type: object
+      additionalProperties: false
+      required: [code, status, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - calendar_algorithm
+            - calendar_golden_data
+            - master_review_evidence
+            - copy_and_formula
+            - required_images
+            - visual_and_rights
+            - ai_label
+            - poster_consistency
+            - reference_integrity
+        status:
+          type: string
+          enum: [pending, passed, failed]
+        message:
+          type: string
+          maxLength: 300
+    EvidenceReference:
+      type: object
+      additionalProperties: false
+      required: [kind, reference]
+      properties:
+        kind:
+          type: string
+          enum: [attachment, message_link, document, note]
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 500
+    MasterReviewEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - evidenceId
+        - reviewerDisplayName
+        - reviewedAt
+        - conclusion
+        - notes
+        - references
+      properties:
+        evidenceId:
+          $ref: "#/components/schemas/OpaqueId"
+        reviewerDisplayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        reviewedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        conclusion:
+          type: string
+          enum: [confirmed, changes_requested]
+        notes:
+          type: string
+          maxLength: 2000
+        references:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/EvidenceReference"
+    AddMasterReviewEvidenceRequest:
+      type: object
+      additionalProperties: false
+      required: [reviewerDisplayName, reviewedAt, conclusion, notes, references]
+      properties:
+        reviewerDisplayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        reviewedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        conclusion:
+          type: string
+          enum: [confirmed, changes_requested]
+        notes:
+          type: string
+          maxLength: 2000
+        references:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/EvidenceReference"
+    ContentVersionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - contentVersion
+        - state
+        - lifecycleRevision
+        - createdAt
+        - effectiveFrom
+        - effectiveTo
+      properties:
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        state:
+          $ref: "#/components/schemas/ContentState"
+        lifecycleRevision:
+          $ref: "#/components/schemas/LifecycleRevision"
+        createdAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        effectiveFrom:
+          oneOf:
+            - $ref: "#/components/schemas/ZonedDateTime"
+            - type: "null"
+        effectiveTo:
+          oneOf:
+            - $ref: "#/components/schemas/ZonedDateTime"
+            - type: "null"
+    AdminContentVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - contentVersion
+        - fortuneDate
+        - state
+        - lifecycleRevision
+        - activeContentVersion
+        - snapshot
+        - preflightChecks
+        - masterReviewEvidence
+      properties:
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        state:
+          $ref: "#/components/schemas/ContentState"
+        lifecycleRevision:
+          $ref: "#/components/schemas/LifecycleRevision"
+        activeContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        snapshot:
+          $ref: "#/components/schemas/DraftModules"
+        preflightChecks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreflightCheck"
+        masterReviewEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/MasterReviewEvidence"
+    ReviewDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [approved, changes_requested]
+        reason:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 2000
+            - type: "null"
+          description: "`changes_requested` 时必须填写。"
+    ExpectedActiveVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedActiveContentVersion, reason]
+      properties:
+        expectedActiveContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    ScheduleRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedActiveContentVersion, reason, effectiveFrom]
+      properties:
+        expectedActiveContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        effectiveFrom:
+          $ref: "#/components/schemas/ZonedDateTime"
+    WithdrawRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedActiveContentVersion, reason, replacementContentVersion]
+      properties:
+        expectedActiveContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        replacementContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+    RollbackRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedActiveContentVersion, reason, targetContentVersion]
+      properties:
+        expectedActiveContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        targetContentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+    StateTransition:
+      type: object
+      additionalProperties: false
+      required: [contentVersion, fromState, toState]
+      properties:
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        fromState:
+          $ref: "#/components/schemas/ContentState"
+        toState:
+          $ref: "#/components/schemas/ContentState"
+    LifecycleActionResult:
+      type: object
+      additionalProperties: false
+      required:
+        - fortuneDate
+        - contentVersion
+        - state
+        - lifecycleRevision
+        - activeContentVersion
+        - transitions
+        - auditEventId
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        state:
+          $ref: "#/components/schemas/ContentState"
+        lifecycleRevision:
+          $ref: "#/components/schemas/LifecycleRevision"
+        activeContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        transitions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/StateTransition"
+        auditEventId:
+          $ref: "#/components/schemas/OpaqueId"
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - auditEventId
+        - action
+        - occurredAt
+        - requestId
+        - fortuneDate
+        - contentVersion
+        - reason
+      properties:
+        auditEventId:
+          $ref: "#/components/schemas/OpaqueId"
+        action:
+          type: string
+          minLength: 1
+          maxLength: 80
+        occurredAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        requestId:
+          type: string
+          minLength: 8
+          maxLength: 128
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    AuditEventPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        nextCursor:
+          oneOf:
+            - type: string
+              maxLength: 256
+            - type: "null"
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_ARGUMENT
+        - INVALID_FORTUNE_DATE
+        - UNAUTHENTICATED
+        - FORBIDDEN
+        - RESOURCE_NOT_FOUND
+        - CONTENT_NOT_FOUND
+        - LOOK_NOT_FOUND
+        - CONTENT_VERSION_CHANGED
+        - ACTIVE_CONTENT_VERSION_CHANGED
+        - IDEMPOTENCY_KEY_REUSED
+        - INVALID_STATE_TRANSITION
+        - VERSION_WITHDRAWN
+        - HISTORICAL_CONTENT_EXPIRED
+        - REVISION_MISMATCH
+        - REQUIRED_REVIEW_MISSING
+        - MASTER_REVIEW_EVIDENCE_MISSING
+        - PUBLISH_PRECHECK_FAILED
+        - SCHEDULE_TIME_INVALID
+        - PRECONDITION_REQUIRED
+        - RATE_LIMITED
+        - CONTENT_NOT_READY
+        - POSTER_GENERATION_UNAVAILABLE
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable, requestId, details]
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+        retryable:
+          type: boolean
+        requestId:
+          type: string
+          minLength: 8
+          maxLength: 128
+        details:
+          type: object
+          additionalProperties: true
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error"
+
+  responses:
+    InvalidArgument:
+      description: 请求字段或格式无效
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    InvalidFortuneDate:
+      description: 命理日格式或允许范围无效
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthenticated:
+      description: 后台会话不存在或已失效
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: 幂等键、活跃版本或状态发生冲突
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ContentNotFound:
+      description: 指定命理日没有可公开内容
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    LookNotFound:
+      description: 搭配不存在于当前内容版本
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ResourceNotFound:
+      description: 后台资源或任务不存在
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ContentVersionChanged:
+      description: 网页持有的内容版本不是当前活跃版本
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        X-Content-Version:
+          $ref: "#/components/headers/XContentVersion"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            changed:
+              $ref: "#/components/examples/ContentVersionChangedError"
+    InvalidStateTransition:
+      description: 当前状态不允许执行该动作
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    HistoricalContentExpired:
+      description: 指定日期的公开内容超过保留期
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RevisionMismatch:
+      description: "`If-Match` 不是资源当前修订号"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        ETag:
+          description: 当前资源 ETag，调用方必须刷新后再操作。
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            stale:
+              $ref: "#/components/examples/RevisionMismatchError"
+    ReviewMissing:
+      description: 大师依据或必审检查不完整
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PublishPrecheckFailed:
+      description: 发布、排期或恢复检查未通过
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PreconditionRequired:
+      description: 需要并发保护的写操作缺少 `If-Match`
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: 请求过于频繁
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ContentNotReady:
+      description: 当前命理日还没有可公开内容
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PosterUnavailable:
+      description: 海报暂时不可用，基础每日内容不受影响
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    LifecycleActionSucceeded:
+      description: 状态变化已在一个事务中完成
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        ETag:
+          $ref: "#/components/headers/LifecycleETag"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/LifecycleActionResult"
+          examples:
+            published:
+              $ref: "#/components/examples/LifecycleActionSuccess"
+
+  examples:
+    TodaySuccess:
+      summary: 木日今日内容
+      value:
+        requestContext:
+          responseGeneratedAt: "2026-07-14T23:30:00+08:00"
+          civilDate: "2026-07-14"
+          fortuneDate: "2026-07-15"
+          shichen: 子
+          timezone: Asia/Shanghai
+          dayBoundary: "23:00"
+          crossedDayBoundary: true
+        content: &dailyContentExample
+          fortuneDate: "2026-07-15"
+          effectiveFrom: "2026-07-14T23:00:00+08:00"
+          effectiveTo: "2026-07-15T23:00:00+08:00"
+          calendar:
+            weekdayText: 星期三
+            lunarDateText: 六月初二
+            ganzhiDay: 庚寅
+            branch: 寅
+            dayElement: wood
+            dayElementLabel: 木
+          tiers:
+            - rank: 1
+              tierCode: da_ji
+              algorithmLabel: 大吉
+              displayLabel: 今日优先
+              displaySection: primary
+              element: fire
+              elementLabel: 火
+              colors:
+                - { colorCode: red, name: 红色 }
+                - { colorCode: orange, name: 橙色 }
+              relationText: 木生火
+              explanation: 今日木日，木生火，火为大吉。
+            - rank: 2
+              tierCode: ci_ji
+              algorithmLabel: 次吉
+              displayLabel: 稳妥选择
+              displaySection: primary
+              element: wood
+              elementLabel: 木
+              colors:
+                - { colorCode: green, name: 绿色 }
+              relationText: 木与木同类
+              explanation: 与今日五行相同，作为稳妥选择。
+            - rank: 3
+              tierCode: ping
+              algorithmLabel: 平
+              displayLabel: 日常可穿
+              displaySection: primary
+              element: metal
+              elementLabel: 金
+              colors:
+                - { colorCode: white, name: 白色 }
+              relationText: 金克木
+              explanation: 适合作为日常穿搭参考。
+            - rank: 4
+              tierCode: jiao_cha
+              algorithmLabel: 较差
+              displayLabel: 注意
+              displaySection: attention
+              element: water
+              elementLabel: 水
+              colors:
+                - { colorCode: navy, name: 藏青 }
+              relationText: 水生木
+              explanation: 今日建议降低大面积使用比例。
+            - rank: 5
+              tierCode: bu_li
+              algorithmLabel: 不利
+              displayLabel: 注意
+              displaySection: attention
+              element: earth
+              elementLabel: 土
+              colors:
+                - { colorCode: khaki, name: 卡其 }
+              relationText: 木克土
+              explanation: 今日建议减少使用。
+          balanceSuggestion:
+            title: 已经穿了注意色
+            description: 可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。
+            preferredTierCode: da_ji
+            accessoryExamples: [丝巾, 包, 鞋, 耳饰]
+          outfitFormulas:
+            - formulaId: formula-mono-01
+              kind: mono
+              title: 大吉色同色系
+              scenario: { code: daily, label: 日常 }
+              audience: { code: adult_women, label: 成年女性 }
+              slots:
+                - role: primary
+                  roleLabel: 主色
+                  tierCode: da_ji
+                  colorCodes: [red]
+                  ratioPercent: 100
+                  garmentParts: [上衣, 下装]
+              lookIds: [look-alt-01]
+              disclaimer: 同色系深浅变化属于穿搭参考。
+            - formulaId: formula-dual-01
+              kind: dual
+              title: 大吉 × 次吉
+              scenario: { code: daily, label: 日常 }
+              audience: { code: adult_women, label: 成年女性 }
+              slots:
+                - role: primary
+                  roleLabel: 主色
+                  tierCode: da_ji
+                  colorCodes: [red]
+                  ratioPercent: null
+                  garmentParts: [上衣]
+                - role: secondary
+                  roleLabel: 辅助色
+                  tierCode: ci_ji
+                  colorCodes: [green]
+                  ratioPercent: null
+                  garmentParts: [下装]
+              lookIds: [look-alt-02]
+              disclaimer: 双色比例未固定时返回 null。
+            - formulaId: formula-triple-01
+              kind: triple
+              title: 60/30/10 通勤搭配
+              scenario: { code: commute, label: 通勤 }
+              audience: { code: adult_women, label: 成年女性 }
+              slots:
+                - role: primary
+                  roleLabel: 主色
+                  tierCode: da_ji
+                  colorCodes: [red]
+                  ratioPercent: 60
+                  garmentParts: [上衣]
+                - role: secondary
+                  roleLabel: 辅助色
+                  tierCode: ci_ji
+                  colorCodes: [green]
+                  ratioPercent: 30
+                  garmentParts: [下装]
+                - role: accent
+                  roleLabel: 点缀色
+                  tierCode: ping
+                  colorCodes: [white]
+                  ratioPercent: 10
+                  garmentParts: [配饰]
+              lookIds: [look-main-01]
+              disclaimer: 60/30/10 为穿搭参考，不是五行推算规则。
+          looks:
+            - lookId: look-main-01
+              formulaId: formula-triple-01
+              requiredForPublish: true
+              sortOrder: 1
+              title: 木日通勤主方案
+              scenario: { code: commute, label: 通勤 }
+              audience: { code: adult_women, label: 成年女性 }
+              coverImage:
+                assetId: asset-main
+                url: https://cdn.example.com/assets/main-hash.webp
+                width: 1200
+                height: 1600
+                mediaType: image/webp
+                altText: 红色上衣、绿色下装和白色配饰的通勤穿搭
+                aiGenerated: true
+                aiDisclosure: AI 生成穿搭示意图
+              detailImages: []
+              items:
+                - category: top
+                  categoryLabel: 上衣
+                  colorCode: red
+                  description: 红色简洁上衣
+              alternatives: []
+            - lookId: look-alt-02
+              formulaId: formula-dual-01
+              requiredForPublish: true
+              sortOrder: 2
+              title: 红绿双色日常方案
+              scenario: { code: daily, label: 日常 }
+              audience: { code: adult_women, label: 成年女性 }
+              coverImage:
+                assetId: asset-alt-02
+                url: https://cdn.example.com/assets/alt-02-hash.webp
+                width: 1200
+                height: 1600
+                mediaType: image/webp
+                altText: 红色上衣和绿色下装的日常穿搭
+                aiGenerated: true
+                aiDisclosure: AI 生成穿搭示意图
+              detailImages: []
+              items:
+                - category: top
+                  categoryLabel: 上衣
+                  colorCode: red
+                  description: 红色上衣
+              alternatives: []
+            - lookId: look-alt-01
+              formulaId: formula-mono-01
+              requiredForPublish: false
+              sortOrder: 3
+              title: 红粉同色系日常方案
+              scenario: { code: daily, label: 日常 }
+              audience: { code: adult_women, label: 成年女性 }
+              coverImage:
+                assetId: asset-alt-01
+                url: https://cdn.example.com/assets/alt-01-hash.webp
+                width: 1200
+                height: 1600
+                mediaType: image/webp
+                altText: 红粉同色系日常穿搭
+                aiGenerated: true
+                aiDisclosure: AI 生成穿搭示意图
+              detailImages: []
+              items:
+                - category: top
+                  categoryLabel: 上衣
+                  colorCode: pink_family
+                  description: 粉色上衣
+              alternatives: []
+          basis:
+            steps: [今日干支为庚寅, 日柱地支取寅, 寅属木，因此今日为木日]
+            disclaimer: 内容基于传统文化规则整理，仅供穿搭参考。
+          share:
+            summaryText: 今日木日，优先参考红、橙、紫、粉色系。
+            copyText: 今日穿搭参考：优先火色，稳妥选择木色。
+            posterTemplateVersion: poster-template-v3
+            posterJobEndpoint: /api/v1/poster-jobs
+          versions:
+            contentVersion: fd-20260715-r3
+            calendarDataVersion: calendar-20260715-r1
+            calendarRuleVersion: fortune-date-23h-v1
+            algorithmVersion: wx-public-1.0.0
+            copyVersion: copy-20260715-r2
+            outfitVersion: outfit-20260715-r3
+            assetManifestVersion: assets-20260715-r2
+            posterTemplateVersion: poster-template-v3
+    DailyCurrentSuccess:
+      value:
+        requestedFortuneDate: "2026-07-15"
+        content: *dailyContentExample
+        resolution:
+          expectedContentVersion: fd-20260715-r3
+          servedContentVersion: fd-20260715-r3
+          versionChanged: false
+          reason: current
+    DailyVersionChangedSuccess:
+      value:
+        requestedFortuneDate: "2026-07-15"
+        content: *dailyContentExample
+        resolution:
+          expectedContentVersion: fd-20260715-r2
+          servedContentVersion: fd-20260715-r3
+          versionChanged: true
+          reason: replaced
+    LookDetailSuccess:
+      value:
+        fortuneDate: "2026-07-15"
+        contentVersion: fd-20260715-r3
+        look:
+          lookId: look-main-01
+          formulaId: formula-triple-01
+          requiredForPublish: true
+          sortOrder: 1
+          title: 木日通勤主方案
+          scenario: { code: commute, label: 通勤 }
+          audience: { code: adult_women, label: 成年女性 }
+          coverImage:
+            assetId: asset-main
+            url: https://cdn.example.com/assets/main-hash.webp
+            width: 1200
+            height: 1600
+            mediaType: image/webp
+            altText: 红色上衣、绿色下装和白色配饰的通勤穿搭
+            aiGenerated: true
+            aiDisclosure: AI 生成穿搭示意图
+          detailImages: []
+          items:
+            - category: top
+              categoryLabel: 上衣
+              colorCode: red
+              description: 红色简洁上衣
+          alternatives: []
+    PosterJobProcessing:
+      value:
+        jobId: poster-job-01
+        status: processing
+        sourceContentVersion: fd-20260715-r3
+        currentActiveContentVersion: fd-20260715-r3
+        posterTemplateVersion: poster-template-v3
+        posterInstanceId: null
+        channelId: organic
+        assetUrl: null
+        entry: null
+    PosterJobReady:
+      value:
+        jobId: poster-job-01
+        status: ready
+        sourceContentVersion: fd-20260715-r3
+        currentActiveContentVersion: fd-20260715-r3
+        posterTemplateVersion: poster-template-v3
+        posterInstanceId: poster-instance-01
+        channelId: organic
+        assetUrl: https://cdn.example.com/posters/poster-hash.webp
+        entry:
+          type: web_qr
+          landingUrl: https://example.com/d/2026-07-15?expectedContentVersion=fd-20260715-r3
+    DraftCreated:
+      value:
+        draftId: draft-01
+        fortuneDate: "2026-07-15"
+        state: draft
+        draftRevision: 1
+        modules:
+          calendar_algorithm: null
+          copy_and_formula: null
+          visual_and_rights: null
+          poster_consistency: null
+        createdAt: "2026-07-01T10:00:00+08:00"
+        updatedAt: "2026-07-01T10:00:00+08:00"
+    DraftSubmitted:
+      value:
+        draftId: draft-01
+        contentVersion: fd-20260715-r3
+        state: in_review
+        lifecycleRevision: 1
+    LifecycleActionSuccess:
+      value:
+        fortuneDate: "2026-07-15"
+        contentVersion: fd-20260715-r3
+        state: published
+        lifecycleRevision: 12
+        activeContentVersion: fd-20260715-r3
+        transitions:
+          - contentVersion: fd-20260715-r3
+            fromState: approved
+            toState: published
+        auditEventId: audit-01
+    ContentVersionChangedError:
+      value:
+        error:
+          code: CONTENT_VERSION_CHANGED
+          message: 页面内容版本已经变化，请刷新后重试。
+          retryable: true
+          requestId: req-0001
+          details:
+            expectedContentVersion: fd-20260715-r2
+            currentContentVersion: fd-20260715-r3
+    RevisionMismatchError:
+      value:
+        error:
+          code: REVISION_MISMATCH
+          message: 这份内容已被更新，请刷新后重新操作。
+          retryable: true
+          requestId: req-0002
+          details:
+            suppliedETag: '"lifecycle:11"'
+            currentETag: '"lifecycle:12"'

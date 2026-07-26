@@ -7,11 +7,12 @@
 按以下顺序读取，并以较新的明确决定为准：
 
 1. `docs/product/prd.md`（当前为 V2.3）；
-2. [P0 匿名网页验证版技术启动规格（Issue #1）](https://github.com/Bunnker/Five/issues/1)；
-3. 与任务相关的 `docs/architecture/adr/`；
-4. `docs/domain/glossary.md`；
-5. `docs/design/p0-design-brief.md`；
-6. `docs/reviews/2026-07-26-p0-technical-startup-review.md`。
+2. `docs/api/openapi.yaml` 和 `docs/api/README.md`；
+3. [P0 匿名网页验证版技术启动规格（Issue #1）](https://github.com/Bunnker/Five/issues/1)；
+4. 与任务相关的 `docs/architecture/adr/`；
+5. `docs/domain/glossary.md`；
+6. `docs/design/p0-design-brief.md`；
+7. `docs/reviews/2026-07-26-p0-technical-startup-review.md`。
 
 V2.3 已把“双端首发、多人审核”等旧要求收束为“公开网页、单人维护、大师外部确认”。V2.2 及更早版本只用于历史追溯，不得作为当前开发基线。
 
@@ -23,7 +24,7 @@ V2.3 已把“双端首发、多人审核”等旧要求收束为“公开网页
 - 领域概念和代码命名遵守领域词汇表；
 - 无法由现有记录判断时，停止扩大实现范围，在 GitHub Issue 中提出明确问题。
 
-`ready-for-agent` 表示规格已经可以按顺序执行，不表示所有公开上线条件已经完成。开始依赖接口的功能开发前，应先完成接口字段冻结；开始后台写功能前，还要确认单人后台登录方案。文档、工程骨架和日历黄金数据等不受影响的任务可按 Issue 顺序推进。
+`ready-for-agent` 表示规格已经可以按顺序执行，不表示所有公开上线条件已经完成。P0 接口已冻结在 `docs/api/openapi.yaml`，公开网页、日期模块和工程骨架可以按 Issue 顺序推进；开始后台写功能前，还要确认单人后台登录方案。
 
 ## 2. P0 产品边界
 
@@ -178,8 +179,10 @@ P0 不做：
 - 不允许通过手工改数据库绕过内容状态和核对门槛；
 - 排期、发布、下线、恢复、任务创建和任务失效必须保持事务一致；
 - 使用 `lifecycleRevision`、`scheduleSlotRevision`、`If-Match` 和幂等键处理并发，不能只依赖数据库隔离；
-- OpenAPI 是网页与后端共同接口的事实源；
-- 状态、档位、图片字段和错误码冻结后，从契约生成 TypeScript 类型，不在前后端手写两套枚举；
+- `docs/api/openapi.yaml` 是网页、后台和后端接口的唯一事实源；
+- 状态、档位、图片字段和错误码从契约生成 TypeScript 类型，不在前后端手写两套枚举；
+- 修改接口时先更新 OpenAPI、示例和契约检查，再调整调用方与实现；
+- P0 只有网页端，不得重新加入 `platform`、`sourcePlatform` 或 `targetPlatform`；需要区分分发来源时只使用 `channelId`；
 - 公共响应只返回公开需要的数据，不能泄露草稿、核对凭证、内部备注、密钥或权利材料原件；
 - 外部错误转换为稳定的产品错误，日志保留 `X-Request-Id`，不得记录密钥或完整敏感凭证。
 
@@ -235,7 +238,6 @@ P0 不做：
 
 正式功能开发前：
 
-- 冻结网页、后台和后端共同使用的字段、错误码、图片字段和 `contentVersion` 规则；
 - 确认单人后台的登录、二次确认、账号找回和紧急停止方式。
 
 公开试用前：

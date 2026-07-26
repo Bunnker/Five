@@ -6,7 +6,7 @@ Five 是一个手机优先的每日五行穿搭参考网页。P0 聚焦一个明
 
 - 产品基线：PRD V2.3
 - 发布形态：响应式公开网页；暂不开发微信小程序和 App
-- 当前阶段：P0 技术启动评审有条件通过；接口字段和后台登录方案冻结后开始功能开发
+- 当前阶段：P0 接口已经冻结，可以开始本地工程和公开读取功能；后台写功能仍需先确认登录方案
 - 文档语言：中文
 
 ## 文档入口
@@ -16,6 +16,8 @@ Five 是一个手机优先的每日五行穿搭参考网页。P0 聚焦一个明
 主要入口：
 
 - [产品需求文档](docs/product/prd.md)
+- [OpenAPI 接口契约](docs/api/openapi.yaml)
+- [接口人话说明](docs/api/README.md)
 - [领域词汇表](docs/domain/glossary.md)
 - [架构决策记录](docs/architecture/adr/README.md)
 - [P0 设计修订说明](docs/design/p0-design-brief.md)
