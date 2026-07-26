@@ -1,0 +1,10 @@
+.git/
+node_modules/
+.next/
+dist/
+coverage/
+docs/
+AGENTS.md
+README.md
+pnpm-lock.yaml
+packages/api-contract/src/generated.ts

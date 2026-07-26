@@ -1,0 +1,32 @@
+{
+  "name": "@five/backend",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev:http": "node --watch -r ts-node/register/transpile-only src/main-http.ts",
+    "dev:worker": "node --watch -r ts-node/register/transpile-only src/main-worker.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start:http": "node dist/main-http.js",
+    "start:worker": "node dist/main-worker.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "node-pg-migrate -j mts --envPath ../../.env up",
+    "db:rollback": "node-pg-migrate -j mts --envPath ../../.env down"
+  },
+  "dependencies": {
+    "@five/api-contract": "workspace:*",
+    "@nestjs/common": "^11.1.28",
+    "@nestjs/core": "^11.1.28",
+    "@nestjs/platform-fastify": "^11.1.28",
+    "pg": "^8.22.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "dotenv": "^17.4.2",
+    "node-pg-migrate": "^9.0.0",
+    "ts-node": "^10.9.2"
+  }
+}

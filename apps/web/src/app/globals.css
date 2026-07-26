@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter,
+    "PingFang SC",
+    "Microsoft YaHei",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  background: #f3efe6;
+  color: #302a24;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at 50% 0%, rgb(187 146 75 / 18%), transparent 32rem),
+    linear-gradient(180deg, #f8f4ec 0%, #eee7da 100%);
+}
+
+.shell {
+  display: grid;
+  min-height: 100svh;
+  padding: 24px;
+  place-items: center;
+}
+
+.status-card {
+  width: min(100%, 520px);
+  padding: 40px 32px;
+  border: 1px solid rgb(93 70 38 / 16%);
+  border-radius: 28px;
+  background: rgb(255 253 248 / 90%);
+  box-shadow: 0 24px 80px rgb(64 46 23 / 12%);
+  text-align: center;
+}
+
+.eyebrow {
+  margin: 0 0 18px;
+  color: #9a6d2d;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+}
+
+.status-mark {
+  display: grid;
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 24px;
+  border-radius: 24px;
+  background: #1f5d4b;
+  color: #fff9ed;
+  font-family: "Songti SC", STSong, serif;
+  font-size: 40px;
+  place-items: center;
+}
+
+h1 {
+  margin: 0;
+  font-family: "Songti SC", STSong, serif;
+  font-size: clamp(30px, 8vw, 44px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.lead {
+  margin: 18px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.note {
+  margin: 12px auto 0;
+  color: #70675c;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.process-list {
+  display: grid;
+  gap: 10px;
+  margin: 30px 0 0;
+  text-align: left;
+}
+
+.process-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f1eee7;
+}
+
+.process-list dt {
+  font-weight: 700;
+}
+
+.process-list dd {
+  margin: 0;
+  color: #1f5d4b;
+  font-size: 14px;
+}
+
+@media (max-width: 480px) {
+  .shell {
+    padding: 16px;
+  }
+
+  .status-card {
+    padding: 34px 22px;
+    border-radius: 24px;
+  }
+}

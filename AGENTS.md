@@ -198,7 +198,18 @@ P0 不做：
 - 注释解释“为什么有这条规则”，不要重复代码表面行为；
 - 不为未来小程序、App、多运营人员或微服务预留没有当前调用方的抽象。
 
-具体格式化工具、包管理器、Node.js 版本、数据库迁移工具和测试框架尚未冻结。首次工程搭建时应在 Issue 中明确选择，并只保留一套工具。
+工程工具已经在 Issue #4 冻结，只保留以下一套：
+
+- Node.js 24.14.1，pnpm 10.33.0，版本分别以 `.nvmrc` 和根 `package.json` 为准；
+- pnpm workspace 管理 `apps/web`、`apps/backend` 和 `packages/api-contract`，不引入额外的单仓库编排框架；
+- Prettier 负责格式化，ESLint 负责代码规则，TypeScript `strict` 负责类型检查；
+- Vitest 负责基础测试，网页测试使用 React Testing Library；
+- PostgreSQL 17 由本地 Docker Compose 启动，迁移使用 `node-pg-migrate`，迁移文件必须提交；
+- `pnpm dev` 启动本地数据库、迁移、网页、HTTP 和 Worker；
+- `pnpm check` 统一检查接口契约、格式、代码规则、严格类型和基础测试；
+- `pnpm smoke` 完整构建并真实验证网页、HTTP、Worker 和 PostgreSQL 可以一起工作。
+
+`/health/live` 和 `/health/ready` 只用于判断运行状态，不是产品业务接口，因此不加入产品 OpenAPI。禁止在健康检查中返回密钥、数据库地址或其他敏感配置。
 
 ## 8. 测试规约
 

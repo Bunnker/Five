@@ -1,0 +1,44 @@
+{
+  "name": "five",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=24.14.1 <25",
+    "pnpm": ">=10.33.0 <11"
+  },
+  "scripts": {
+    "dev": "pnpm local:setup && pnpm dev:services",
+    "dev:services": "dotenv -e .env -- concurrently -k -n web,http,worker -c blue,green,yellow \"pnpm --filter @five/web dev\" \"pnpm --filter @five/backend dev:http\" \"pnpm --filter @five/backend dev:worker\"",
+    "build": "pnpm --filter @five/api-contract build && pnpm --filter @five/backend build && pnpm --filter @five/web build",
+    "check": "pnpm contract:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "contract:generate": "openapi-typescript docs/api/openapi.yaml -o packages/api-contract/src/generated.ts",
+    "contract:lint": "redocly lint docs/api/openapi.yaml",
+    "contract:check": "pnpm contract:lint && pnpm contract:generate && git diff --exit-code -- packages/api-contract/src/generated.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint apps packages scripts --max-warnings=0",
+    "typecheck": "pnpm --filter @five/api-contract typecheck && pnpm --filter @five/backend typecheck && pnpm --filter @five/web typecheck",
+    "test": "pnpm --filter @five/api-contract test && pnpm --filter @five/backend test && pnpm --filter @five/web test",
+    "infra:up": "docker compose up -d --wait postgres",
+    "infra:down": "docker compose down",
+    "db:migrate": "pnpm --filter @five/backend db:migrate",
+    "db:rollback": "pnpm --filter @five/backend db:rollback",
+    "local:setup": "node scripts/ensure-local-env.mjs && pnpm infra:up && pnpm db:migrate",
+    "smoke": "pnpm local:setup && pnpm build && dotenv -e .env -- node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@redocly/cli": "^2.40.0",
+    "@types/node": "^24.13.3",
+    "concurrently": "^10.0.4",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^10.8.0",
+    "globals": "^17.7.0",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10"
+  }
+}

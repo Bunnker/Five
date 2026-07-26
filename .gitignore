@@ -8,3 +8,9 @@
 .tmp/
 tmp/
 dist/
+node_modules/
+.next/
+coverage/
+.env
+*.tsbuildinfo
+.pnpm-debug.log

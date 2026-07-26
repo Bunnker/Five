@@ -34,3 +34,4 @@
 - [ADR-0015：单人维护版使用八个清晰的内容状态](0015-single-operator-content-states.md)
 - [ADR-0016：提前批量生成每日图片，Codex 为主、中转为备用](0016-offline-image-batches-with-codex-and-relay-fallback.md)
 - [ADR-0017：OpenAPI 是网页、后台和后端接口的唯一事实源](0017-openapi-as-interface-source-of-truth.md)
+- [ADR-0018：使用最小 pnpm 工作区和版本化数据库迁移](0018-minimal-pnpm-workspace-and-versioned-migrations.md)
