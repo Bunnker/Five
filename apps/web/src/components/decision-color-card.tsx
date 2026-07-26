@@ -2,13 +2,27 @@ import { reviewedColorPalette } from "../lib/color-palette";
 import type { DecisionCardData } from "../lib/today";
 import { ColorSwatch } from "./visual-foundation";
 
+const cardPresentation = {
+  ci_ji: {
+    cardId: "ci-ji-card-title",
+    priority: "secondary",
+  },
+  da_ji: {
+    cardId: "da-ji-card-title",
+    priority: "primary",
+  },
+  ping: {
+    cardId: "ping-card-title",
+    priority: "tertiary",
+  },
+} as const;
+
 export interface DecisionColorCardProps {
   tier: DecisionCardData;
 }
 
 export function DecisionColorCard({ tier }: DecisionColorCardProps) {
-  const cardId = tier.algorithmLabel === "大吉" ? "da-ji-card-title" : "ci-ji-card-title";
-  const priority = tier.tierCode === "da_ji" ? "primary" : "secondary";
+  const { cardId, priority } = cardPresentation[tier.tierCode];
 
   return (
     <article

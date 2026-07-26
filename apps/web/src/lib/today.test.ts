@@ -4,6 +4,7 @@ import {
   loadToday,
   type CiJiCardData,
   type DaJiCardData,
+  type PingCardData,
   type TodayDateData,
   type TodayPageData,
 } from "./today";
@@ -63,6 +64,25 @@ const ciJiTier = {
   tierCode: "ci_ji",
 };
 
+const pingTier = {
+  algorithmLabel: "平",
+  colors: [
+    { colorCode: "silver", name: "银色" },
+    { colorCode: "white", name: "白色" },
+    { colorCode: "gold", name: "金色" },
+    { colorCode: "ivory", name: "乳白" },
+    { colorCode: "light_family", name: "浅色系" },
+  ],
+  displayLabel: "日常可穿",
+  displaySection: "primary",
+  element: "metal",
+  elementLabel: "金",
+  explanation: "适合作为日常穿搭参考。",
+  rank: 3,
+  relationText: "金克木",
+  tierCode: "ping",
+};
+
 const versions = {
   algorithmVersion: "algorithm-v1",
   assetManifestVersion: "assets-v1",
@@ -76,7 +96,7 @@ const versions = {
 
 const otherTiers = [
   ciJiTier,
-  { rank: 3, tierCode: "ping" },
+  pingTier,
   { rank: 4, tierCode: "jiao_cha" },
   { rank: 5, tierCode: "bu_li" },
 ];
@@ -124,10 +144,30 @@ const ciJiCard = {
   tierCode: "ci_ji",
 } satisfies CiJiCardData;
 
+const pingCard = {
+  algorithmLabel: "平",
+  colors: [
+    { colorCode: "silver", name: "银色" },
+    { colorCode: "white", name: "白色" },
+    { colorCode: "gold", name: "金色" },
+    { colorCode: "ivory", name: "乳白" },
+    { colorCode: "light_family", name: "浅色系" },
+  ],
+  contentVersion,
+  displayLabel: "日常可穿",
+  element: "metal",
+  elementLabel: "金",
+  explanation: "适合作为日常穿搭参考。",
+  rank: 3,
+  relationText: "金克木",
+  tierCode: "ping",
+} satisfies PingCardData;
+
 const pageData = {
   ...dateData,
   ciJiCard,
   daJiCard,
+  pingCard,
 } satisfies TodayPageData;
 
 function readyResponse(
@@ -160,7 +200,7 @@ describe("loadToday", () => {
     vi.unstubAllGlobals();
   });
 
-  it("selects da_ji and ci_ji by tierCode and preserves each published color order", async () => {
+  it("selects the three positive tiers by tierCode and preserves each published color order", async () => {
     const fetchMock = vi.fn().mockResolvedValue(readyResponse(apiTodayResponse));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -179,7 +219,15 @@ describe("loadToday", () => {
       signal: expect.any(AbortSignal),
     });
     expect(pageData.ciJiCard.contentVersion).toBe(pageData.daJiCard.contentVersion);
+    expect(pageData.pingCard.contentVersion).toBe(pageData.daJiCard.contentVersion);
     expect(pageData.ciJiCard.colors.map(({ name }) => name)).toEqual(["湖蓝", "绿色", "青色"]);
+    expect(pageData.pingCard.colors.map(({ name }) => name)).toEqual([
+      "银色",
+      "白色",
+      "金色",
+      "乳白",
+      "浅色系",
+    ]);
   });
 
   it.each([
@@ -191,13 +239,19 @@ describe("loadToday", () => {
         tier?.tierCode === "ci_ji" ? { ...ciJiTier, rank: 3 } : tier,
       ),
     ],
+    [
+      "wrong ping rank",
+      apiTodayResponse.content.tiers.map((tier) =>
+        tier?.tierCode === "ping" ? { ...pingTier, rank: 4 } : tier,
+      ),
+    ],
   ])("keeps the date but hides the whole card when the tier index is %s", async (_case, tiers) => {
     const result = await loadFrom({
       ...apiTodayResponse,
       content: { ...apiTodayResponse.content, tiers },
     });
 
-    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null, pingCard: null });
   });
 
   it.each([
@@ -220,9 +274,64 @@ describe("loadToday", () => {
         },
       });
 
-      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard });
+      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard, pingCard: null });
     },
   );
+
+  it.each([
+    ["empty colors", "colors", []],
+    ["wrong algorithm label", "algorithmLabel", "次吉"],
+    ["wrong display label", "displayLabel", "稳妥选择"],
+    ["wrong display section", "displaySection", "attention"],
+    ["mismatched element label", "elementLabel", "水"],
+    ["high-risk exaggerated copy", "explanation", "这些颜色会带来好运。"],
+    ["negative copy", "explanation", "这些颜色今天比较勉强，不推荐。"],
+    ["internal negative label", "explanation", "这些颜色今天不利。"],
+  ])(
+    "keeps da_ji and ci_ji but hides the entire ping card when it has %s",
+    async (_case, field, value) => {
+      const result = await loadFrom({
+        ...apiTodayResponse,
+        content: {
+          ...apiTodayResponse.content,
+          tiers: apiTodayResponse.content.tiers.map((tier) =>
+            tier?.tierCode === "ping" ? { ...pingTier, [field]: value } : tier,
+          ),
+        },
+      });
+
+      expect(result).toEqual({ ...dateData, ciJiCard, daJiCard, pingCard: null });
+    },
+  );
+
+  it("does not discard neutral reviewed ping copy merely because it contains 一般", async () => {
+    const explanation = "适合一般通勤场景。";
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        tiers: apiTodayResponse.content.tiers.map((tier) =>
+          tier?.tierCode === "ping" ? { ...pingTier, explanation } : tier,
+        ),
+      },
+    });
+
+    expect(result?.pingCard?.explanation).toBe(explanation);
+  });
+
+  it("does not display ping by itself when ci_ji content is invalid", async () => {
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        tiers: apiTodayResponse.content.tiers.map((tier) =>
+          tier?.tierCode === "ci_ji" ? { ...ciJiTier, colors: [] } : tier,
+        ),
+      },
+    });
+
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard, pingCard: null });
+  });
 
   it("does not display ci_ji by itself when da_ji content is invalid", async () => {
     const result = await loadFrom({
@@ -235,7 +344,7 @@ describe("loadToday", () => {
       },
     });
 
-    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null, pingCard: null });
   });
 
   it.each([
@@ -278,7 +387,7 @@ describe("loadToday", () => {
       },
     });
 
-    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null, pingCard: null });
   });
 
   it.each([
@@ -299,7 +408,7 @@ describe("loadToday", () => {
       },
     });
 
-    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null, pingCard: null });
   });
 
   it("shows only the valid colors that the published tier actually contains", async () => {
@@ -331,7 +440,7 @@ describe("loadToday", () => {
         },
       });
 
-      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null, pingCard: null });
     },
   );
 
@@ -340,6 +449,7 @@ describe("loadToday", () => {
       ...dateData,
       ciJiCard: null,
       daJiCard: null,
+      pingCard: null,
     });
   });
 
@@ -360,6 +470,7 @@ describe("loadToday", () => {
       ...dateData,
       ciJiCard: null,
       daJiCard: null,
+      pingCard: null,
     });
   });
 
@@ -368,6 +479,7 @@ describe("loadToday", () => {
       ...dateData,
       ciJiCard: null,
       daJiCard: null,
+      pingCard: null,
     });
   });
 
@@ -382,7 +494,7 @@ describe("loadToday", () => {
       },
     });
 
-    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+    expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null, pingCard: null });
   });
 
   it.each(["今天穿这个必然暴富。", "不用参考，保证一定有效。", "否则会破财，遇到大凶灾。"])(
@@ -398,7 +510,7 @@ describe("loadToday", () => {
         },
       });
 
-      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null });
+      expect(result).toEqual({ ...dateData, ciJiCard: null, daJiCard: null, pingCard: null });
     },
   );
 

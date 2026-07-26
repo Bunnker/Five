@@ -35,7 +35,14 @@ export interface CiJiCardData extends DecisionCardBaseData {
   tierCode: "ci_ji";
 }
 
-export type DecisionCardData = CiJiCardData | DaJiCardData;
+export interface PingCardData extends DecisionCardBaseData {
+  algorithmLabel: "平";
+  displayLabel: "日常可穿";
+  rank: 3;
+  tierCode: "ping";
+}
+
+export type DecisionCardData = CiJiCardData | DaJiCardData | PingCardData;
 
 export interface TodayDateData {
   content: {
@@ -54,6 +61,7 @@ export interface TodayDateData {
 export interface TodayPageData extends TodayDateData {
   ciJiCard: CiJiCardData | null;
   daJiCard: DaJiCardData | null;
+  pingCard: PingCardData | null;
 }
 
 export interface LoadTodayOptions {
@@ -93,6 +101,12 @@ const decisionTierSpecs = {
     displaySection: "primary",
     rank: 1,
   },
+  ping: {
+    algorithmLabel: "平",
+    displayLabel: "日常可穿",
+    displaySection: "primary",
+    rank: 3,
+  },
 } as const;
 const versionFields = [
   "algorithmVersion",
@@ -120,6 +134,8 @@ const shichenNames = [
 ] as const;
 const fortuneDatePattern = /^\d{4}-\d{2}-\d{2}$/u;
 const forbiddenPublicCopyPattern = /保证|必然|转运|暴富|破财|大凶|灾|一定有效/u;
+const forbiddenPingCopyPattern =
+  /好运|贵人|助运|加分|事半功倍|运程|吉凶|运势平平|勉强|较差|不利|不推荐|倒霉|晦气/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -234,6 +250,9 @@ function toDecisionCardCore(
     !isNonEmptyString(tier.explanation) ||
     forbiddenPublicCopyPattern.test(tier.relationText) ||
     forbiddenPublicCopyPattern.test(tier.explanation) ||
+    (tierCode === "ping" &&
+      (forbiddenPingCopyPattern.test(tier.relationText) ||
+        forbiddenPingCopyPattern.test(tier.explanation))) ||
     !Array.isArray(tier.colors) ||
     tier.colors.length < 1 ||
     tier.colors.length > 12
@@ -289,6 +308,10 @@ function toDecisionCardData(
 ): CiJiCardData | null;
 function toDecisionCardData(
   decisionContent: DecisionContent,
+  tierCode: "ping",
+): PingCardData | null;
+function toDecisionCardData(
+  decisionContent: DecisionContent,
   tierCode: keyof typeof decisionTierSpecs,
 ): DecisionCardData | null {
   const tier = findDecisionTier(decisionContent, tierCode);
@@ -307,12 +330,22 @@ function toDecisionCardData(
     };
   }
 
+  if (tierCode === "ci_ji") {
+    return {
+      ...core,
+      algorithmLabel: tier.algorithmLabel as CiJiCardData["algorithmLabel"],
+      displayLabel: tier.displayLabel as CiJiCardData["displayLabel"],
+      rank: tier.rank as CiJiCardData["rank"],
+      tierCode: tier.tierCode as CiJiCardData["tierCode"],
+    };
+  }
+
   return {
     ...core,
-    algorithmLabel: tier.algorithmLabel as CiJiCardData["algorithmLabel"],
-    displayLabel: tier.displayLabel as CiJiCardData["displayLabel"],
-    rank: tier.rank as CiJiCardData["rank"],
-    tierCode: tier.tierCode as CiJiCardData["tierCode"],
+    algorithmLabel: tier.algorithmLabel as PingCardData["algorithmLabel"],
+    displayLabel: tier.displayLabel as PingCardData["displayLabel"],
+    rank: tier.rank as PingCardData["rank"],
+    tierCode: tier.tierCode as PingCardData["tierCode"],
   };
 }
 
@@ -428,14 +461,19 @@ export async function loadToday({
       response.headers.get("x-content-version"),
     );
     const daJiCard = decisionContent === null ? null : toDecisionCardData(decisionContent, "da_ji");
+    const ciJiCard =
+      decisionContent === null || daJiCard === null
+        ? null
+        : toDecisionCardData(decisionContent, "ci_ji");
 
     return {
       ...dateData,
-      ciJiCard:
-        decisionContent === null || daJiCard === null
-          ? null
-          : toDecisionCardData(decisionContent, "ci_ji"),
+      ciJiCard,
       daJiCard,
+      pingCard:
+        decisionContent === null || daJiCard === null || ciJiCard === null
+          ? null
+          : toDecisionCardData(decisionContent, "ping"),
     };
   } catch {
     return null;

@@ -331,6 +331,44 @@ a {
   background: transparent;
 }
 
+.decision-card--tertiary {
+  margin-top: 10px;
+  border-radius: 16px 16px 16px 7px;
+  box-shadow: 0 5px 15px rgb(76 55 29 / 5%);
+  animation-delay: 140ms;
+}
+
+.decision-card--tertiary .decision-card__rank {
+  border-right: 1px solid var(--tier-line);
+  background: linear-gradient(155deg, rgb(255 255 255 / 72%), transparent 58%), var(--tier-soft);
+  color: var(--tier-accent);
+}
+
+.decision-card--tertiary .decision-card__number {
+  font-size: 25px;
+}
+
+.decision-card--tertiary .decision-card__body {
+  padding: 13px 12px 12px;
+  background: var(--paper);
+}
+
+.decision-card--tertiary .decision-card__header h2 {
+  font-size: 21px;
+}
+
+.decision-card--tertiary .decision-card__colors {
+  margin-top: var(--space-3);
+}
+
+.decision-card--tertiary .decision-card__explanation {
+  margin-top: var(--space-3);
+  padding: 7px 0 0;
+  border-top: 1px solid var(--tier-line);
+  border-left: 0;
+  background: transparent;
+}
+
 .decision-card[data-tier-element="fire"] {
   --tier-accent: var(--accent-cinnabar);
   --tier-line: rgb(182 66 52 / 24%);
@@ -677,7 +715,7 @@ h1 {
 }
 
 .color-swatch__dot--light {
-  border: 2px solid #b8aa91;
+  border: 2px solid #9a8a70;
   box-shadow:
     inset 0 0 0 2px rgb(255 255 255 / 58%),
     0 5px 12px rgb(48 42 36 / 9%);
@@ -829,6 +867,18 @@ h1 {
   }
 }
 
+@media (max-width: 340px) {
+  .decision-card .decision-card__colors {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .decision-card .color-swatch {
+    flex: 0 0 42px;
+  }
+}
+
 @media (max-width: 260px) {
   .page-shell {
     padding-right: max(8px, env(safe-area-inset-right));
@@ -852,18 +902,12 @@ h1 {
     font-size: 23px;
   }
 
+  .decision-card--tertiary .decision-card__number {
+    font-size: 22px;
+  }
+
   .decision-card__body {
     padding: 14px 10px 15px;
-  }
-
-  .decision-card .decision-card__colors {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .decision-card .color-swatch {
-    flex: 0 0 42px;
   }
 }
 

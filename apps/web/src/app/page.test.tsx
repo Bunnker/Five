@@ -32,6 +32,7 @@ const todayResponse = {
     relationText: "木生火",
     tierCode: "da_ji",
   },
+  pingCard: null,
   requestContext: {
     civilDate: "2026-07-14",
     crossedDayBoundary: true,
