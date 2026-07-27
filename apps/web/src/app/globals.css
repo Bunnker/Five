@@ -1707,6 +1707,159 @@ h1 {
   line-height: 1.6;
 }
 
+.outfit-overview {
+  display: grid;
+  gap: 18px;
+}
+
+.outfit-overview__section {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.outfit-overview__section[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--selected-outfit-accent) 52%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--selected-outfit-accent) 10%, transparent);
+}
+
+.outfit-overview__media {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  border-bottom: 1px solid rgb(48 42 36 / 9%);
+  background: #eee8dc;
+}
+
+.outfit-overview__media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.outfit-overview-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  color: var(--ink);
+  text-align: center;
+}
+
+.outfit-overview-fallback__swatches {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.outfit-overview-fallback__swatch {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgb(48 42 36 / 14%);
+  border-radius: 50%;
+  background: var(--outfit-overview-fallback-color);
+  box-shadow: inset 0 1px 2px rgb(255 255 255 / 45%);
+}
+
+.outfit-overview-fallback__swatch--light {
+  border: 2px solid #8f8069;
+}
+
+.outfit-overview-fallback strong {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.outfit-overview-fallback > span:last-child {
+  max-width: 220px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.outfit-overview__disclosure {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  max-width: calc(100% - 20px);
+  padding: 5px 8px;
+  border: 1px solid rgb(255 255 255 / 45%);
+  border-radius: 6px;
+  background: rgb(48 42 36 / 76%);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.outfit-overview__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.outfit-overview__meta > span:first-child {
+  display: inline-flex;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--selected-outfit-accent) 11%, transparent);
+  color: var(--selected-outfit-accent);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.outfit-overview__meta > span:nth-child(2) {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.outfit-overview__meta strong {
+  margin-left: auto;
+  color: var(--selected-outfit-accent);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.outfit-overview__action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--tap-target);
+  padding: 0 18px;
+  border-top: 1px solid rgb(48 42 36 / 9%);
+  color: var(--selected-outfit-accent);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.outfit-overview__action span {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.outfit-overview__action:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--selected-outfit-accent) 28%, transparent);
+  outline-offset: -3px;
+}
+
+.outfit-page__rule-note {
+  margin: 16px 2px 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 @keyframes settle-in {
   from {
     opacity: 0;
@@ -1733,6 +1886,10 @@ h1 {
   .outfit-page__sheet {
     padding: 16px;
     border-radius: 22px 22px 22px 8px;
+  }
+
+  .outfit-overview {
+    gap: 16px;
   }
 
   .foundation-hero {

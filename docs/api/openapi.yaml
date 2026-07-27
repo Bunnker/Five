@@ -2622,6 +2622,14 @@ components:
                   categoryLabel: 上衣
                   colorCode: red
                   description: 红色简洁上衣
+                - category: bottom
+                  categoryLabel: 下装
+                  colorCode: green
+                  description: 低饱和绿色下装
+                - category: accessory
+                  categoryLabel: 鞋包/配饰
+                  colorCode: white
+                  description: 白色小面积点缀
               alternatives: []
             - lookId: look-alt-02
               formulaId: formula-dual-01
@@ -2645,6 +2653,10 @@ components:
                   categoryLabel: 上衣
                   colorCode: red
                   description: 红色上衣
+                - category: bottom
+                  categoryLabel: 下装
+                  colorCode: green
+                  description: 绿色下装
               alternatives: []
             - lookId: look-alt-01
               formulaId: formula-mono-01
@@ -2666,8 +2678,8 @@ components:
               items:
                 - category: top
                   categoryLabel: 上衣
-                  colorCode: pink_family
-                  description: 粉色上衣
+                  colorCode: red
+                  description: 红色上衣
               alternatives: []
           basis:
             steps: [今日干支为庚寅, 日柱地支取寅, 寅属木，因此今日为木日]
@@ -2731,6 +2743,14 @@ components:
               categoryLabel: 上衣
               colorCode: red
               description: 红色简洁上衣
+            - category: bottom
+              categoryLabel: 下装
+              colorCode: green
+              description: 低饱和绿色下装
+            - category: accessory
+              categoryLabel: 鞋包/配饰
+              colorCode: white
+              description: 白色小面积点缀
           alternatives: []
     PosterJobProcessing:
       value:

@@ -80,9 +80,11 @@ export interface OutfitPreviewSlotData {
 }
 
 export interface OutfitPreviewCardData {
+  description: string;
   formulaId: string;
   href: string;
   kind: "dual" | "mono" | "triple";
+  scenarioLabel: string;
   slots: OutfitPreviewSlotData[];
   title: string;
 }
@@ -118,6 +120,28 @@ export interface TodayImagePreviewCardData {
 export interface TodayImagePreviewSectionData {
   cards: TodayImagePreviewCardData[];
   contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
+}
+
+export function resolveOutfitPreviewImages(
+  outfitSection: OutfitPreviewSectionData,
+  imageSection: TodayImagePreviewSectionData | null,
+): ReadonlyMap<string, TodayImagePreviewCardData> {
+  const imagesByFormula = new Map<string, TodayImagePreviewCardData>();
+  if (imageSection === null || imageSection.contentVersion !== outfitSection.contentVersion) {
+    return imagesByFormula;
+  }
+
+  const formulaIds = new Set(outfitSection.cards.map((card) => card.formulaId));
+  const imagesByPriority = [...imageSection.cards].sort(
+    (left, right) => left.sortOrder - right.sortOrder,
+  );
+  for (const image of imagesByPriority) {
+    if (formulaIds.has(image.formulaId) && !imagesByFormula.has(image.formulaId)) {
+      imagesByFormula.set(image.formulaId, image);
+    }
+  }
+
+  return imagesByFormula;
 }
 
 export interface TodayBasisData {
@@ -880,7 +904,10 @@ function toOutfitPreviewCard(
     !isRecord(value) ||
     value.kind !== kind ||
     !isOpaqueId(value.formulaId) ||
-    !isSafeOutfitCopy(value.title, 80)
+    !isSafeOutfitCopy(value.title, 80) ||
+    !isSafeOutfitCopy(value.disclaimer, 300) ||
+    !isRecord(value.scenario) ||
+    !isSafeOutfitCopy(value.scenario.label, 32)
   ) {
     return null;
   }
@@ -891,9 +918,11 @@ function toOutfitPreviewCard(
   }
 
   return {
+    description: value.disclaimer,
     formulaId: value.formulaId,
     href: buildOutfitPreviewHref(fortuneDate, contentVersion, value.formulaId),
     kind,
+    scenarioLabel: value.scenario.label,
     slots,
     title: value.title,
   };

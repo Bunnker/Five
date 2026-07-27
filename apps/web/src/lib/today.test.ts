@@ -453,9 +453,11 @@ const attentionSection = {
 const outfitPreviewSection = {
   cards: [
     {
+      description: "同色系深浅变化属于穿搭参考。",
       formulaId: "formula-mono-01",
       href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-01",
       kind: "mono",
+      scenarioLabel: "日常",
       slots: [
         {
           colors: [
@@ -471,9 +473,11 @@ const outfitPreviewSection = {
       title: "红橙同色系",
     },
     {
+      description: "双色比例未确认时不编造百分比。",
       formulaId: "formula-dual-01",
       href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-dual-01",
       kind: "dual",
+      scenarioLabel: "日常",
       slots: [
         {
           colors: [{ colorCode: "orange", name: "橙色" }],
@@ -493,9 +497,11 @@ const outfitPreviewSection = {
       title: "橙色与湖蓝",
     },
     {
+      description: "60/30/10 为穿搭参考，不是五行推算规则。",
       formulaId: "formula-triple-01",
       href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01",
       kind: "triple",
+      scenarioLabel: "通勤",
       slots: [
         {
           colors: [{ colorCode: "red", name: "红色" }],
@@ -766,6 +772,20 @@ describe("loadToday", () => {
       "out-of-scope product title",
       outfitFormulas.map((formula) =>
         formula.kind === "mono" ? { ...formula, title: "吉祥物购买方案" } : formula,
+      ),
+    ],
+    [
+      "unsafe disclaimer",
+      outfitFormulas.map((formula) =>
+        formula.kind === "mono" ? { ...formula, disclaimer: "这套搭配保证转运。" } : formula,
+      ),
+    ],
+    [
+      "out-of-scope scenario label",
+      outfitFormulas.map((formula) =>
+        formula.kind === "mono"
+          ? { ...formula, scenario: { ...formula.scenario, label: "购买商品" } }
+          : formula,
       ),
     ],
     [
