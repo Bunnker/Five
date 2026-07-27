@@ -209,6 +209,28 @@ const imagePreviewSection = {
   contentVersion: "fd-20260715-r1",
 } satisfies NonNullable<TodayPageData["imagePreviewSection"]>;
 
+const basis = {
+  contentVersion: "fd-20260715-r1",
+  disclaimer: "内容基于传统文化规则整理，仅供穿搭参考。",
+  steps: ["今日干支为庚寅", "日柱地支取寅", "寅属木，因此今日为木日"],
+} satisfies NonNullable<TodayPageData["basis"]>;
+
+const nextSteps = {
+  basisHref: "/basis?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1",
+  colorsHref: "/colors?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1",
+  contentVersion: "fd-20260715-r1",
+  outfitsHref:
+    "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono",
+  shareHref:
+    "/share?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=organic",
+} satisfies NonNullable<TodayPageData["nextSteps"]>;
+
+const share = {
+  contentVersion: "fd-20260715-r1",
+  copyText: "今日穿搭参考：优先火色，稳妥选择木色。",
+  summaryText: "今日木日，优先参考红、橙、紫、粉色系。",
+} satisfies NonNullable<TodayPageData["share"]>;
+
 describe("TodayPageContent", () => {
   it("keeps the fixed date, color decisions, formulas and image preview page order", () => {
     render(
@@ -312,6 +334,7 @@ describe("TodayPageContent", () => {
         today={{
           ...baseToday,
           attentionSection: null,
+          basis,
           ciJiCard,
           daJiCard,
           imagePreviewSection,
@@ -327,5 +350,54 @@ describe("TodayPageContent", () => {
     expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "今日怎么搭" })).toBeVisible();
     expect(screen.getByRole("region", { name: "今日图片示范" })).toBeVisible();
+    expect(screen.getByText(basis.disclaimer)).toBeVisible();
+  });
+
+  it("offers four real next steps and shows the reviewed reference statement after the images", () => {
+    render(
+      <TodayPageContent
+        today={{
+          ...baseToday,
+          attentionSection,
+          basis,
+          ciJiCard,
+          daJiCard,
+          imagePreviewSection,
+          nextSteps,
+          outfitPreviewSection,
+          pingCard,
+          share,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "分享今天" })).toHaveAttribute(
+      "href",
+      nextSteps.shareHref,
+    );
+    expect(screen.getByRole("link", { name: "查看今日颜色" })).toHaveAttribute(
+      "href",
+      nextSteps.colorsHref,
+    );
+    expect(screen.getByRole("link", { name: "查看今日颜色" })).toHaveClass(
+      "foundation-action",
+      "foundation-action--full",
+    );
+    expect(screen.getByRole("link", { name: "看看怎么搭" })).toHaveAttribute(
+      "href",
+      nextSteps.outfitsHref,
+    );
+    expect(screen.getByRole("link", { name: "为什么这样排" })).toHaveAttribute(
+      "href",
+      nextSteps.basisHref,
+    );
+
+    const statement = screen.getByText(basis.disclaimer);
+    expect(statement.closest("footer")).toHaveAttribute("data-content-version", "fd-20260715-r1");
+
+    const text = screen.getByRole("main").textContent ?? "";
+    expect(text.indexOf("今日图片示范")).toBeLessThan(text.indexOf("查看今日颜色"));
+    expect(text.indexOf("查看今日颜色")).toBeLessThan(text.indexOf(basis.disclaimer));
+    expect(text).not.toMatch(/即将上线|登录|收藏|历史|吉祥物/u);
   });
 });

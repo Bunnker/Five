@@ -51,14 +51,23 @@ export function ColorSwatch({ colorCode, isLight = false, name, value }: ColorSw
 
 interface FoundationActionProps {
   children: ReactNode;
+  fullWidth?: boolean;
   href: string;
+  indicator?: ReactNode;
 }
 
-export function FoundationAction({ children, href }: FoundationActionProps) {
+export function FoundationAction({
+  children,
+  fullWidth = false,
+  href,
+  indicator = "↓",
+}: FoundationActionProps) {
+  const className = fullWidth ? "foundation-action foundation-action--full" : "foundation-action";
+
   return (
-    <a className="foundation-action" href={href}>
+    <a className={className} href={href}>
       <span>{children}</span>
-      <span aria-hidden="true">↓</span>
+      <span aria-hidden="true">{indicator}</span>
     </a>
   );
 }

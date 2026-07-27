@@ -9,7 +9,10 @@ import {
   type PingCardData,
   type TodayImagePreviewSectionData,
   type TodayDateData,
+  type TodayBasisData,
+  type TodayNextStepsData,
   type TodayPageData,
+  type TodayShareData,
 } from "./today";
 
 const contentVersion = "fd-20260715-r1";
@@ -342,6 +345,16 @@ const versions = {
   outfitVersion: "outfit-v1",
   posterTemplateVersion: "poster-v1",
 };
+const basis = {
+  disclaimer: "内容基于传统文化规则整理，仅供穿搭参考。",
+  steps: ["今日干支为庚寅", "日柱地支取寅", "寅属木，因此今日为木日"],
+};
+const share = {
+  copyText: "今日穿搭参考：优先火色，稳妥选择木色。",
+  posterJobEndpoint: "/api/v1/poster-jobs",
+  posterTemplateVersion: "poster-v1",
+  summaryText: "今日木日，优先参考红、橙、紫、粉色系。",
+};
 
 const otherTiers = [ciJiTier, pingTier, jiaoChaTier, buLiTier];
 
@@ -349,8 +362,10 @@ const apiTodayResponse = {
   content: {
     ...dateData.content,
     balanceSuggestion,
+    basis,
     looks,
     outfitFormulas,
+    share,
     tiers: [otherTiers[0], otherTiers[3], daJiTier, otherTiers[1], otherTiers[2]],
     versions,
   },
@@ -577,14 +592,39 @@ const imagePreviewSection = {
   contentVersion,
 } satisfies TodayImagePreviewSectionData;
 
+const basisData = {
+  contentVersion,
+  disclaimer: basis.disclaimer,
+  steps: basis.steps,
+} satisfies TodayBasisData;
+
+const shareData = {
+  contentVersion,
+  copyText: share.copyText,
+  summaryText: share.summaryText,
+} satisfies TodayShareData;
+
+const nextSteps = {
+  basisHref: "/basis?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1",
+  colorsHref: "/colors?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1",
+  contentVersion,
+  outfitsHref:
+    "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-01",
+  shareHref:
+    "/share?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=organic",
+} satisfies TodayNextStepsData;
+
 const pageData = {
   ...dateData,
   attentionSection,
+  basis: basisData,
   ciJiCard,
   daJiCard,
   imagePreviewSection,
+  nextSteps,
   outfitPreviewSection,
   pingCard,
+  share: shareData,
 } satisfies TodayPageData;
 
 function readyResponse(
@@ -819,6 +859,7 @@ describe("loadToday", () => {
       expect(result?.ciJiCard).toEqual(ciJiCard);
       expect(result?.pingCard).toEqual(pingCard);
       expect(result?.attentionSection).toEqual(attentionSection);
+      expect(result?.basis).toEqual(basisData);
     },
   );
 
@@ -846,6 +887,76 @@ describe("loadToday", () => {
     expect(target.searchParams.get("fortuneDate")).toBe("2026-07-15");
     expect(target.searchParams.get("expectedContentVersion")).toBe(opaqueContentVersion);
     expect(target.searchParams.get("formulaId")).toBe(opaqueFormulaId);
+
+    const nextSteps = result?.nextSteps;
+    expect(nextSteps).not.toBeNull();
+    for (const entryHref of [
+      nextSteps?.colorsHref,
+      nextSteps?.outfitsHref,
+      nextSteps?.basisHref,
+      nextSteps?.shareHref,
+    ]) {
+      const entryTarget = new URL(entryHref ?? "", "https://five.test");
+      expect(entryTarget.searchParams.get("fortuneDate")).toBe("2026-07-15");
+      expect(entryTarget.searchParams.get("expectedContentVersion")).toBe(opaqueContentVersion);
+    }
+    expect(
+      new URL(nextSteps?.shareHref ?? "", "https://five.test").searchParams.get("channelId"),
+    ).toBe("organic");
+  });
+
+  it.each([
+    ["missing basis", null],
+    ["empty basis steps", { ...basis, steps: [] }],
+    ["basis language that claims a yellow-calendar source", { ...basis, steps: ["根据黄历得出"] }],
+    ["basis language that guarantees an outcome", { ...basis, steps: ["这个结果百分百有效"] }],
+    ["basis language that presents a daily fortune", { ...basis, steps: ["这是今日的运程"] }],
+    ["basis language that asks for birth data", { ...basis, steps: ["请先输入八字"] }],
+    ["an unreviewed reference disclaimer", { ...basis, disclaimer: "仅供参考。" }],
+  ])("does not publish page actions or content without %s", async (_case, invalidBasis) => {
+    await expect(
+      loadFrom({
+        ...apiTodayResponse,
+        content: {
+          ...apiTodayResponse.content,
+          basis: invalidBasis,
+        },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps internal tier names in the public calculation basis", async () => {
+    const steps = ["今日五档依次计算", "水为较差", "土为不利"];
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        basis: { ...basis, steps },
+      },
+    });
+
+    expect(result?.basis?.steps).toEqual(steps);
+  });
+
+  it.each([
+    ["missing share content", null],
+    ["empty share summary", { ...share, summaryText: "" }],
+    ["guaranteed outcome share copy", { ...share, copyText: "分享后保证转运。" }],
+    [
+      "share copy that claims a yellow-calendar source",
+      { ...share, copyText: "内容根据黄历得出。" },
+    ],
+    ["an unexpected poster endpoint", { ...share, posterJobEndpoint: "/api/private/posters" }],
+  ])("does not expose a broken share entry with %s", async (_case, invalidShare) => {
+    await expect(
+      loadFrom({
+        ...apiTodayResponse,
+        content: {
+          ...apiTodayResponse.content,
+          share: invalidShare,
+        },
+      }),
+    ).resolves.toBeNull();
   });
 
   it("keeps the two required image previews when no supplemental image is published", async () => {
@@ -1111,6 +1222,7 @@ describe("loadToday", () => {
       expect(result?.daJiCard).toEqual(daJiCard);
       expect(result?.ciJiCard).toEqual(ciJiCard);
       expect(result?.pingCard).toEqual(pingCard);
+      expect(result?.basis).toEqual(basisData);
     },
   );
 
@@ -1181,6 +1293,7 @@ describe("loadToday", () => {
       expect(result).toEqual({
         ...dateData,
         attentionSection: null,
+        basis: basisData,
         ciJiCard: null,
         daJiCard,
         imagePreviewSection: null,
@@ -1215,6 +1328,7 @@ describe("loadToday", () => {
       expect(result).toEqual({
         ...dateData,
         attentionSection: null,
+        basis: basisData,
         ciJiCard,
         daJiCard,
         imagePreviewSection: null,
@@ -1280,6 +1394,7 @@ describe("loadToday", () => {
       expect(result).toEqual({
         ...dateData,
         attentionSection: null,
+        basis: basisData,
         ciJiCard,
         daJiCard,
         imagePreviewSection,
@@ -1338,6 +1453,7 @@ describe("loadToday", () => {
       expect(result).toEqual({
         ...dateData,
         attentionSection: null,
+        basis: basisData,
         ciJiCard,
         daJiCard,
         imagePreviewSection,
@@ -1404,6 +1520,7 @@ describe("loadToday", () => {
     expect(result).toEqual({
       ...dateData,
       attentionSection: null,
+      basis: basisData,
       ciJiCard: null,
       daJiCard,
       imagePreviewSection: null,
@@ -1426,6 +1543,7 @@ describe("loadToday", () => {
     expect(result).toEqual({
       ...dateData,
       attentionSection: null,
+      basis: basisData,
       ciJiCard: null,
       daJiCard: null,
       imagePreviewSection: null,
@@ -1477,6 +1595,7 @@ describe("loadToday", () => {
     expect(result).toEqual({
       ...dateData,
       attentionSection: null,
+      basis: basisData,
       ciJiCard: null,
       daJiCard: null,
       imagePreviewSection: null,
@@ -1506,6 +1625,7 @@ describe("loadToday", () => {
     expect(result).toEqual({
       ...dateData,
       attentionSection: null,
+      ...(field === "rank" ? {} : { basis: basisData }),
       ciJiCard: null,
       daJiCard: null,
       imagePreviewSection: null,
@@ -1617,6 +1737,7 @@ describe("loadToday", () => {
     expect(result).toEqual({
       ...dateData,
       attentionSection: null,
+      basis: basisData,
       ciJiCard: null,
       daJiCard: null,
       imagePreviewSection: null,
@@ -1641,6 +1762,7 @@ describe("loadToday", () => {
       expect(result).toEqual({
         ...dateData,
         attentionSection: null,
+        basis: basisData,
         ciJiCard: null,
         daJiCard: null,
         imagePreviewSection: null,

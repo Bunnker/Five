@@ -123,6 +123,35 @@ a {
   font-size: 23px;
 }
 
+.today-masthead__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.today-share-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  min-height: var(--tap-target);
+  padding: 9px 13px;
+  border: 1px solid rgb(182 66 52 / 32%);
+  border-radius: 999px;
+  background: rgb(255 250 240 / 72%);
+  color: var(--accent-cinnabar);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
+}
+
+.today-share-link:focus-visible {
+  outline: 3px solid rgb(182 66 52 / 25%);
+  outline-offset: 3px;
+}
+
 .today-date-card,
 .today-unavailable {
   position: relative;
@@ -133,6 +162,58 @@ a {
   background: linear-gradient(135deg, rgb(255 255 255 / 58%), transparent 58%), var(--paper);
   box-shadow: var(--shadow-paper);
   animation: settle-in 420ms ease-out both;
+}
+
+.today-next-steps {
+  display: grid;
+  gap: 10px;
+  margin-top: var(--space-4);
+}
+
+.today-next-steps__secondary a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: var(--tap-target);
+  padding: 11px 14px;
+  border-radius: 14px 14px 14px 6px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  text-decoration: none;
+}
+
+.today-next-steps__secondary a:focus-visible {
+  outline: 3px solid rgb(53 109 88 / 28%);
+  outline-offset: 3px;
+}
+
+.today-next-steps__secondary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.today-next-steps__secondary a {
+  border: 1px solid rgb(53 109 88 / 28%);
+  background: rgb(255 250 240 / 72%);
+  color: var(--accent-pine);
+}
+
+.today-reference-statement {
+  margin-top: var(--space-4);
+  padding: 15px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.today-reference-statement p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.65;
+  text-align: center;
 }
 
 .today-date-card {
@@ -1191,6 +1272,11 @@ h1 {
     box-shadow 160ms ease;
 }
 
+.foundation-action--full {
+  width: 100%;
+  margin-top: 0;
+}
+
 .foundation-action:hover {
   box-shadow: 0 11px 30px rgb(182 66 52 / 24%);
   transform: translateY(-2px);
@@ -1709,6 +1795,18 @@ h1 {
 }
 
 @media (max-width: 340px) {
+  .today-masthead .foundation-seal {
+    display: none;
+  }
+
+  .today-next-steps__secondary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .today-reference-statement p {
+    text-align: left;
+  }
+
   .outfit-preview__cards {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1790,6 +1888,15 @@ h1 {
   .page-shell {
     padding-right: max(8px, env(safe-area-inset-right));
     padding-left: max(8px, env(safe-area-inset-left));
+  }
+
+  .today-masthead {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .today-masthead__actions {
+    margin-left: auto;
   }
 
   .decision-card {

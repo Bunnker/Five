@@ -120,6 +120,26 @@ export interface TodayImagePreviewSectionData {
   contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
 }
 
+export interface TodayBasisData {
+  contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
+  disclaimer: string;
+  steps: string[];
+}
+
+export interface TodayShareData {
+  contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
+  copyText: string;
+  summaryText: string;
+}
+
+export interface TodayNextStepsData {
+  basisHref: string;
+  colorsHref: string;
+  contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
+  outfitsHref: string;
+  shareHref: string;
+}
+
 export interface AttentionSectionData {
   balanceSuggestion: {
     accessoryExamples: TodayBalanceSuggestion["accessoryExamples"];
@@ -147,11 +167,14 @@ export interface TodayDateData {
 
 export interface TodayPageData extends TodayDateData {
   attentionSection: AttentionSectionData | null;
+  basis?: TodayBasisData | null;
   ciJiCard: CiJiCardData | null;
   daJiCard: DaJiCardData | null;
   imagePreviewSection: TodayImagePreviewSectionData | null;
+  nextSteps?: TodayNextStepsData | null;
   outfitPreviewSection: OutfitPreviewSectionData | null;
   pingCard: PingCardData | null;
+  share?: TodayShareData | null;
 }
 
 export interface LoadTodayOptions {
@@ -214,6 +237,9 @@ const attentionTierSpecs = {
 } as const;
 const outfitKinds = ["mono", "dual", "triple"] as const;
 const reviewedAiImageDisclosure = "AI 生成穿搭示意图";
+const reviewedReferenceDisclaimer = "内容基于传统文化规则整理，仅供穿搭参考。";
+const homepageShareChannelId = "organic";
+const publicPosterJobEndpoint = "/api/v1/poster-jobs";
 const outfitRoleLabels = {
   accent: "点缀色",
   primary: "主色",
@@ -266,6 +292,8 @@ const forbiddenAttentionCopyPattern =
   /好运|贵人|助运|加分|事半功倍|运程|吉凶|化解|较差|不利|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|必能|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题/u;
 const forbiddenOutfitCopyPattern =
   /收藏|购买|商品|吉祥物|登录|账户|账号|出生|八字|个人运势|拍照试搭/u;
+const forbiddenBasisCopyPattern =
+  /黄历|今日(?:的)?运程|运程|好运|贵人|助运|加分|事半功倍|吉凶|化解|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|必能|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题|收藏|购买|商品|吉祥物|登录|账户|账号|出生|八字|个人运势|拍照试搭/u;
 const reviewedBalanceAccessories = new Set<TodayBalanceAccessory>([
   "丝巾",
   "围巾",
@@ -483,6 +511,69 @@ function isSafeImageCopy(value: unknown, maxLength: number): value is string {
   return (
     isSafeOutfitCopy(value, maxLength) && value.trim() === value && !hasAsciiControlCharacter(value)
   );
+}
+
+function isSafeBasisCopy(value: unknown, maxLength: number): value is string {
+  return (
+    isNonEmptyString(value) &&
+    value.length <= maxLength &&
+    value.trim() === value &&
+    !hasAsciiControlCharacter(value) &&
+    !forbiddenPublicCopyPattern.test(value) &&
+    !forbiddenBasisCopyPattern.test(value)
+  );
+}
+
+function toTodayBasisData(value: unknown, contentVersion: string): TodayBasisData | null {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.steps) ||
+    value.steps.length < 1 ||
+    value.steps.length > 12 ||
+    value.disclaimer !== reviewedReferenceDisclaimer
+  ) {
+    return null;
+  }
+
+  const steps: string[] = [];
+  for (const step of value.steps) {
+    if (!isSafeBasisCopy(step, 300) || steps.includes(step)) {
+      return null;
+    }
+    steps.push(step);
+  }
+
+  return {
+    contentVersion,
+    disclaimer: reviewedReferenceDisclaimer,
+    steps,
+  };
+}
+
+function toTodayShareData(
+  value: unknown,
+  versions: unknown,
+  contentVersion: string,
+): TodayShareData | null {
+  if (
+    !isRecord(value) ||
+    !isRecord(versions) ||
+    !isSafeImageCopy(value.summaryText, 200) ||
+    !isSafeImageCopy(value.copyText, 500) ||
+    forbiddenBasisCopyPattern.test(value.summaryText) ||
+    forbiddenBasisCopyPattern.test(value.copyText) ||
+    !isOpaqueId(value.posterTemplateVersion) ||
+    value.posterTemplateVersion !== versions.posterTemplateVersion ||
+    value.posterJobEndpoint !== publicPosterJobEndpoint
+  ) {
+    return null;
+  }
+
+  return {
+    contentVersion,
+    copyText: value.copyText,
+    summaryText: value.summaryText,
+  };
 }
 
 function toAttentionGroupData(
@@ -730,6 +821,52 @@ function buildOutfitPreviewHref(
   });
 
   return `/outfits?${searchParams.toString()}`;
+}
+
+function buildTodayEntryHref(
+  pathname: "/basis" | "/colors" | "/share",
+  fortuneDate: string,
+  contentVersion: string,
+  additionalParams: Record<string, string> = {},
+): string {
+  const searchParams = new URLSearchParams({
+    fortuneDate,
+    expectedContentVersion: contentVersion,
+    ...additionalParams,
+  });
+
+  return `${pathname}?${searchParams.toString()}`;
+}
+
+function toTodayNextStepsData(
+  basis: TodayBasisData,
+  share: TodayShareData,
+  outfitPreviewSection: OutfitPreviewSectionData,
+  fortuneDate: string,
+  contentVersion: string,
+): TodayNextStepsData | null {
+  if (
+    basis.contentVersion !== contentVersion ||
+    share.contentVersion !== contentVersion ||
+    outfitPreviewSection.contentVersion !== contentVersion
+  ) {
+    return null;
+  }
+
+  const defaultOutfit = outfitPreviewSection.cards.find((card) => card.kind === "mono");
+  if (defaultOutfit === undefined) {
+    return null;
+  }
+
+  return {
+    basisHref: buildTodayEntryHref("/basis", fortuneDate, contentVersion),
+    colorsHref: buildTodayEntryHref("/colors", fortuneDate, contentVersion),
+    contentVersion,
+    outfitsHref: defaultOutfit.href,
+    shareHref: buildTodayEntryHref("/share", fortuneDate, contentVersion, {
+      channelId: homepageShareChannelId,
+    }),
+  };
 }
 
 function toOutfitPreviewCard(
@@ -1374,19 +1511,67 @@ export async function loadToday({
             positiveTiers,
             dateData.content.fortuneDate,
           );
+    const attentionSection =
+      decisionContent === null || positiveTiers === null
+        ? null
+        : toAttentionSectionData(body.content, decisionContent);
+    const imagePreviewSection =
+      decisionContent === null || positiveTiers === null || outfitPreviewSection === null
+        ? null
+        : toTodayImagePreviewSectionData(body.content, decisionContent, positiveTiers);
+    const basis =
+      decisionContent === null
+        ? null
+        : toTodayBasisData(body.content.basis, decisionContent.contentVersion);
+    if (decisionContent !== null && basis === null) {
+      return null;
+    }
+
+    const completeHomepageContentVersion =
+      decisionContent !== null &&
+      positiveTiers !== null &&
+      attentionSection !== null &&
+      outfitPreviewSection !== null &&
+      imagePreviewSection !== null
+        ? decisionContent.contentVersion
+        : null;
+    const share =
+      completeHomepageContentVersion === null
+        ? null
+        : toTodayShareData(
+            body.content.share,
+            body.content.versions,
+            completeHomepageContentVersion,
+          );
+    if (completeHomepageContentVersion !== null && share === null) {
+      return null;
+    }
+
+    const nextSteps =
+      completeHomepageContentVersion === null ||
+      basis === null ||
+      share === null ||
+      outfitPreviewSection === null
+        ? null
+        : toTodayNextStepsData(
+            basis,
+            share,
+            outfitPreviewSection,
+            dateData.content.fortuneDate,
+            completeHomepageContentVersion,
+          );
+    if (completeHomepageContentVersion !== null && nextSteps === null) {
+      return null;
+    }
 
     return {
       ...dateData,
-      attentionSection:
-        decisionContent === null || daJiCard === null || ciJiCard === null || pingCard === null
-          ? null
-          : toAttentionSectionData(body.content, decisionContent),
+      attentionSection,
+      ...(basis === null ? {} : { basis }),
+      ...(share === null || nextSteps === null ? {} : { nextSteps, share }),
       ciJiCard,
       daJiCard,
-      imagePreviewSection:
-        decisionContent === null || positiveTiers === null || outfitPreviewSection === null
-          ? null
-          : toTodayImagePreviewSectionData(body.content, decisionContent, positiveTiers),
+      imagePreviewSection,
       outfitPreviewSection,
       pingCard,
     };
