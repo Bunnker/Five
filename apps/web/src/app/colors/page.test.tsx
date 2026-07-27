@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TodayPageData } from "../../lib/today";
@@ -84,7 +84,77 @@ const today = {
     tierCode: "da_ji",
   },
   imagePreviewSection: null,
-  outfitPreviewSection: null,
+  outfitPreviewSection: {
+    cards: [
+      {
+        formulaId: "formula-mono-01",
+        href: `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-mono-01`,
+        kind: "mono",
+        slots: [
+          {
+            colors: [{ colorCode: "red", name: "红色" }],
+            ratioPercent: 100,
+            role: "primary",
+            roleLabel: "主色",
+            tierCode: "da_ji",
+          },
+        ],
+        title: "大吉色同色系",
+      },
+      {
+        formulaId: "formula-dual-01",
+        href: `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-dual-01`,
+        kind: "dual",
+        slots: [
+          {
+            colors: [{ colorCode: "red", name: "红色" }],
+            ratioPercent: 70,
+            role: "primary",
+            roleLabel: "主色",
+            tierCode: "da_ji",
+          },
+          {
+            colors: [{ colorCode: "green", name: "绿色" }],
+            ratioPercent: 30,
+            role: "secondary",
+            roleLabel: "辅助色",
+            tierCode: "ci_ji",
+          },
+        ],
+        title: "大吉 × 次吉",
+      },
+      {
+        formulaId: "formula-triple-01",
+        href: `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-triple-01`,
+        kind: "triple",
+        slots: [
+          {
+            colors: [{ colorCode: "red", name: "红色" }],
+            ratioPercent: 60,
+            role: "primary",
+            roleLabel: "主色",
+            tierCode: "da_ji",
+          },
+          {
+            colors: [{ colorCode: "green", name: "绿色" }],
+            ratioPercent: 30,
+            role: "secondary",
+            roleLabel: "辅助色",
+            tierCode: "ci_ji",
+          },
+          {
+            colors: [{ colorCode: "white", name: "白色" }],
+            ratioPercent: 10,
+            role: "accent",
+            roleLabel: "点缀色",
+            tierCode: "ping",
+          },
+        ],
+        title: "大吉 × 次吉 × 平",
+      },
+    ],
+    contentVersion,
+  },
   pingCard: {
     algorithmLabel: "平",
     colors: [{ colorCode: "white", name: "白色" }],
@@ -123,10 +193,39 @@ describe("ColorsPage", () => {
 
     expect(loadTodayMock).toHaveBeenCalledWith({ requestId: "request-colors-page" });
     expect(screen.getByRole("heading", { level: 1, name: "完整颜色建议" })).toBeVisible();
-    expect(screen.getByRole("article", { name: "今日优先" })).toBeVisible();
-    expect(screen.getByRole("article", { name: "稳妥选择" })).toBeVisible();
-    expect(screen.getByRole("article", { name: "日常可穿" })).toBeVisible();
-    expect(screen.getByRole("region", { name: "注意" })).toBeVisible();
+    const daJi = screen.getByRole("article", { name: "今日优先" });
+    const ciJi = screen.getByRole("article", { name: "稳妥选择" });
+    const ping = screen.getByRole("article", { name: "日常可穿" });
+    const attention = screen.getByRole("region", { name: "注意" });
+
+    expect(daJi).toHaveTextContent("大吉");
+    expect(daJi).toHaveTextContent("火");
+    expect(daJi).toHaveTextContent("木生火");
+    expect(daJi).toHaveTextContent("今日木日，木生火，火为大吉。");
+    expect(daJi).toHaveTextContent("红色");
+    expect(ciJi).toHaveTextContent("次吉");
+    expect(ciJi).toHaveTextContent("木与木同类");
+    expect(ping).toHaveTextContent("平");
+    expect(ping).toHaveTextContent("金克木");
+    expect(attention).toBeVisible();
+    expect(within(attention).queryByRole("link")).not.toBeInTheDocument();
+
+    expect(within(daJi).getByRole("link", { name: "查看大吉穿法" })).toHaveAttribute(
+      "href",
+      `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-mono-01`,
+    );
+    expect(within(ciJi).getByRole("link", { name: "查看次吉穿法" })).toHaveAttribute(
+      "href",
+      `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-dual-01`,
+    );
+    expect(within(ping).getByRole("link", { name: "查看平穿法" })).toHaveAttribute(
+      "href",
+      `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-triple-01`,
+    );
+    expect(screen.getByRole("link", { name: "看看怎么搭" })).toHaveAttribute(
+      "href",
+      `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-mono-01`,
+    );
     expect(screen.getByRole("article", { name: "完整颜色建议" })).toHaveAttribute(
       "data-content-version",
       contentVersion,
@@ -156,5 +255,58 @@ describe("ColorsPage", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("今日颜色暂时无法打开");
     expect(screen.getByRole("status")).toHaveTextContent("今日内容还没有加载成功");
+  });
+
+  it("does not mix color cards with outfit links from another content version", async () => {
+    loadTodayMock.mockResolvedValue({
+      ...today,
+      outfitPreviewSection: {
+        ...today.outfitPreviewSection!,
+        contentVersion: "fd-20260715-r2",
+      },
+    });
+
+    render(await ColorsPage({ searchParams: Promise.resolve(validSearchParams) }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("今日颜色暂时无法打开");
+    expect(screen.queryByRole("link", { name: /查看.*穿法/u })).not.toBeInTheDocument();
+  });
+
+  it("opens the first published outfit that actually uses each positive tier", async () => {
+    const outfitPreviewSection = today.outfitPreviewSection!;
+    loadTodayMock.mockResolvedValue({
+      ...today,
+      outfitPreviewSection: {
+        ...outfitPreviewSection,
+        cards: [
+          outfitPreviewSection.cards[0],
+          {
+            ...outfitPreviewSection.cards[1],
+            slots: [
+              outfitPreviewSection.cards[1].slots[0]!,
+              {
+                colors: [{ colorCode: "white", name: "白色" }],
+                ratioPercent: 30,
+                role: "secondary",
+                roleLabel: "辅助色",
+                tierCode: "ping",
+              },
+            ],
+          },
+          outfitPreviewSection.cards[2],
+        ],
+      },
+    });
+
+    render(await ColorsPage({ searchParams: Promise.resolve(validSearchParams) }));
+
+    expect(screen.getByRole("link", { name: "查看次吉穿法" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("formulaId=formula-triple-01"),
+    );
+    expect(screen.getByRole("link", { name: "查看平穿法" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("formulaId=formula-dual-01"),
+    );
   });
 });

@@ -18,10 +18,11 @@ const cardPresentation = {
 } as const;
 
 export interface DecisionColorCardProps {
+  actionHref?: string | undefined;
   tier: DecisionCardData;
 }
 
-export function DecisionColorCard({ tier }: DecisionColorCardProps) {
+export function DecisionColorCard({ actionHref, tier }: DecisionColorCardProps) {
   const { cardId, priority } = cardPresentation[tier.tierCode];
 
   return (
@@ -62,6 +63,17 @@ export function DecisionColorCard({ tier }: DecisionColorCardProps) {
         </ul>
 
         <p className="decision-card__explanation">{tier.explanation}</p>
+
+        {actionHref === undefined ? null : (
+          <a
+            aria-label={`查看${tier.algorithmLabel}穿法`}
+            className="decision-card__action"
+            href={actionHref}
+          >
+            <span>查看穿法</span>
+            <span aria-hidden="true">›</span>
+          </a>
+        )}
       </div>
     </article>
   );

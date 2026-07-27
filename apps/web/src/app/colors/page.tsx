@@ -4,7 +4,9 @@ import { AttentionColorSection } from "../../components/attention-color-section"
 import { CiJiColorCard } from "../../components/ci-ji-color-card";
 import { DaJiColorCard } from "../../components/da-ji-color-card";
 import { PingColorCard } from "../../components/ping-color-card";
-import { loadToday, type TodayPageData } from "../../lib/today";
+import { FoundationAction } from "../../components/visual-foundation";
+import { toColorGuideData } from "../../lib/color-guide";
+import { loadToday } from "../../lib/today";
 import {
   resolveTodayEntry,
   type TodayEntrySearchParams,
@@ -15,26 +17,6 @@ export const dynamic = "force-dynamic";
 
 interface ColorsPageProps {
   searchParams: Promise<TodayEntrySearchParams>;
-}
-
-function getColorsContentVersion(today: TodayPageData | null): string | null {
-  if (
-    today?.daJiCard === null ||
-    today?.daJiCard === undefined ||
-    today.ciJiCard === null ||
-    today.pingCard === null ||
-    today.attentionSection === null
-  ) {
-    return null;
-  }
-
-  const versions = [
-    today.daJiCard.contentVersion,
-    today.ciJiCard.contentVersion,
-    today.pingCard.contentVersion,
-    today.attentionSection.contentVersion,
-  ];
-  return versions.every((version) => version === versions[0]) ? versions[0] : null;
 }
 
 function ColorsNotice({ status }: { status: Exclude<TodayEntryResolution["status"], "ready"> }) {
@@ -71,16 +53,16 @@ function ColorsNotice({ status }: { status: Exclude<TodayEntryResolution["status
 export default async function ColorsPage({ searchParams }: ColorsPageProps) {
   const [params, requestHeaders] = await Promise.all([searchParams, headers()]);
   const today = await loadToday({ requestId: requestHeaders.get("x-request-id") });
+  const colorGuide = toColorGuideData(today);
   const resolution = resolveTodayEntry(today, params, {
-    contentVersion: getColorsContentVersion(today),
+    contentVersion: colorGuide?.contentVersion ?? null,
   });
 
   if (resolution.status !== "ready") {
     return <ColorsNotice status={resolution.status} />;
   }
 
-  const { attentionSection, ciJiCard, daJiCard, pingCard } = resolution.today;
-  if (daJiCard === null || ciJiCard === null || pingCard === null || attentionSection === null) {
+  if (colorGuide === null) {
     return <ColorsNotice status="unavailable" />;
   }
 
@@ -102,10 +84,15 @@ export default async function ColorsPage({ searchParams }: ColorsPageProps) {
           <p>{resolution.fortuneDate}</p>
         </header>
 
-        <DaJiColorCard tier={daJiCard} />
-        <CiJiColorCard tier={ciJiCard} />
-        <PingColorCard tier={pingCard} />
-        <AttentionColorSection section={attentionSection} />
+        <DaJiColorCard actionHref={colorGuide.daJi.outfitHref} tier={colorGuide.daJi.tier} />
+        <CiJiColorCard actionHref={colorGuide.ciJi.outfitHref} tier={colorGuide.ciJi.tier} />
+        <PingColorCard actionHref={colorGuide.ping.outfitHref} tier={colorGuide.ping.tier} />
+        <AttentionColorSection section={colorGuide.attentionSection} />
+        <div className="colors-page__next-step">
+          <FoundationAction fullWidth href={colorGuide.defaultOutfitHref} indicator="›">
+            看看怎么搭
+          </FoundationAction>
+        </div>
       </article>
     </main>
   );

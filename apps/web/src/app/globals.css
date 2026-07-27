@@ -1171,6 +1171,35 @@ a {
   line-height: 1.55;
 }
 
+.decision-card__action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  margin-top: 9px;
+  padding: 8px 11px;
+  border: 1px solid var(--tier-line);
+  border-radius: 10px;
+  background: var(--tier-soft);
+  color: var(--tier-accent);
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.decision-card__action:hover {
+  background: color-mix(in srgb, var(--tier-soft), var(--paper) 36%);
+}
+
+.decision-card__action:focus-visible {
+  outline: 3px solid var(--tier-line);
+  outline-offset: 2px;
+}
+
+.colors-page__next-step {
+  margin-top: var(--space-4);
+}
+
 .foundation-hero {
   position: relative;
   padding: clamp(28px, 7vw, 48px);
