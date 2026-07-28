@@ -141,7 +141,14 @@ export function resolveLookDetailSnapshot(
   if (
     selectedPreview === undefined ||
     selectedPreview.lookId !== lookId ||
-    selectedPreview.assetId !== detail.coverImage.assetId
+    selectedPreview.title !== detail.title ||
+    selectedPreview.assetId !== detail.coverImage.assetId ||
+    selectedPreview.url !== detail.coverImage.url ||
+    selectedPreview.altText !== detail.coverImage.altText ||
+    selectedPreview.width !== detail.coverImage.width ||
+    selectedPreview.height !== detail.coverImage.height ||
+    selectedPreview.mediaType !== detail.coverImage.mediaType ||
+    selectedPreview.aiDisclosure !== detail.coverImage.aiDisclosure
   ) {
     return { status: "invalid" };
   }

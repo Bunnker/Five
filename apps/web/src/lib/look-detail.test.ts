@@ -129,12 +129,33 @@ describe("loadLookDetail", () => {
   });
 
   it("reports a content version change without returning partial look data", async () => {
+    const currentContentVersion = "fd-20260715-r2";
+    const requestId = "request-look-conflict";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(null, {
-          status: 409,
-        }),
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "CONTENT_VERSION_CHANGED",
+              details: {
+                currentContentVersion,
+                expectedContentVersion: contentVersion,
+              },
+              message: "页面内容版本已经变化，请刷新后重试。",
+              requestId,
+              retryable: true,
+            },
+          }),
+          {
+            headers: {
+              "content-type": "application/json",
+              "x-content-version": currentContentVersion,
+              "x-request-id": requestId,
+            },
+            status: 409,
+          },
+        ),
       ),
     );
 
@@ -146,6 +167,121 @@ describe("loadLookDetail", () => {
         lookId,
       }),
     ).resolves.toEqual({ status: "stale" });
+  });
+
+  it("accepts a version-change message at the OpenAPI 500-character boundary", async () => {
+    const currentContentVersion = "fd-20260715-r2";
+    const requestId = "request-look-conflict-boundary";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "CONTENT_VERSION_CHANGED",
+              details: {
+                currentContentVersion,
+                expectedContentVersion: contentVersion,
+              },
+              message: "更".repeat(500),
+              requestId,
+              retryable: true,
+            },
+          }),
+          {
+            headers: {
+              "content-type": "application/json",
+              "x-content-version": currentContentVersion,
+              "x-request-id": requestId,
+            },
+            status: 409,
+          },
+        ),
+      ),
+    );
+
+    await expect(
+      loadLookDetail({
+        apiOrigin: "http://backend.test:3100",
+        expectedContentVersion: contentVersion,
+        fortuneDate,
+        lookId,
+      }),
+    ).resolves.toEqual({ status: "stale" });
+  });
+
+  it.each([
+    [
+      "an empty body",
+      new Response(null, {
+        headers: {
+          "x-content-version": "fd-20260715-r2",
+          "x-request-id": "request-look-conflict",
+        },
+        status: 409,
+      }),
+    ],
+    [
+      "another conflict code",
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "IDEMPOTENCY_KEY_REUSED",
+            details: {
+              currentContentVersion: "fd-20260715-r2",
+              expectedContentVersion: contentVersion,
+            },
+            message: "请求冲突。",
+            requestId: "request-look-conflict",
+            retryable: false,
+          },
+        }),
+        {
+          headers: {
+            "content-type": "application/json",
+            "x-content-version": "fd-20260715-r2",
+            "x-request-id": "request-look-conflict",
+          },
+          status: 409,
+        },
+      ),
+    ],
+    [
+      "a mismatched current version header",
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "CONTENT_VERSION_CHANGED",
+            details: {
+              currentContentVersion: "fd-20260715-r2",
+              expectedContentVersion: contentVersion,
+            },
+            message: "页面内容版本已经变化，请刷新后重试。",
+            requestId: "request-look-conflict",
+            retryable: true,
+          },
+        }),
+        {
+          headers: {
+            "content-type": "application/json",
+            "x-content-version": "fd-20260715-r4",
+            "x-request-id": "request-look-conflict",
+          },
+          status: 409,
+        },
+      ),
+    ],
+  ])("does not misreport %s as a content update", async (_label, response) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(
+      loadLookDetail({
+        apiOrigin: "http://backend.test:3100",
+        expectedContentVersion: contentVersion,
+        fortuneDate,
+        lookId,
+      }),
+    ).resolves.toEqual({ status: "unavailable" });
   });
 
   it("reports a missing look separately from a temporary loading failure", async () => {

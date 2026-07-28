@@ -1,8 +1,7 @@
-import { randomUUID } from "node:crypto";
-
 import type { components } from "@five/api-contract";
 import { Controller, Get, Headers, Inject, Logger, Res } from "@nestjs/common";
 
+import { resolveHttpRequestId } from "../http/request-id";
 import type { TodayContentResult } from "./today-content.service";
 
 type ErrorEnvelope = components["schemas"]["ErrorEnvelope"];
@@ -29,15 +28,6 @@ function etagMatches(ifNoneMatch: string | undefined, etag: string): boolean {
       .map((candidate) => candidate.trim())
       .some((candidate) => candidate === "*" || normalize(candidate) === normalizedEtag) ?? false
   );
-}
-
-function resolveRequestId(incomingRequestId: string | undefined): string {
-  return incomingRequestId !== undefined &&
-    incomingRequestId.length >= 8 &&
-    incomingRequestId.length <= 128 &&
-    !/[\r\n]/.test(incomingRequestId)
-    ? incomingRequestId
-    : randomUUID();
 }
 
 @Controller("api/v1")
@@ -75,7 +65,7 @@ export class TodayController {
     @Headers("x-request-id") incomingRequestId: string | undefined,
     @Res({ passthrough: true }) reply: TodayHttpReply,
   ): Promise<ErrorEnvelope | TodayResponse | undefined> {
-    const requestId = resolveRequestId(incomingRequestId);
+    const requestId = resolveHttpRequestId(incomingRequestId);
     reply.header("X-Request-Id", requestId);
     let result: TodayContentResult;
 

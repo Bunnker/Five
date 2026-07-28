@@ -68,6 +68,52 @@ export interface LoadLookDetailOptions {
 
 const fortuneDatePattern = /^\d{4}-\d{2}-\d{2}$/u;
 
+async function isContentVersionChangedResponse(
+  response: Response,
+  expectedContentVersion: string,
+): Promise<boolean> {
+  const contentType = response.headers.get("content-type");
+  const currentContentVersion = response.headers.get("x-content-version");
+  const responseRequestId = response.headers.get("x-request-id");
+  if (
+    contentType === null ||
+    !contentType.toLowerCase().includes("application/json") ||
+    !isOpaqueValue(currentContentVersion) ||
+    currentContentVersion === expectedContentVersion ||
+    !isOpaqueValue(responseRequestId) ||
+    responseRequestId.length < 8
+  ) {
+    return false;
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return false;
+  }
+
+  if (!isRecord(body) || !isRecord(body.error)) {
+    return false;
+  }
+
+  const { error } = body;
+  if (!isRecord(error.details)) {
+    return false;
+  }
+  const { details } = error;
+  return (
+    error.code === "CONTENT_VERSION_CHANGED" &&
+    typeof error.message === "string" &&
+    error.message.trim().length > 0 &&
+    error.message.length <= 500 &&
+    error.retryable === true &&
+    error.requestId === responseRequestId &&
+    details.expectedContentVersion === expectedContentVersion &&
+    details.currentContentVersion === currentContentVersion
+  );
+}
+
 function toItems(value: unknown): LookDetailItemData[] | null {
   if (!Array.isArray(value) || value.length < 1 || value.length > 12) {
     return null;
@@ -212,7 +258,9 @@ export async function loadLookDetail({
     });
 
     if (response.status === 409) {
-      return { status: "stale" };
+      return (await isContentVersionChangedResponse(response, expectedContentVersion))
+        ? { status: "stale" }
+        : { status: "unavailable" };
     }
     if (response.status === 404) {
       return { status: "missing" };

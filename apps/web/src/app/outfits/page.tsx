@@ -259,7 +259,7 @@ export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
           <h1>{notice.title}</h1>
           <p>{notice.description}</p>
           <a className="outfit-page__back outfit-page__back--button" href="/">
-            返回今日颜色
+            {resolution.reason === "stale" ? "查看新的今日内容" : "返回今日颜色"}
           </a>
         </section>
       </main>
@@ -295,9 +295,9 @@ export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
           <p>{notice.description}</p>
           <a
             className="outfit-page__back outfit-page__back--button"
-            href={resolution.selection.selectedCard.href}
+            href={resolution.reason === "stale" ? "/" : resolution.selection.selectedCard.href}
           >
-            返回今日搭配
+            {resolution.reason === "stale" ? "查看新的今日内容" : "返回今日搭配"}
           </a>
         </section>
       </main>

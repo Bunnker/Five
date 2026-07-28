@@ -93,6 +93,27 @@ describe("GET /api/v1/today", () => {
     });
   });
 
+  it("registers the look route and fails closed without a published-content adapter", async () => {
+    const response = await app.inject({
+      headers: {
+        "x-request-id": "edge-request-look-default",
+      },
+      method: "GET",
+      url: "/api/v1/daily/2026-07-15/looks/look-main-01?expectedContentVersion=fd-20260715-r3",
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["x-request-id"]).toBe("edge-request-look-default");
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "LOOK_NOT_FOUND",
+        requestId: "edge-request-look-default",
+        retryable: false,
+      },
+    });
+  });
+
   it("preserves the representation time and success headers through Fastify", async () => {
     const response = await readyApp.inject({
       headers: {

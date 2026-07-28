@@ -99,12 +99,22 @@ describe("resolveLookDetailSnapshot", () => {
     ["formula", { formulaId: "formula-dual-01" }],
     ["look", { lookId: "look-other-01" }],
     ["scenario", { scenarioLabel: "日常" }],
+    ["title", { title: "另一版本的通勤方案" }],
     [
       "cover asset",
       {
         coverImage: {
           ...detail.coverImage,
           assetId: "asset-from-another-look",
+        },
+      },
+    ],
+    [
+      "cover URL",
+      {
+        coverImage: {
+          ...detail.coverImage,
+          url: "https://cdn.five.test/assets/fd-20260715-r1/another-cover.webp",
         },
       },
     ],

@@ -451,7 +451,6 @@ describe("OutfitsPage", () => {
 
   it.each([
     ["missing", "这套搭配暂时无法查看"],
-    ["stale", "这套搭配已经更新"],
     ["unavailable", "搭配详情暂时无法打开"],
   ] as const)("shows a safe %s detail state without stale content", async (status, title) => {
     loadLookDetailMock.mockResolvedValue({ status });
@@ -476,6 +475,30 @@ describe("OutfitsPage", () => {
       "href",
       "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01",
     );
+  });
+
+  it("discards the whole old detail snapshot and returns directly to new today content", async () => {
+    loadLookDetailMock.mockResolvedValue({ status: "stale" });
+
+    render(
+      await OutfitsPage({
+        searchParams: Promise.resolve({
+          expectedContentVersion: "fd-20260715-r1",
+          formulaId: "formula-triple-01",
+          fortuneDate: "2026-07-15",
+          lookId: "look-triple-01",
+          view: "plan",
+        }),
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("这套搭配已经更新");
+    expect(screen.queryByText("木日通勤主方案")).not.toBeInTheDocument();
+    expect(screen.queryByText("三色比例已由维护者确认。")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "分享这套搭配" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看新的今日内容" })).toHaveAttribute("href", "/");
+    expect(screen.queryByRole("link", { name: "返回今日搭配" })).not.toBeInTheDocument();
   });
 
   it("does not request a detail when a plan link has no real look identifier", async () => {
@@ -617,7 +640,7 @@ describe("OutfitsPage", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("这条搭配已经更新");
     expect(screen.queryByText("通勤三色搭配")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "返回今日颜色" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "查看新的今日内容" })).toHaveAttribute("href", "/");
   });
 
   it("describes a temporary loading failure without claiming the content changed", async () => {
