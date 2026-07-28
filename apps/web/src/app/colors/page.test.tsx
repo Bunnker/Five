@@ -87,9 +87,11 @@ const today = {
   outfitPreviewSection: {
     cards: [
       {
+        description: "同色系深浅变化属于穿搭参考。",
         formulaId: "formula-mono-01",
         href: `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-mono-01`,
         kind: "mono",
+        scenarioLabel: "日常",
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],
@@ -102,9 +104,11 @@ const today = {
         title: "大吉色同色系",
       },
       {
+        description: "双色比例可按场景灵活调整，不必固定百分比。",
         formulaId: "formula-dual-01",
         href: `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-dual-01`,
         kind: "dual",
+        scenarioLabel: "日常",
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],
@@ -124,9 +128,11 @@ const today = {
         title: "大吉 × 次吉",
       },
       {
+        description: "60/30/10 为穿搭参考，不是五行推算规则。",
         formulaId: "formula-triple-01",
         href: `/outfits?fortuneDate=2026-07-15&expectedContentVersion=${contentVersion}&formulaId=formula-triple-01`,
         kind: "triple",
+        scenarioLabel: "通勤",
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],

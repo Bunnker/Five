@@ -187,7 +187,11 @@ function OutfitOverview({ selection }: { selection: SelectedOutfit }) {
           >
             {image === undefined ? null : (
               <div className="outfit-overview__media">
-                <OutfitOverviewImage card={image} eager={card.formulaId === firstImageFormulaId} />
+                <OutfitOverviewImage
+                  card={image}
+                  contentVersion={selection.contentVersion}
+                  eager={card.formulaId === firstImageFormulaId}
+                />
               </div>
             )}
 

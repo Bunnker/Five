@@ -719,7 +719,7 @@ describe("loadToday", () => {
     ]);
   });
 
-  it("uses the first published formula of each kind and resolves every Chinese color name from its tier", async () => {
+  it("preserves every published formula and resolves every Chinese color name from its tier", async () => {
     const result = await loadFrom({
       ...apiTodayResponse,
       content: {
@@ -741,6 +741,12 @@ describe("loadToday", () => {
           formulaId: "formula-mono-first",
           href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-first",
           title: "第一套单色",
+        },
+        {
+          ...outfitPreviewSection.cards[0],
+          formulaId: "formula-mono-second",
+          href: "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-second",
+          title: "第二套单色",
         },
         outfitPreviewSection.cards[1],
         outfitPreviewSection.cards[2],
@@ -1144,6 +1150,20 @@ describe("loadToday", () => {
             ? { ...formula, lookIds: [...formula.lookIds, alternateLook.lookId] }
             : formula,
         ),
+      },
+    ],
+    [
+      "primary image missing a formula tier",
+      {
+        looks: [
+          {
+            ...mainLook,
+            items: mainLook.items.filter((item) => item.colorCode !== "green"),
+          },
+          alternateLook,
+          supplementalLook,
+        ],
+        outfitFormulas,
       },
     ],
     [

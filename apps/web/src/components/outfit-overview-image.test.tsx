@@ -28,7 +28,7 @@ const card = {
 
 describe("OutfitOverviewImage", () => {
   it("replaces an unavailable reviewed image with its reviewed color summary", () => {
-    render(<OutfitOverviewImage card={card} eager />);
+    render(<OutfitOverviewImage card={card} contentVersion="fd-20260715-r1" eager />);
 
     fireEvent.error(
       screen.getByRole("img", {
@@ -39,11 +39,51 @@ describe("OutfitOverviewImage", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("已切换为配色示意");
     expect(screen.getByRole("status")).toHaveTextContent("图片暂时无法显示");
-    expect(screen.getByTestId("outfit-overview-fallback-red")).toBeVisible();
-    expect(screen.getByTestId("outfit-overview-fallback-green")).toBeVisible();
-    expect(screen.getByTestId("outfit-overview-fallback-white")).toHaveClass(
-      "outfit-overview-fallback__swatch--light",
+    expect(screen.getByTestId("reviewed-image-fallback-red")).toBeVisible();
+    expect(screen.getByTestId("reviewed-image-fallback-green")).toBeVisible();
+    expect(screen.getByTestId("reviewed-image-fallback-white")).toHaveClass(
+      "reviewed-image-fallback__swatch--light",
     );
+    expect(screen.getByText("红色")).toBeVisible();
+    expect(screen.getByText("绿色")).toBeVisible();
+    expect(screen.getByText("白色")).toBeVisible();
     expect(screen.queryByText("AI 生成穿搭示意图")).not.toBeInTheDocument();
+  });
+
+  it("retries when navigation supplies a different reviewed image", () => {
+    const { rerender } = render(
+      <OutfitOverviewImage card={card} contentVersion="fd-20260715-r1" eager />,
+    );
+    fireEvent.error(screen.getByRole("img"));
+
+    rerender(
+      <OutfitOverviewImage
+        card={{
+          ...card,
+          assetId: "asset-look-main-cover-v2",
+          url: "https://cdn.five.test/assets/fd-20260715-r1/main-v2.webp",
+        }}
+        contentVersion="fd-20260715-r1"
+        eager
+      />,
+    );
+
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "https://cdn.five.test/assets/fd-20260715-r1/main-v2.webp",
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("retries the same asset when a new content version is served", () => {
+    const { rerender } = render(
+      <OutfitOverviewImage card={card} contentVersion="fd-20260715-r1" eager />,
+    );
+    fireEvent.error(screen.getByRole("img"));
+
+    rerender(<OutfitOverviewImage card={card} contentVersion="fd-20260715-r2" eager />);
+
+    expect(screen.getByRole("img")).toHaveAttribute("src", card.url);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

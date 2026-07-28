@@ -125,18 +125,19 @@ describe("TodayImagePreviewSection", () => {
     fireEvent.error(within(mainCard).getByRole("img"));
 
     expect(within(mainCard).queryByRole("img")).not.toBeInTheDocument();
-    expect(within(mainCard).getByRole("status")).toHaveTextContent("已切换为配色示意");
+    const fallback = within(mainCard).getByRole("status");
+    expect(fallback).toHaveTextContent("已切换为配色示意");
+    expect(within(fallback).getByText("红色")).toBeVisible();
+    expect(within(fallback).getByText("绿色")).toBeVisible();
+    expect(within(fallback).getByText("白色")).toBeVisible();
     expect(within(mainCard).getByText("上衣")).toBeVisible();
-    expect(within(mainCard).getByText("红色")).toBeVisible();
     expect(within(mainCard).getByText("下装")).toBeVisible();
-    expect(within(mainCard).getByText("绿色")).toBeVisible();
     expect(within(mainCard).getByText("鞋包/配饰")).toBeVisible();
-    expect(within(mainCard).getByText("白色")).toBeVisible();
     expect(within(mainCard).getByTestId("today-image-dot-white")).toHaveClass(
       "today-image-color__dot--light",
     );
-    expect(within(mainCard).getByTestId("image-fallback-swatch-white")).toHaveClass(
-      "today-image-fallback__swatch--light",
+    expect(within(mainCard).getByTestId("reviewed-image-fallback-white")).toHaveClass(
+      "reviewed-image-fallback__swatch--light",
     );
     expect(within(mainCard).queryByText("AI 生成穿搭示意图")).not.toBeInTheDocument();
     expect(within(alternateCard).getByRole("img")).toBeVisible();

@@ -958,7 +958,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
           {"role": "secondary", "roleLabel": "辅助色", "tierCode": "ci_ji", "colorCodes": ["green"], "ratioPercent": null, "garmentParts": ["下装"]}
         ],
         "lookIds": ["look-alt-02"],
-        "disclaimer": "双色比例未固定时返回 null，不虚构百分比。"
+        "disclaimer": "双色比例可按场景灵活调整，不必固定百分比。"
       },
       {
         "formulaId": "formula-triple-01",

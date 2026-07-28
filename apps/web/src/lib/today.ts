@@ -90,7 +90,12 @@ export interface OutfitPreviewCardData {
 }
 
 export interface OutfitPreviewSectionData {
-  cards: [OutfitPreviewCardData, OutfitPreviewCardData, OutfitPreviewCardData];
+  cards: [
+    OutfitPreviewCardData,
+    OutfitPreviewCardData,
+    OutfitPreviewCardData,
+    ...OutfitPreviewCardData[],
+  ];
   contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
 }
 
@@ -952,20 +957,26 @@ function toOutfitPreviewSectionData(
 
   const cards: OutfitPreviewCardData[] = [];
   for (const kind of outfitKinds) {
-    const formula = content.outfitFormulas.find(
+    const formulas = content.outfitFormulas.filter(
       (candidate) => isRecord(candidate) && candidate.kind === kind,
     );
-    const card = toOutfitPreviewCard(
-      formula,
-      kind,
-      tiers,
-      fortuneDate,
-      decisionContent.contentVersion,
-    );
-    if (card === null) {
+    if (formulas.length === 0) {
       return null;
     }
-    cards.push(card);
+
+    for (const formula of formulas) {
+      const card = toOutfitPreviewCard(
+        formula,
+        kind,
+        tiers,
+        fortuneDate,
+        decisionContent.contentVersion,
+      );
+      if (card === null) {
+        return null;
+      }
+      cards.push(card);
+    }
   }
 
   return {
@@ -1227,7 +1238,12 @@ function toTodayImagePreviewCard(
 
   const asset = toImageAsset(value.coverImage);
   const imageItems = toImageItems(value.items, formula);
-  if (asset === null || imageItems === null || !imageItems.tierCodes.has("da_ji")) {
+  if (
+    asset === null ||
+    imageItems === null ||
+    !imageItems.tierCodes.has("da_ji") ||
+    formula.slots.some((slot) => !imageItems.tierCodes.has(slot.tierCode))
+  ) {
     return null;
   }
 

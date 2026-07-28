@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 
 import { reviewedColorPalette } from "../lib/color-palette";
 import type { TodayImagePreviewCardData, TodayImagePreviewSectionData } from "../lib/today";
+import { ReviewedImageFallback, useReviewedImageFailure } from "./reviewed-image";
 
 export interface TodayImagePreviewSectionProps {
   section: TodayImagePreviewSectionData;
@@ -15,13 +16,12 @@ interface TodayImagePreviewCardProps {
 }
 
 function TodayImagePreviewCard({ card, contentVersion }: TodayImagePreviewCardProps) {
-  const [imageFailed, setImageFailed] = useState(false);
   const titleId = `today-image-title-${card.sortOrder}`;
-  const handleImageRef = useCallback((image: HTMLImageElement | null) => {
-    if (image?.complete && image.naturalWidth === 0) {
-      setImageFailed(true);
-    }
-  }, []);
+  const { handleImageError, handleImageRef, imageFailed } = useReviewedImageFailure({
+    assetId: card.assetId,
+    contentVersion,
+    url: card.url,
+  });
 
   return (
     <article
@@ -32,31 +32,7 @@ function TodayImagePreviewCard({ card, contentVersion }: TodayImagePreviewCardPr
     >
       <div className="today-image-card__media">
         {imageFailed ? (
-          <div className="today-image-fallback" role="status">
-            <div className="today-image-fallback__swatches" aria-hidden="true">
-              {card.items.map((item, index) => {
-                const color = reviewedColorPalette[item.color.colorCode];
-                const style = {
-                  "--today-image-color": color.value,
-                } as CSSProperties;
-
-                return (
-                  <span
-                    className={
-                      color.isLight
-                        ? "today-image-fallback__swatch today-image-fallback__swatch--light"
-                        : "today-image-fallback__swatch"
-                    }
-                    data-testid={`image-fallback-swatch-${item.color.colorCode}`}
-                    key={`${item.categoryLabel}-${item.color.colorCode}-${index}`}
-                    style={style}
-                  />
-                );
-              })}
-            </div>
-            <strong>已切换为配色示意</strong>
-            <span>图片暂时无法显示，今日配色仍可参考。</span>
-          </div>
+          <ReviewedImageFallback items={card.items} note="图片暂时无法显示，今日配色仍可参考。" />
         ) : (
           <img
             alt={card.altText}
@@ -64,7 +40,7 @@ function TodayImagePreviewCard({ card, contentVersion }: TodayImagePreviewCardPr
             fetchPriority={card.placement === "primary" ? "high" : "auto"}
             height={card.height}
             loading={card.placement === "primary" ? "eager" : "lazy"}
-            onError={() => setImageFailed(true)}
+            onError={handleImageError}
             ref={handleImageRef}
             referrerPolicy="no-referrer"
             src={card.url}

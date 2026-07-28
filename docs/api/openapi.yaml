@@ -2572,7 +2572,7 @@ components:
                   ratioPercent: null
                   garmentParts: [下装]
               lookIds: [look-alt-02]
-              disclaimer: 双色比例未固定时返回 null。
+              disclaimer: 双色比例可按场景灵活调整，不必固定百分比。
             - formulaId: formula-triple-01
               kind: triple
               title: 60/30/10 通勤搭配
@@ -2662,7 +2662,7 @@ components:
               formulaId: formula-mono-01
               requiredForPublish: false
               sortOrder: 3
-              title: 红粉同色系日常方案
+              title: 红色同色系日常方案
               scenario: { code: daily, label: 日常 }
               audience: { code: adult_women, label: 成年女性 }
               coverImage:
@@ -2671,7 +2671,7 @@ components:
                 width: 1200
                 height: 1600
                 mediaType: image/webp
-                altText: 红粉同色系日常穿搭
+                altText: 红色同色系日常穿搭
                 aiGenerated: true
                 aiDisclosure: AI 生成穿搭示意图
               detailImages: []
