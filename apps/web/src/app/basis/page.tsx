@@ -1,5 +1,8 @@
 import { headers } from "next/headers";
 
+import { ColorSwatch } from "../../components/visual-foundation";
+import { toBasisGuideData, type BasisTierData } from "../../lib/basis-guide";
+import { reviewedColorPalette } from "../../lib/color-palette";
 import { loadToday } from "../../lib/today";
 import {
   resolveTodayEntry,
@@ -11,6 +14,46 @@ export const dynamic = "force-dynamic";
 
 interface BasisPageProps {
   searchParams: Promise<TodayEntrySearchParams>;
+}
+
+function BasisTier({ tier }: { tier: BasisTierData }) {
+  const isAttention = tier.displayLabel === "注意";
+  const accessibleName = isAttention
+    ? `${tier.displayLabel} ${tier.algorithmLabel}`
+    : `${tier.algorithmLabel} ${tier.displayLabel}`;
+
+  return (
+    <li>
+      <article aria-label={accessibleName} className="basis-tier">
+        <header className="basis-tier__heading">
+          <span aria-hidden="true" className="basis-tier__rank">
+            {String(tier.rank).padStart(2, "0")}
+          </span>
+          <div>
+            <h3>{tier.displayLabel}</h3>
+            <p>{isAttention ? `内部关系：${tier.algorithmLabel}` : tier.algorithmLabel}</p>
+          </div>
+          <strong>{tier.elementLabel}</strong>
+        </header>
+        <p className="basis-tier__relation">{tier.relationText}</p>
+        <ul aria-label={`${tier.algorithmLabel}颜色`} className="basis-tier__colors">
+          {tier.colors.map((color) => {
+            const presentation = reviewedColorPalette[color.colorCode];
+            return (
+              <ColorSwatch
+                colorCode={color.colorCode}
+                compact
+                isLight={presentation.isLight}
+                key={color.colorCode}
+                name={color.name}
+                value={presentation.value}
+              />
+            );
+          })}
+        </ul>
+      </article>
+    </li>
+  );
 }
 
 function BasisNotice({ status }: { status: Exclude<TodayEntryResolution["status"], "ready"> }) {
@@ -47,6 +90,7 @@ function BasisNotice({ status }: { status: Exclude<TodayEntryResolution["status"
 export default async function BasisPage({ searchParams }: BasisPageProps) {
   const [params, requestHeaders] = await Promise.all([searchParams, headers()]);
   const today = await loadToday({ requestId: requestHeaders.get("x-request-id") });
+  const guide = toBasisGuideData(today);
   const resolution = resolveTodayEntry(today, params, {
     contentVersion: today?.basis?.contentVersion,
   });
@@ -55,16 +99,15 @@ export default async function BasisPage({ searchParams }: BasisPageProps) {
     return <BasisNotice status={resolution.status} />;
   }
 
-  const basis = resolution.today.basis;
-  if (basis === null || basis === undefined) {
+  if (guide === null || guide.contentVersion !== resolution.contentVersion) {
     return <BasisNotice status="unavailable" />;
   }
 
   return (
-    <main className="outfit-page">
+    <main className="outfit-page basis-page">
       <article
         aria-labelledby="basis-page-title"
-        className="outfit-page__sheet"
+        className="outfit-page__sheet basis-page__sheet"
         data-content-version={resolution.contentVersion}
       >
         <a className="outfit-page__back" href="/">
@@ -75,23 +118,49 @@ export default async function BasisPage({ searchParams }: BasisPageProps) {
         <header className="outfit-page__header">
           <p className="outfit-page__eyebrow">当天公开推算依据</p>
           <h1 id="basis-page-title">为什么这样排</h1>
-          <p>{resolution.fortuneDate}</p>
+          <p>
+            {resolution.fortuneDate} · {guide.dayElementLabel}日
+          </p>
         </header>
 
-        <section aria-labelledby="basis-steps-title" className="selected-outfit">
-          <div className="selected-outfit__heading">
-            <span>按顺序看</span>
-            <h2 id="basis-steps-title">当天依据</h2>
-          </div>
-          <ol className="selected-outfit__slots">
-            {basis.steps.map((step, index) => (
-              <li className="selected-outfit-slot" key={`${index}:${step}`}>
-                {step}
+        <p className="basis-page__source-note">
+          日期干支按固定历法规则计算；穿衣分档依据本产品采用的传统五行规则整理。
+        </p>
+
+        <section aria-labelledby="basis-steps-title" className="basis-section">
+          <header className="basis-section__heading">
+            <p>按顺序看</p>
+            <h2 id="basis-steps-title">三步看懂当天五行</h2>
+          </header>
+          <ol className="basis-steps">
+            {guide.steps.map((step, index) => (
+              <li key={step.label}>
+                <span aria-hidden="true" className="basis-step__number">
+                  {index + 1}
+                </span>
+                <div>
+                  <p>{step.label}</p>
+                  <strong>{step.value}</strong>
+                  <span>{step.description}</span>
+                </div>
               </li>
             ))}
           </ol>
-          <p className="selected-outfit__note">{basis.disclaimer}</p>
         </section>
+
+        <section aria-labelledby="basis-tiers-title" className="basis-section">
+          <header className="basis-section__heading">
+            <p>从{guide.dayElementLabel}日到穿衣建议</p>
+            <h2 id="basis-tiers-title">五档与颜色</h2>
+          </header>
+          <ol className="basis-tiers">
+            {guide.tiers.map((tier) => (
+              <BasisTier key={tier.tierCode} tier={tier} />
+            ))}
+          </ol>
+        </section>
+
+        <p className="basis-page__disclaimer">{guide.basis.disclaimer}</p>
       </article>
     </main>
   );

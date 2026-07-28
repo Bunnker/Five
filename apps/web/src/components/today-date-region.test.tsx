@@ -7,6 +7,7 @@ import { TodayDateRegion } from "./today-date-region";
 const todayResponse = {
   content: {
     calendar: {
+      branch: "亥",
       dayElement: "water",
       dayElementLabel: "水",
       ganzhiDay: "己亥",

@@ -30,7 +30,9 @@ const today = {
     contentVersion,
     groups: [
       {
+        algorithmLabel: "较差",
         colors: [{ colorCode: "black", name: "黑色" }],
+        displayLabel: "注意",
         element: "water",
         elementLabel: "水",
         explanation: "今日建议降低大面积使用比例。",
@@ -39,7 +41,9 @@ const today = {
         tierCode: "jiao_cha",
       },
       {
+        algorithmLabel: "不利",
         colors: [{ colorCode: "yellow", name: "黄色" }],
+        displayLabel: "注意",
         element: "earth",
         elementLabel: "土",
         explanation: "今日建议减少使用。",
@@ -63,6 +67,7 @@ const today = {
   },
   content: {
     calendar: {
+      branch: "寅",
       dayElement: "wood",
       dayElementLabel: "木",
       ganzhiDay: "庚寅",

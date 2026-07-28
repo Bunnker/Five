@@ -14,6 +14,7 @@ const section = {
   contentVersion: "fd-20260715-r1",
   groups: [
     {
+      algorithmLabel: "较差",
       colors: [
         { colorCode: "black", name: "黑色" },
         { colorCode: "navy", name: "藏青" },
@@ -21,6 +22,7 @@ const section = {
         { colorCode: "dark_green", name: "墨绿" },
         { colorCode: "dark_gray_family", name: "深灰系" },
       ],
+      displayLabel: "注意",
       element: "water",
       elementLabel: "水",
       explanation: "今日建议降低大面积使用比例。",
@@ -29,6 +31,7 @@ const section = {
       tierCode: "jiao_cha",
     },
     {
+      algorithmLabel: "不利",
       colors: [
         { colorCode: "yellow", name: "黄色" },
         { colorCode: "coffee", name: "咖色" },
@@ -36,6 +39,7 @@ const section = {
         { colorCode: "khaki", name: "卡其" },
         { colorCode: "dark_brown_family", name: "褐色系" },
       ],
+      displayLabel: "注意",
       element: "earth",
       elementLabel: "土",
       explanation: "今日建议减少使用。",

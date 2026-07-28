@@ -23,6 +23,7 @@ const today = {
   ciJiCard: null,
   content: {
     calendar: {
+      branch: "寅",
       dayElement: "wood",
       dayElementLabel: "木",
       ganzhiDay: "庚寅",

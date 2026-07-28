@@ -20,6 +20,7 @@ const contentVersion = "fd-20260715-r1";
 const dateData = {
   content: {
     calendar: {
+      branch: "寅",
       dayElement: "wood",
       dayElementLabel: "木",
       ganzhiDay: "庚寅",
@@ -430,7 +431,9 @@ const attentionSection = {
   contentVersion,
   groups: [
     {
+      algorithmLabel: "较差",
       colors: jiaoChaTier.colors,
+      displayLabel: "注意",
       element: "water",
       elementLabel: "水",
       explanation: "今日建议降低大面积使用比例。",
@@ -439,7 +442,9 @@ const attentionSection = {
       tierCode: "jiao_cha",
     },
     {
+      algorithmLabel: "不利",
       colors: buLiTier.colors,
+      displayLabel: "注意",
       element: "earth",
       elementLabel: "土",
       explanation: "今日建议减少使用。",
@@ -699,10 +704,25 @@ describe("loadToday", () => {
     ]);
     expect(pageData.attentionSection.contentVersion).toBe(pageData.daJiCard.contentVersion);
     expect(
-      pageData.attentionSection.groups.map(({ rank, tierCode }) => ({ rank, tierCode })),
+      pageData.attentionSection.groups.map(({ algorithmLabel, displayLabel, rank, tierCode }) => ({
+        algorithmLabel,
+        displayLabel,
+        rank,
+        tierCode,
+      })),
     ).toEqual([
-      { rank: 4, tierCode: "jiao_cha" },
-      { rank: 5, tierCode: "bu_li" },
+      {
+        algorithmLabel: "较差",
+        displayLabel: "注意",
+        rank: 4,
+        tierCode: "jiao_cha",
+      },
+      {
+        algorithmLabel: "不利",
+        displayLabel: "注意",
+        rank: 5,
+        tierCode: "bu_li",
+      },
     ]);
     expect(pageData.attentionSection.groups[0].colors.map(({ name }) => name)).toEqual([
       "黑色",
@@ -723,6 +743,24 @@ describe("loadToday", () => {
       "dual",
       "triple",
     ]);
+  });
+
+  it("preserves the published day branch and rejects inconsistent calendar fields", async () => {
+    const result = await loadFrom(apiTodayResponse);
+    expect(result?.content.calendar).toHaveProperty("branch", "寅");
+
+    await expect(
+      loadFrom({
+        ...apiTodayResponse,
+        content: {
+          ...apiTodayResponse.content,
+          calendar: {
+            ...apiTodayResponse.content.calendar,
+            branch: "卯",
+          },
+        },
+      }),
+    ).resolves.toBeNull();
   });
 
   it("preserves every published formula and resolves every Chinese color name from its tier", async () => {

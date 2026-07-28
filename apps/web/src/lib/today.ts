@@ -66,6 +66,7 @@ export type DecisionCardData = CiJiCardData | DaJiCardData | PingCardData;
 
 interface AttentionGroupBaseData {
   colors: DecisionCardBaseData["colors"];
+  displayLabel: "注意";
   element: TodayTier["element"];
   elementLabel: TodayTier["elementLabel"];
   explanation: TodayTier["explanation"];
@@ -73,11 +74,13 @@ interface AttentionGroupBaseData {
 }
 
 export interface JiaoChaAttentionGroupData extends AttentionGroupBaseData {
+  algorithmLabel: "较差";
   rank: 4;
   tierCode: "jiao_cha";
 }
 
 export interface BuLiAttentionGroupData extends AttentionGroupBaseData {
+  algorithmLabel: "不利";
   rank: 5;
   tierCode: "bu_li";
 }
@@ -203,7 +206,7 @@ export interface TodayDateData {
   content: {
     calendar: Pick<
       TodayCalendar,
-      "dayElement" | "dayElementLabel" | "ganzhiDay" | "lunarDateText" | "weekdayText"
+      "branch" | "dayElement" | "dayElementLabel" | "ganzhiDay" | "lunarDateText" | "weekdayText"
     >;
     fortuneDate: TodayResponse["content"]["fortuneDate"];
   };
@@ -305,7 +308,7 @@ const versionFields = [
   "outfitVersion",
   "posterTemplateVersion",
 ] as const;
-const shichenNames = [
+const earthlyBranchNames = [
   "子",
   "丑",
   "寅",
@@ -597,7 +600,9 @@ function toAttentionGroupData(
   }
 
   const group = {
+    algorithmLabel: tier.algorithmLabel,
     colors,
+    displayLabel: tier.displayLabel,
     element: tier.element,
     elementLabel: tier.elementLabel,
     explanation: tier.explanation,
@@ -1358,6 +1363,7 @@ function toTodayDateData(value: unknown): TodayDateData | null {
   }
 
   const { calendar } = content;
+  const branch = calendar.branch;
   const civilDate = requestContext.civilDate;
   const crossedDayBoundary = requestContext.crossedDayBoundary;
   const fortuneDate = requestContext.fortuneDate;
@@ -1375,10 +1381,12 @@ function toTodayDateData(value: unknown): TodayDateData | null {
     !isFortuneDate(contentFortuneDate) ||
     fortuneDate !== contentFortuneDate ||
     typeof crossedDayBoundary !== "boolean" ||
-    !isMember(shichenNames, shichen) ||
+    !isMember(earthlyBranchNames, shichen) ||
+    !isMember(earthlyBranchNames, branch) ||
     !isMember(dayElements, dayElement) ||
     dayElementLabel !== dayElementLabels[dayElement] ||
     !isNonEmptyString(ganzhiDay) ||
+    !ganzhiDay.endsWith(branch) ||
     !isNonEmptyString(lunarDateText) ||
     !isNonEmptyString(weekdayText)
   ) {
@@ -1388,6 +1396,7 @@ function toTodayDateData(value: unknown): TodayDateData | null {
   return {
     content: {
       calendar: {
+        branch,
         dayElement,
         dayElementLabel: dayElementLabels[dayElement],
         ganzhiDay,
