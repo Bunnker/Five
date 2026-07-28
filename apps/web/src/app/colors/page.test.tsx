@@ -95,6 +95,7 @@ const today = {
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],
+            garmentParts: ["上衣", "下装"],
             ratioPercent: 100,
             role: "primary",
             roleLabel: "主色",
@@ -112,6 +113,7 @@ const today = {
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],
+            garmentParts: ["上衣"],
             ratioPercent: 70,
             role: "primary",
             roleLabel: "主色",
@@ -119,6 +121,7 @@ const today = {
           },
           {
             colors: [{ colorCode: "green", name: "绿色" }],
+            garmentParts: ["下装"],
             ratioPercent: 30,
             role: "secondary",
             roleLabel: "辅助色",
@@ -136,6 +139,7 @@ const today = {
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],
+            garmentParts: ["上衣"],
             ratioPercent: 60,
             role: "primary",
             roleLabel: "主色",
@@ -143,6 +147,7 @@ const today = {
           },
           {
             colors: [{ colorCode: "green", name: "绿色" }],
+            garmentParts: ["下装"],
             ratioPercent: 30,
             role: "secondary",
             roleLabel: "辅助色",
@@ -150,6 +155,7 @@ const today = {
           },
           {
             colors: [{ colorCode: "white", name: "白色" }],
+            garmentParts: ["鞋包", "配饰"],
             ratioPercent: 10,
             role: "accent",
             roleLabel: "点缀色",
@@ -292,6 +298,7 @@ describe("ColorsPage", () => {
               outfitPreviewSection.cards[1].slots[0]!,
               {
                 colors: [{ colorCode: "white", name: "白色" }],
+                garmentParts: ["下装"],
                 ratioPercent: 30,
                 role: "secondary",
                 roleLabel: "辅助色",

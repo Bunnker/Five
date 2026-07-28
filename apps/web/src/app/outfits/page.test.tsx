@@ -1,11 +1,13 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { LookDetailData } from "../../lib/look-detail";
 import type { TodayPageData } from "../../lib/today";
 import OutfitsPage from "./page";
 
-const { headersMock, loadTodayMock } = vi.hoisted(() => ({
+const { headersMock, loadLookDetailMock, loadTodayMock } = vi.hoisted(() => ({
   headersMock: vi.fn(),
+  loadLookDetailMock: vi.fn(),
   loadTodayMock: vi.fn(),
 }));
 
@@ -16,6 +18,10 @@ vi.mock("next/headers", () => ({
 vi.mock("../../lib/today", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/today")>()),
   loadToday: loadTodayMock,
+}));
+
+vi.mock("../../lib/look-detail", () => ({
+  loadLookDetail: loadLookDetailMock,
 }));
 
 const today = {
@@ -43,6 +49,7 @@ const today = {
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],
+            garmentParts: ["上衣", "下装"],
             ratioPercent: 100,
             role: "primary",
             roleLabel: "主色",
@@ -60,6 +67,7 @@ const today = {
         slots: [
           {
             colors: [{ colorCode: "orange", name: "橙色" }],
+            garmentParts: ["上衣"],
             ratioPercent: 70,
             role: "primary",
             roleLabel: "主色",
@@ -67,6 +75,7 @@ const today = {
           },
           {
             colors: [{ colorCode: "green", name: "绿色" }],
+            garmentParts: ["下装"],
             ratioPercent: 30,
             role: "secondary",
             roleLabel: "辅助色",
@@ -84,6 +93,7 @@ const today = {
         slots: [
           {
             colors: [{ colorCode: "red", name: "红色" }],
+            garmentParts: ["上衣"],
             ratioPercent: 60,
             role: "primary",
             roleLabel: "主色",
@@ -91,6 +101,7 @@ const today = {
           },
           {
             colors: [{ colorCode: "green", name: "绿色" }],
+            garmentParts: ["下装"],
             ratioPercent: 30,
             role: "secondary",
             roleLabel: "辅助色",
@@ -98,6 +109,7 @@ const today = {
           },
           {
             colors: [{ colorCode: "white", name: "白色" }],
+            garmentParts: ["鞋包", "配饰"],
             ratioPercent: 10,
             role: "accent",
             roleLabel: "点缀色",
@@ -175,6 +187,15 @@ const today = {
     ],
     contentVersion: "fd-20260715-r1",
   },
+  nextSteps: {
+    basisHref: "/basis?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1",
+    colorsHref: "/colors?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1",
+    contentVersion: "fd-20260715-r1",
+    outfitsHref:
+      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-01",
+    shareHref:
+      "/share?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=organic",
+  },
   pingCard: null,
   requestContext: {
     civilDate: "2026-07-15",
@@ -184,11 +205,81 @@ const today = {
   },
 } satisfies TodayPageData;
 
+const lookDetail = {
+  alternatives: [
+    {
+      description: "没有白色包时，可以换成白色耳饰或手机壳。",
+      replaceCategory: "配饰",
+    },
+  ],
+  audienceLabel: "成人通用",
+  contentVersion: "fd-20260715-r1",
+  coverImage: {
+    aiDisclosure: "AI 生成穿搭示意图",
+    aiGenerated: true,
+    altText: "红色上衣、绿色下装和白色配饰的通勤穿搭",
+    assetId: "asset-look-main-cover",
+    height: 1600,
+    mediaType: "image/webp",
+    url: "https://cdn.five.test/assets/fd-20260715-r1/main-a1b2c3.webp",
+    width: 1200,
+  },
+  detailImages: [
+    {
+      aiDisclosure: "AI 生成穿搭示意图",
+      aiGenerated: true,
+      altText: "红色针织上衣的搭配细节",
+      assetId: "asset-look-main-detail-01",
+      height: 1200,
+      mediaType: "image/webp",
+      url: "https://cdn.five.test/assets/fd-20260715-r1/detail-01.webp",
+      width: 1200,
+    },
+    {
+      aiDisclosure: "AI 生成穿搭示意图",
+      aiGenerated: true,
+      altText: "白色小包和耳饰的搭配细节",
+      assetId: "asset-look-main-detail-02",
+      height: 1200,
+      mediaType: "image/webp",
+      url: "https://cdn.five.test/assets/fd-20260715-r1/detail-02.webp",
+      width: 1200,
+    },
+  ],
+  formulaId: "formula-triple-01",
+  fortuneDate: "2026-07-15",
+  items: [
+    {
+      category: "top",
+      categoryLabel: "上衣",
+      colorCode: "red",
+      description: "针织上衣",
+    },
+    {
+      category: "bottom",
+      categoryLabel: "下装",
+      colorCode: "green",
+      description: "直筒长裤",
+    },
+    {
+      category: "accessory",
+      categoryLabel: "鞋包/配饰",
+      colorCode: "white",
+      description: "小包或耳饰",
+    },
+  ],
+  lookId: "look-triple-01",
+  scenarioLabel: "通勤",
+  title: "木日通勤主方案",
+} satisfies LookDetailData;
+
 describe("OutfitsPage", () => {
   beforeEach(() => {
     headersMock.mockReset();
+    loadLookDetailMock.mockReset();
     loadTodayMock.mockReset();
     headersMock.mockResolvedValue(new Headers({ "x-request-id": "request-issue-15" }));
+    loadLookDetailMock.mockResolvedValue({ detail: lookDetail, status: "ready" });
     loadTodayMock.mockResolvedValue(today);
   });
 
@@ -248,41 +339,185 @@ describe("OutfitsPage", () => {
 
     expect(within(mono).getByRole("link", { name: "查看红色同色系详情" })).toHaveAttribute(
       "href",
-      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-01&view=plan",
+      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-mono-01&lookId=look-mono-01&view=plan",
     );
     expect(within(dual).getByRole("link", { name: "查看橙绿双色详情" })).toHaveAttribute(
       "href",
-      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-dual-01&view=plan",
+      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-dual-01&lookId=look-dual-01&view=plan",
     );
     expect(within(triple).getByRole("link", { name: "查看通勤三色搭配详情" })).toHaveAttribute(
       "href",
-      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01&view=plan",
+      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01&lookId=look-triple-01&view=plan",
     );
     expect(screen.queryByText(/生成图片|重新生图|立即生图/u)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "返回今日颜色" })).toHaveAttribute("href", "/");
   });
 
-  it("keeps the existing minimal plan view available until the detail issue expands it", async () => {
+  it("shows the reviewed versioned look with positions, alternatives and only a share action", async () => {
     const result = await OutfitsPage({
       searchParams: Promise.resolve({
         expectedContentVersion: "fd-20260715-r1",
         formulaId: "formula-triple-01",
         fortuneDate: "2026-07-15",
+        lookId: "look-triple-01",
         view: "plan",
       }),
     });
     render(result);
 
-    expect(screen.getByRole("heading", { level: 2, name: "通勤三色搭配" })).toBeVisible();
-    expect(screen.getByText("2026-07-15 · 三色方案")).toBeVisible();
-    expect(screen.getByRole("region", { name: "通勤三色搭配" })).toHaveAttribute(
+    expect(loadLookDetailMock).toHaveBeenCalledWith({
+      expectedContentVersion: "fd-20260715-r1",
+      fortuneDate: "2026-07-15",
+      lookId: "look-triple-01",
+      requestId: "request-issue-15",
+    });
+    expect(screen.getByRole("heading", { level: 1, name: "木日通勤主方案" })).toBeVisible();
+    expect(screen.getByText("2026-07-15 · 通勤")).toBeVisible();
+    expect(screen.getByRole("article", { name: "木日通勤主方案" })).toHaveAttribute(
       "data-content-version",
       "fd-20260715-r1",
+    );
+
+    expect(
+      screen.getByRole("img", { name: "红色上衣、绿色下装和白色配饰的通勤穿搭" }),
+    ).toBeVisible();
+    expect(screen.getByRole("img", { name: "红色针织上衣的搭配细节" })).toBeVisible();
+    expect(screen.getByRole("img", { name: "白色小包和耳饰的搭配细节" })).toBeVisible();
+    expect(screen.getAllByText("AI 生成穿搭示意图")).toHaveLength(3);
+
+    const colors = screen.getByRole("region", { name: "颜色比例与位置" });
+    expect(colors).toHaveTextContent("主色");
+    expect(colors).toHaveTextContent("60%");
+    expect(colors).toHaveTextContent("红色");
+    expect(colors).toHaveTextContent("上衣");
+    expect(colors).toHaveTextContent("辅助色");
+    expect(colors).toHaveTextContent("30%");
+    expect(colors).toHaveTextContent("绿色");
+    expect(colors).toHaveTextContent("下装");
+    expect(colors).toHaveTextContent("点缀色");
+    expect(colors).toHaveTextContent("10%");
+    expect(colors).toHaveTextContent("白色");
+    expect(colors).toHaveTextContent("鞋包");
+    expect(colors).toHaveTextContent("配饰");
+
+    const items = screen.getByRole("region", { name: "单品说明" });
+    expect(within(items).getByText("红色")).toBeVisible();
+    expect(within(items).getByText("绿色")).toBeVisible();
+    expect(within(items).getByText("白色")).toBeVisible();
+    expect(items).toHaveTextContent("针织上衣");
+    expect(items).toHaveTextContent("直筒长裤");
+    expect(items).toHaveTextContent("小包或耳饰");
+    expect(screen.getByRole("region", { name: "配饰替代" })).toHaveTextContent(
+      "没有白色包时，可以换成白色耳饰或手机壳。",
+    );
+    expect(screen.getByText("三色比例已由维护者确认。")).toBeVisible();
+    expect(screen.queryByText("比例为穿搭参考，不是五行推算规则。")).not.toBeInTheDocument();
+
+    expect(screen.getByRole("link", { name: "分享这套搭配" })).toHaveAttribute(
+      "href",
+      "/share?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=organic",
     );
     expect(screen.getByRole("link", { name: "查看其他搭配" })).toHaveAttribute(
       "href",
       "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01",
     );
+    expect(screen.queryByText(/收藏|登录|拍照试搭|购买|商品|即将上线/u)).not.toBeInTheDocument();
+  });
+
+  it("replaces only a failed detail image with the reviewed color fallback", async () => {
+    render(
+      await OutfitsPage({
+        searchParams: Promise.resolve({
+          expectedContentVersion: "fd-20260715-r1",
+          formulaId: "formula-triple-01",
+          fortuneDate: "2026-07-15",
+          lookId: "look-triple-01",
+          view: "plan",
+        }),
+      }),
+    );
+
+    fireEvent.error(screen.getByRole("img", { name: "红色针织上衣的搭配细节" }));
+
+    const fallback = screen.getByRole("status");
+    expect(fallback).toHaveTextContent("已切换为配色示意");
+    expect(fallback).toHaveTextContent("红色");
+    expect(fallback).toHaveTextContent("绿色");
+    expect(fallback).toHaveTextContent("白色");
+    expect(screen.queryByRole("img", { name: "红色针织上衣的搭配细节" })).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "白色小包和耳饰的搭配细节" })).toBeVisible();
+    expect(screen.queryByText(/生成图片|重新生图|立即生图/u)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["missing", "这套搭配暂时无法查看"],
+    ["stale", "这套搭配已经更新"],
+    ["unavailable", "搭配详情暂时无法打开"],
+  ] as const)("shows a safe %s detail state without stale content", async (status, title) => {
+    loadLookDetailMock.mockResolvedValue({ status });
+
+    render(
+      await OutfitsPage({
+        searchParams: Promise.resolve({
+          expectedContentVersion: "fd-20260715-r1",
+          formulaId: "formula-triple-01",
+          fortuneDate: "2026-07-15",
+          lookId: "look-triple-01",
+          view: "plan",
+        }),
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(title);
+    expect(screen.queryByText("木日通勤主方案")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "分享这套搭配" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回今日搭配" })).toHaveAttribute(
+      "href",
+      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01",
+    );
+  });
+
+  it("does not request a detail when a plan link has no real look identifier", async () => {
+    render(
+      await OutfitsPage({
+        searchParams: Promise.resolve({
+          expectedContentVersion: "fd-20260715-r1",
+          formulaId: "formula-triple-01",
+          fortuneDate: "2026-07-15",
+          view: "plan",
+        }),
+      }),
+    );
+
+    expect(loadLookDetailMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("暂时找不到这套搭配");
+    expect(screen.queryByText("木日通勤主方案")).not.toBeInTheDocument();
+  });
+
+  it("rejects a detail whose garment colors do not match the same reviewed look snapshot", async () => {
+    loadLookDetailMock.mockResolvedValue({
+      detail: {
+        ...lookDetail,
+        items: [lookDetail.items[0]],
+      },
+      status: "ready",
+    });
+
+    render(
+      await OutfitsPage({
+        searchParams: Promise.resolve({
+          expectedContentVersion: "fd-20260715-r1",
+          formulaId: "formula-triple-01",
+          fortuneDate: "2026-07-15",
+          lookId: "look-triple-01",
+          view: "plan",
+        }),
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("暂时找不到这套搭配");
+    expect(screen.queryByText("木日通勤主方案")).not.toBeInTheDocument();
   });
 
   it("keeps all text formulas and the other reviewed images when one formula has no image", async () => {
@@ -309,6 +544,7 @@ describe("OutfitsPage", () => {
     const dual = screen.getByRole("region", { name: "双色 · 橙绿双色" });
     const triple = screen.getByRole("region", { name: "三色 · 通勤三色搭配" });
     expect(within(mono).queryByRole("img")).not.toBeInTheDocument();
+    expect(within(mono).queryByRole("link", { name: /查看.+详情/u })).not.toBeInTheDocument();
     expect(within(dual).getByRole("img")).toBeVisible();
     expect(within(triple).getByRole("img")).toBeVisible();
     expect(screen.queryAllByRole("img")).toHaveLength(2);

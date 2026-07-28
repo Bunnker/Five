@@ -1,7 +1,25 @@
-import { randomUUID } from "node:crypto";
-
 import type { FiveApiPaths } from "./api-contract";
 import { isReviewedColorCode, reviewedColorPalette, type ReviewedColorCode } from "./color-palette";
+import {
+  DEFAULT_PUBLIC_REQUEST_TIMEOUT_MS,
+  getPublicApiOrigin,
+  resolvePublicRequestId,
+} from "./public-api-client";
+import {
+  hasAsciiControlCharacter,
+  hasForbiddenPublicCopy,
+  isSafeAttentionCopy,
+  isSafeImageCopy,
+  isSafeOutfitCopy,
+} from "./public-content-safety";
+import {
+  isMember,
+  isOpaquePublicValue as isOpaqueId,
+  isRecord,
+  parsePublicImage,
+  publicGarmentCategories as garmentCategories,
+  publicImageResourceIdentity as imageResourceIdentity,
+} from "./public-response-validation";
 
 type TodayResponse =
   FiveApiPaths["/api/v1/today"]["get"]["responses"][200]["content"]["application/json"];
@@ -73,6 +91,7 @@ export interface OutfitPreviewColorData {
 
 export interface OutfitPreviewSlotData {
   colors: OutfitPreviewColorData[];
+  garmentParts: string[];
   ratioPercent: number | null;
   role: "accent" | "primary" | "secondary";
   roleLabel: "主色" | "辅助色" | "点缀色";
@@ -212,8 +231,6 @@ export interface LoadTodayOptions {
   timeoutMs?: number;
 }
 
-const DEFAULT_HTTP_PORT = "3100";
-const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
 const dayElements = ["wood", "fire", "earth", "metal", "water"] as const;
 const dayElementLabels = {
   earth: "土",
@@ -265,7 +282,6 @@ const attentionTierSpecs = {
   },
 } as const;
 const outfitKinds = ["mono", "dual", "triple"] as const;
-const reviewedAiImageDisclosure = "AI 生成穿搭示意图";
 const reviewedReferenceDisclaimer = "内容基于传统文化规则整理，仅供穿搭参考。";
 const homepageShareChannelId = "organic";
 const publicPosterJobEndpoint = "/api/v1/poster-jobs";
@@ -279,16 +295,6 @@ const outfitRolesByKind = {
   mono: ["primary"],
   triple: ["primary", "secondary", "accent"],
 } as const;
-const imageMediaTypes = ["image/avif", "image/webp", "image/jpeg", "image/png"] as const;
-const garmentCategories = [
-  "top",
-  "bottom",
-  "dress",
-  "outerwear",
-  "shoes",
-  "bag",
-  "accessory",
-] as const;
 const versionFields = [
   "algorithmVersion",
   "assetManifestVersion",
@@ -314,13 +320,8 @@ const shichenNames = [
   "亥",
 ] as const;
 const fortuneDatePattern = /^\d{4}-\d{2}-\d{2}$/u;
-const forbiddenPublicCopyPattern = /保证|必然|转运|暴富|破财|大凶|灾|一定有效/u;
 const forbiddenPingCopyPattern =
   /好运|贵人|助运|加分|事半功倍|运程|吉凶|运势平平|勉强|较差|不利|不推荐|倒霉|晦气/u;
-const forbiddenAttentionCopyPattern =
-  /好运|贵人|助运|加分|事半功倍|运程|吉凶|化解|较差|不利|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|必能|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题/u;
-const forbiddenOutfitCopyPattern =
-  /收藏|购买|商品|吉祥物|登录|账户|账号|出生|八字|个人运势|拍照试搭/u;
 const forbiddenBasisCopyPattern =
   /黄历|今日(?:的)?运程|运程|好运|贵人|助运|加分|事半功倍|吉凶|化解|不推荐|倒霉|晦气|厄运|凶险|灾祸|危险|警告|百分百|绝对|肯定|必定|必会|必能|一定会|确保|见效|有效|灵验|应验|受伤|伤害|出事|生病|失败|损失|坏事|祸事|不顺|出问题|收藏|购买|商品|吉祥物|登录|账户|账号|出生|八字|个人运势|拍照试搭/u;
 const reviewedBalanceAccessories = new Set<TodayBalanceAccessory>([
@@ -338,37 +339,12 @@ const reviewedBalanceAccessories = new Set<TodayBalanceAccessory>([
 const reviewedBalanceDescription =
   "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。" as const;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function hasAsciiControlCharacter(value: string): boolean {
-  return [...value].some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
-}
-
-function isOpaqueId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= 128 &&
-    value.trim() === value &&
-    !hasAsciiControlCharacter(value)
-  );
-}
-
 function isReviewedBalanceAccessory(value: string): value is TodayBalanceAccessory {
   return reviewedBalanceAccessories.has(value as TodayBalanceAccessory);
-}
-
-function isMember<T extends readonly string[]>(values: T, value: unknown): value is T[number] {
-  return typeof value === "string" && values.includes(value);
 }
 
 function isFortuneDate(value: unknown): value is string {
@@ -499,8 +475,8 @@ function toDecisionCardCore(
     tier.elementLabel !== dayElementLabels[tier.element] ||
     !isNonEmptyString(tier.relationText) ||
     !isNonEmptyString(tier.explanation) ||
-    forbiddenPublicCopyPattern.test(tier.relationText) ||
-    forbiddenPublicCopyPattern.test(tier.explanation) ||
+    hasForbiddenPublicCopy(tier.relationText) ||
+    hasForbiddenPublicCopy(tier.explanation) ||
     (tierCode === "ping" &&
       (forbiddenPingCopyPattern.test(tier.relationText) ||
         forbiddenPingCopyPattern.test(tier.explanation)))
@@ -523,32 +499,13 @@ function toDecisionCardCore(
   };
 }
 
-function isSafeAttentionCopy(value: unknown, maxLength: number): value is string {
-  return (
-    isNonEmptyString(value) &&
-    value.length <= maxLength &&
-    !forbiddenPublicCopyPattern.test(value) &&
-    !forbiddenAttentionCopyPattern.test(value)
-  );
-}
-
-function isSafeOutfitCopy(value: unknown, maxLength: number): value is string {
-  return isSafeAttentionCopy(value, maxLength) && !forbiddenOutfitCopyPattern.test(value);
-}
-
-function isSafeImageCopy(value: unknown, maxLength: number): value is string {
-  return (
-    isSafeOutfitCopy(value, maxLength) && value.trim() === value && !hasAsciiControlCharacter(value)
-  );
-}
-
 function isSafeBasisCopy(value: unknown, maxLength: number): value is string {
   return (
     isNonEmptyString(value) &&
     value.length <= maxLength &&
     value.trim() === value &&
     !hasAsciiControlCharacter(value) &&
-    !forbiddenPublicCopyPattern.test(value) &&
+    !hasForbiddenPublicCopy(value) &&
     !forbiddenBasisCopyPattern.test(value)
   );
 }
@@ -746,6 +703,21 @@ function isRatioPercent(value: unknown): value is number | null {
   return value === null || (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 100);
 }
 
+function toGarmentParts(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 12) {
+    return null;
+  }
+
+  const garmentParts: string[] = [];
+  for (const garmentPart of value) {
+    if (!isSafeImageCopy(garmentPart, 32)) {
+      return null;
+    }
+    garmentParts.push(garmentPart);
+  }
+  return garmentParts;
+}
+
 function isAllowedOutfitTierCode(
   kind: (typeof outfitKinds)[number],
   role: keyof typeof outfitRoleLabels,
@@ -785,12 +757,14 @@ function toOutfitPreviewSlot(
   }
 
   const colors = toOutfitPreviewColors(value.colorCodes, tiers[tierCode]);
-  if (colors === null) {
+  const garmentParts = toGarmentParts(value.garmentParts);
+  if (colors === null || garmentParts === null) {
     return null;
   }
 
   return {
     colors,
+    garmentParts,
     ratioPercent: value.ratioPercent,
     role,
     roleLabel: outfitRoleLabels[role],
@@ -1010,29 +984,6 @@ interface ImageItemData {
   tierCodes: Set<OutfitPreviewSlotData["tierCode"]>;
 }
 
-function isSafeImageUrl(value: unknown): value is string {
-  if (typeof value !== "string" || value.length < 1 || value.length > 2_048) {
-    return false;
-  }
-
-  try {
-    const url = new URL(value);
-    return (
-      (url.protocol === "https:" || url.protocol === "http:") &&
-      url.username === "" &&
-      url.password === ""
-    );
-  } catch {
-    return false;
-  }
-}
-
-function imageResourceIdentity(value: string): string {
-  const url = new URL(value);
-  url.hash = "";
-  return url.href;
-}
-
 function toImageAudience(value: unknown): { code: string; label: string } | null {
   if (
     !isRecord(value) ||
@@ -1047,42 +998,19 @@ function toImageAudience(value: unknown): { code: string; label: string } | null
 }
 
 function toImageAsset(value: unknown): ImageAssetData | null {
-  if (
-    !isRecord(value) ||
-    !isOpaqueId(value.assetId) ||
-    !isSafeImageUrl(value.url) ||
-    !Number.isInteger(value.width) ||
-    Number(value.width) < 1 ||
-    !Number.isInteger(value.height) ||
-    Number(value.height) < 1 ||
-    !isMember(imageMediaTypes, value.mediaType) ||
-    !isSafeImageCopy(value.altText, 300) ||
-    typeof value.aiGenerated !== "boolean"
-  ) {
+  const image = parsePublicImage(value);
+  if (image === null) {
     return null;
   }
 
-  let aiDisclosure: string | null;
-  if (value.aiGenerated) {
-    if (value.aiDisclosure !== reviewedAiImageDisclosure) {
-      return null;
-    }
-    aiDisclosure = value.aiDisclosure;
-  } else {
-    if (value.aiDisclosure !== null) {
-      return null;
-    }
-    aiDisclosure = null;
-  }
-
   return {
-    aiDisclosure,
-    altText: value.altText,
-    assetId: value.assetId,
-    height: Number(value.height),
-    mediaType: value.mediaType,
-    url: value.url,
-    width: Number(value.width),
+    aiDisclosure: image.aiDisclosure,
+    altText: image.altText,
+    assetId: image.assetId,
+    height: image.height,
+    mediaType: image.mediaType,
+    url: image.url,
+    width: image.width,
   };
 }
 
@@ -1477,30 +1405,10 @@ function toTodayDateData(value: unknown): TodayDateData | null {
   };
 }
 
-function getApiOrigin(): string {
-  return (
-    process.env.FIVE_API_ORIGIN ?? `http://127.0.0.1:${process.env.HTTP_PORT ?? DEFAULT_HTTP_PORT}`
-  );
-}
-
-function resolveRequestId(requestId: string | null | undefined): string {
-  const candidate = requestId?.trim();
-  if (
-    candidate !== undefined &&
-    candidate.length >= 8 &&
-    candidate.length <= 128 &&
-    !/[\r\n]/u.test(candidate)
-  ) {
-    return candidate;
-  }
-
-  return randomUUID();
-}
-
 export async function loadToday({
-  apiOrigin = getApiOrigin(),
+  apiOrigin = getPublicApiOrigin(),
   requestId,
-  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  timeoutMs = DEFAULT_PUBLIC_REQUEST_TIMEOUT_MS,
 }: LoadTodayOptions = {}): Promise<TodayPageData | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -1511,7 +1419,7 @@ export async function loadToday({
       cache: "no-store",
       headers: {
         accept: "application/json",
-        "x-request-id": resolveRequestId(requestId),
+        "x-request-id": resolvePublicRequestId(requestId),
       },
       signal: controller.signal,
     });

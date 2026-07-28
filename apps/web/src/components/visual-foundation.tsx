@@ -27,17 +27,24 @@ export function NumberedCard({ accent, caption, children, label, number }: Numbe
 
 interface ColorSwatchProps {
   colorCode: string;
+  compact?: boolean;
   isLight?: boolean;
   name: string;
   value: string;
 }
 
-export function ColorSwatch({ colorCode, isLight = false, name, value }: ColorSwatchProps) {
+export function ColorSwatch({
+  colorCode,
+  compact = false,
+  isLight = false,
+  name,
+  value,
+}: ColorSwatchProps) {
   const dotClassName = isLight ? "color-swatch__dot color-swatch__dot--light" : "color-swatch__dot";
   const style = { "--swatch-color": value } as CSSProperties;
 
   return (
-    <li className="color-swatch">
+    <li className={compact ? "color-swatch color-swatch--compact" : "color-swatch"}>
       <span
         aria-hidden="true"
         className={dotClassName}

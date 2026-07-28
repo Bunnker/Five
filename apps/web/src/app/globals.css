@@ -1469,6 +1469,26 @@ h1 {
   text-align: center;
 }
 
+.color-swatch--compact {
+  display: inline-flex;
+  align-items: center;
+  justify-items: initial;
+  gap: 7px;
+  font-size: 14px;
+}
+
+.color-swatch--compact .color-swatch__dot {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  box-shadow: inset 0 1px 2px rgb(255 255 255 / 45%);
+}
+
+.color-swatch--compact .color-swatch__name {
+  font-size: 14px;
+  text-align: left;
+}
+
 .foundation-footer {
   display: flex;
   align-items: center;
@@ -1682,33 +1702,19 @@ h1 {
   font-size: 16px;
 }
 
+.selected-outfit-slot__parts {
+  margin: 10px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .selected-outfit-slot > ul {
   display: flex;
   flex-wrap: wrap;
   gap: 9px 14px;
   margin: 0;
-}
-
-.selected-outfit-color {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  font-size: 14px;
-}
-
-.selected-outfit-color__dot {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  border: 1px solid rgb(48 42 36 / 11%);
-  border-radius: 50%;
-  background: var(--selected-outfit-color);
-  box-shadow: inset 0 1px 2px rgb(255 255 255 / 45%);
-}
-
-.selected-outfit-color__dot--light {
-  border: 2px solid #8f8069;
 }
 
 .selected-outfit__note {
@@ -1824,6 +1830,128 @@ h1 {
   font-size: 12px;
   line-height: 1.6;
   text-align: center;
+}
+
+.outfit-detail {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.outfit-detail__gallery,
+.outfit-detail__details {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.outfit-detail__details {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.outfit-detail__figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.outfit-detail__image {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  border: 1px solid rgb(48 42 36 / 12%);
+  border-radius: 8px;
+  background: #eee8dc;
+}
+
+.outfit-detail__details .outfit-detail__image {
+  aspect-ratio: 1 / 1;
+}
+
+.outfit-detail__image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.outfit-detail__image .reviewed-image-fallback {
+  width: 100%;
+  height: 100%;
+}
+
+.outfit-detail__figure figcaption {
+  margin-top: 7px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.outfit-detail__section {
+  min-width: 0;
+}
+
+.outfit-detail__list,
+.outfit-detail__alternatives {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 16px;
+  list-style: none;
+}
+
+.outfit-detail__item-color {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outfit-detail__list > li,
+.outfit-detail__alternatives > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgb(48 42 36 / 9%);
+  border-radius: 8px;
+  background: rgb(255 250 240 / 78%);
+}
+
+.outfit-detail__list > li > div,
+.outfit-detail__alternatives > li {
+  min-width: 0;
+}
+
+.outfit-detail__list > li > div > strong,
+.outfit-detail__list > li > div > span,
+.outfit-detail__alternatives > li > strong,
+.outfit-detail__alternatives > li > span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.outfit-detail__list > li > div > strong,
+.outfit-detail__alternatives > li > strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.outfit-detail__list > li > div > span,
+.outfit-detail__alternatives > li > span {
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.outfit-detail__alternatives > li {
+  display: block;
+}
+
+.outfit-detail__note {
+  padding: 0 4px;
 }
 
 @keyframes settle-in {
@@ -2040,6 +2168,36 @@ h1 {
   .page-shell {
     padding-right: max(8px, env(safe-area-inset-right));
     padding-left: max(8px, env(safe-area-inset-left));
+  }
+
+  .outfit-detail__details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .outfit-detail__section .selected-outfit__slots {
+    padding: 10px;
+  }
+
+  .outfit-detail__section .selected-outfit-slot {
+    padding: 10px;
+  }
+
+  .outfit-detail__section .selected-outfit-slot__heading {
+    gap: 4px;
+    font-size: 12px;
+  }
+
+  .outfit-detail__section .selected-outfit-slot__heading strong {
+    font-size: 15px;
+  }
+
+  .outfit-page__sheet .foundation-action {
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  .outfit-page__sheet .foundation-action > span:first-child {
+    white-space: nowrap;
   }
 
   .today-masthead {

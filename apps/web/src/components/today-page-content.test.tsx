@@ -105,6 +105,7 @@ const outfitPreviewSection = {
       slots: [
         {
           colors: [{ colorCode: "red", name: "红色" }],
+          garmentParts: ["上衣", "下装"],
           ratioPercent: 100,
           role: "primary",
           roleLabel: "主色",
@@ -122,6 +123,7 @@ const outfitPreviewSection = {
       slots: [
         {
           colors: [{ colorCode: "red", name: "红色" }],
+          garmentParts: ["上衣"],
           ratioPercent: null,
           role: "primary",
           roleLabel: "主色",
@@ -129,6 +131,7 @@ const outfitPreviewSection = {
         },
         {
           colors: [{ colorCode: "lake_blue", name: "湖蓝" }],
+          garmentParts: ["下装"],
           ratioPercent: null,
           role: "secondary",
           roleLabel: "辅助色",
@@ -146,6 +149,7 @@ const outfitPreviewSection = {
       slots: [
         {
           colors: [{ colorCode: "red", name: "红色" }],
+          garmentParts: ["上衣"],
           ratioPercent: 60,
           role: "primary",
           roleLabel: "主色",
@@ -153,6 +157,7 @@ const outfitPreviewSection = {
         },
         {
           colors: [{ colorCode: "lake_blue", name: "湖蓝" }],
+          garmentParts: ["下装"],
           ratioPercent: 30,
           role: "secondary",
           roleLabel: "辅助色",
@@ -160,6 +165,7 @@ const outfitPreviewSection = {
         },
         {
           colors: [{ colorCode: "white", name: "白色" }],
+          garmentParts: ["鞋包", "配饰"],
           ratioPercent: 10,
           role: "accent",
           roleLabel: "点缀色",

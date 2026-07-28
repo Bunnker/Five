@@ -1,41 +1,22 @@
 import { headers } from "next/headers";
-import type { CSSProperties } from "react";
 
+import { OutfitDetailImage } from "../../components/outfit-detail-image";
 import { OutfitOverviewImage } from "../../components/outfit-overview-image";
+import { ColorSwatch, FoundationAction } from "../../components/visual-foundation";
 import { reviewedColorPalette } from "../../lib/color-palette";
 import {
-  loadToday,
-  resolveOutfitPreviewImages,
-  type OutfitPreviewCardData,
-  type TodayImagePreviewCardData,
-  type TodayPageData,
-} from "../../lib/today";
+  loadOutfitPageData,
+  type OutfitSearchParamValue,
+  type SelectedOutfit,
+} from "../../lib/outfit-page-data";
+import type { LookDetailData } from "../../lib/look-detail";
+import type { OutfitPreviewCardData } from "../../lib/today";
 
 export const dynamic = "force-dynamic";
 
-type SearchParamValue = string | string[] | undefined;
-
 interface OutfitsPageProps {
-  searchParams: Promise<Record<string, SearchParamValue>>;
+  searchParams: Promise<Record<string, OutfitSearchParamValue>>;
 }
-
-interface SelectedOutfit {
-  cards: OutfitPreviewCardData[];
-  contentVersion: string;
-  fortuneDate: string;
-  imagesByFormula: ReadonlyMap<string, TodayImagePreviewCardData>;
-  selectedCard: OutfitPreviewCardData;
-  view: "all" | "plan";
-}
-
-type OutfitResolution =
-  | {
-      selection: SelectedOutfit;
-      status: "selected";
-    }
-  | {
-      status: "invalid" | "stale" | "unavailable";
-    };
 
 const kindLabels = {
   dual: "双色",
@@ -43,69 +24,14 @@ const kindLabels = {
   triple: "三色",
 } as const;
 
-function getSingleSearchParam(value: SearchParamValue): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 && trimmed.length <= 128 ? trimmed : null;
-}
-
-function selectOutfit(
-  today: TodayPageData | null,
-  params: Record<string, SearchParamValue>,
-): OutfitResolution {
-  const expectedContentVersion = getSingleSearchParam(params.expectedContentVersion);
-  const formulaId = getSingleSearchParam(params.formulaId);
-  const fortuneDate = getSingleSearchParam(params.fortuneDate);
-  const view = params.view === undefined ? "all" : getSingleSearchParam(params.view);
-
-  if (
-    expectedContentVersion === null ||
-    formulaId === null ||
-    fortuneDate === null ||
-    (view !== "all" && view !== "plan")
-  ) {
-    return { status: "invalid" };
-  }
-
-  const section = today?.outfitPreviewSection;
-  if (today === null || section === null || section === undefined) {
-    return { status: "unavailable" };
-  }
-
-  if (
-    today.content.fortuneDate !== fortuneDate ||
-    section.contentVersion !== expectedContentVersion
-  ) {
-    return { status: "stale" };
-  }
-
-  const card = section.cards.find((candidate) => candidate.formulaId === formulaId);
-  const imagesByFormula = resolveOutfitPreviewImages(section, today.imagePreviewSection);
-
-  return card === undefined
-    ? { status: "invalid" }
-    : {
-        status: "selected",
-        selection: {
-          cards: section.cards,
-          contentVersion: section.contentVersion,
-          fortuneDate,
-          imagesByFormula,
-          selectedCard: card,
-          view,
-        },
-      };
-}
-
 function OutfitSlots({
   card,
   kindLabel,
+  showGarmentParts = false,
 }: {
   card: OutfitPreviewCardData;
   kindLabel: (typeof kindLabels)[OutfitPreviewCardData["kind"]];
+  showGarmentParts?: boolean;
 }) {
   return (
     <ul className="selected-outfit__slots" aria-label={`${kindLabel}颜色组合`}>
@@ -118,50 +44,129 @@ function OutfitSlots({
           <ul aria-label={`${slot.roleLabel}颜色`}>
             {slot.colors.map((color) => {
               const presentation = reviewedColorPalette[color.colorCode];
-              const style = {
-                "--selected-outfit-color": presentation.value,
-              } as CSSProperties;
 
               return (
-                <li className="selected-outfit-color" key={color.colorCode}>
-                  <span
-                    aria-hidden="true"
-                    className={
-                      presentation.isLight
-                        ? "selected-outfit-color__dot selected-outfit-color__dot--light"
-                        : "selected-outfit-color__dot"
-                    }
-                    style={style}
-                  />
-                  <span>{color.name}</span>
-                </li>
+                <ColorSwatch
+                  colorCode={color.colorCode}
+                  compact
+                  isLight={presentation.isLight}
+                  key={color.colorCode}
+                  name={color.name}
+                  value={presentation.value}
+                />
               );
             })}
           </ul>
+          {showGarmentParts ? (
+            <p className="selected-outfit-slot__parts">{slot.garmentParts.join("、")}</p>
+          ) : null}
         </li>
       ))}
     </ul>
   );
 }
 
-function OutfitPlan({ selection }: { selection: SelectedOutfit }) {
+function OutfitPlan({ detail, selection }: { detail: LookDetailData; selection: SelectedOutfit }) {
   const card = selection.selectedCard;
   const kindLabel = kindLabels[card.kind];
+  const fallbackItems = detail.items.flatMap((item) => {
+    const color = card.slots
+      .flatMap((slot) => slot.colors)
+      .find((candidate) => candidate.colorCode === item.colorCode);
+    return color === undefined ? [] : [{ categoryLabel: item.categoryLabel, color }];
+  });
 
   return (
-    <section
-      aria-labelledby="selected-outfit-title"
-      className={`selected-outfit selected-outfit--${card.kind}`}
-      data-content-version={selection.contentVersion}
-    >
-      <div className="selected-outfit__heading">
-        <span>{kindLabel}</span>
-        <h2 id="selected-outfit-title">{card.title}</h2>
-      </div>
+    <div className={`outfit-detail selected-outfit--${card.kind}`}>
+      <section aria-label="搭配图片" className="outfit-detail__gallery">
+        <OutfitDetailImage
+          caption={`${detail.scenarioLabel}主图`}
+          contentVersion={selection.contentVersion}
+          eager
+          image={detail.coverImage}
+          items={fallbackItems}
+        />
+        {detail.detailImages.length === 0 ? null : (
+          <div className="outfit-detail__details">
+            {detail.detailImages.map((image) => (
+              <OutfitDetailImage
+                caption={image.altText}
+                contentVersion={selection.contentVersion}
+                eager={false}
+                image={image}
+                items={fallbackItems}
+                key={`${selection.contentVersion}:${image.assetId}:${image.url}`}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
-      <OutfitSlots card={card} kindLabel={kindLabel} />
-      <p className="selected-outfit__note">{card.description}</p>
-    </section>
+      <section
+        aria-labelledby="outfit-detail-colors-title"
+        className="selected-outfit outfit-detail__section"
+      >
+        <div className="selected-outfit__heading">
+          <span>{kindLabel}</span>
+          <h2 id="outfit-detail-colors-title">颜色比例与位置</h2>
+        </div>
+        <OutfitSlots card={card} kindLabel={kindLabel} showGarmentParts />
+      </section>
+
+      <section
+        aria-labelledby="outfit-detail-items-title"
+        className="selected-outfit outfit-detail__section"
+      >
+        <div className="selected-outfit__heading">
+          <span>{detail.scenarioLabel}</span>
+          <h2 id="outfit-detail-items-title">单品说明</h2>
+        </div>
+        <ul className="outfit-detail__list">
+          {detail.items.map((item, index) => {
+            const color = reviewedColorPalette[item.colorCode];
+            return (
+              <li key={`${item.category}:${item.colorCode}:${index}`}>
+                <ul aria-label={`${item.categoryLabel}颜色`} className="outfit-detail__item-color">
+                  <ColorSwatch
+                    colorCode={item.colorCode}
+                    compact
+                    isLight={color.isLight}
+                    name={color.name}
+                    value={color.value}
+                  />
+                </ul>
+                <div>
+                  <strong>{item.categoryLabel}</strong>
+                  <span>{item.description}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      {detail.alternatives.length === 0 ? null : (
+        <section
+          aria-labelledby="outfit-detail-alternatives-title"
+          className="selected-outfit outfit-detail__section"
+        >
+          <div className="selected-outfit__heading">
+            <span>小面积替换</span>
+            <h2 id="outfit-detail-alternatives-title">配饰替代</h2>
+          </div>
+          <ul className="outfit-detail__alternatives">
+            {detail.alternatives.map((alternative, index) => (
+              <li key={`${alternative.replaceCategory}:${index}`}>
+                <strong>{alternative.replaceCategory}</strong>
+                <span>{alternative.description}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <p className="selected-outfit__note outfit-detail__note">{card.description}</p>
+    </div>
   );
 }
 
@@ -206,14 +211,16 @@ function OutfitOverview({ selection }: { selection: SelectedOutfit }) {
 
             <OutfitSlots card={card} kindLabel={kindLabel} />
             <p className="selected-outfit__note">{card.description}</p>
-            <a
-              aria-label={`查看${card.title}详情`}
-              className="outfit-overview__action"
-              href={`${card.href}&view=plan`}
-            >
-              查看方案详情
-              <span aria-hidden="true">›</span>
-            </a>
+            {image === undefined ? null : (
+              <a
+                aria-label={`查看${card.title}详情`}
+                className="outfit-overview__action"
+                href={`${card.href}&lookId=${encodeURIComponent(image.lookId)}&view=plan`}
+              >
+                查看方案详情
+                <span aria-hidden="true">›</span>
+              </a>
+            )}
           </section>
         );
       })}
@@ -223,10 +230,12 @@ function OutfitOverview({ selection }: { selection: SelectedOutfit }) {
 
 export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
   const [params, requestHeaders] = await Promise.all([searchParams, headers()]);
-  const today = await loadToday({ requestId: requestHeaders.get("x-request-id") });
-  const resolution = selectOutfit(today, params);
+  const resolution = await loadOutfitPageData({
+    params,
+    requestId: requestHeaders.get("x-request-id"),
+  });
 
-  if (resolution.status !== "selected") {
+  if (resolution.status === "selection-error") {
     const notices = {
       invalid: {
         description: "暂时找不到这条搭配，请从首页重新选择。",
@@ -241,7 +250,7 @@ export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
         title: "今日搭配暂时无法打开",
       },
     } as const;
-    const notice = notices[resolution.status];
+    const notice = notices[resolution.reason];
 
     return (
       <main className="outfit-page">
@@ -257,33 +266,87 @@ export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
     );
   }
 
+  if (resolution.status === "detail-error") {
+    const detailNotices = {
+      invalid: {
+        description: "链接信息不完整，请从今日搭配重新选择。",
+        title: "暂时找不到这套搭配",
+      },
+      missing: {
+        description: "这套搭配已经无法查看，请从今日搭配选择其他方案。",
+        title: "这套搭配暂时无法查看",
+      },
+      stale: {
+        description: "当天内容已经更新，请从首页重新查看当前版本。",
+        title: "这套搭配已经更新",
+      },
+      unavailable: {
+        description: "搭配详情还没有加载成功，请稍后再试。",
+        title: "搭配详情暂时无法打开",
+      },
+    } as const;
+    const notice = detailNotices[resolution.reason];
+
+    return (
+      <main className="outfit-page">
+        <section className="outfit-page__notice" role="status">
+          <p className="outfit-page__eyebrow">搭配方案详情</p>
+          <h1>{notice.title}</h1>
+          <p>{notice.description}</p>
+          <a
+            className="outfit-page__back outfit-page__back--button"
+            href={resolution.selection.selectedCard.href}
+          >
+            返回今日搭配
+          </a>
+        </section>
+      </main>
+    );
+  }
+
   const { selection } = resolution;
-  const selectedKindLabel = kindLabels[selection.selectedCard.kind];
-  const isPlanView = selection.view === "plan";
+  const isPlanView = resolution.status === "detail";
+  const lookDetail = isPlanView ? resolution.detail : null;
 
   return (
     <main className="outfit-page">
-      <article className="outfit-page__sheet">
+      <article
+        aria-labelledby={isPlanView ? "outfit-detail-title" : undefined}
+        className="outfit-page__sheet"
+        data-content-version={selection.contentVersion}
+      >
         <a className="outfit-page__back" href="/">
           <span aria-hidden="true">←</span>
           返回今日颜色
         </a>
 
         <header className="outfit-page__header">
-          <p className="outfit-page__eyebrow">当天已核对的颜色组合</p>
-          <h1>今日怎么搭</h1>
+          <p className="outfit-page__eyebrow">
+            {isPlanView ? "已发布搭配方案" : "当天已核对的颜色组合"}
+          </p>
+          <h1 id={isPlanView ? "outfit-detail-title" : undefined}>
+            {lookDetail?.title ?? "今日怎么搭"}
+          </h1>
           <p>
-            {selection.fortuneDate} · {isPlanView ? `${selectedKindLabel}方案` : "当天已审核方案"}
+            {selection.fortuneDate} ·{" "}
+            {lookDetail === null ? "当天已审核方案" : lookDetail.scenarioLabel}
           </p>
         </header>
 
-        {isPlanView ? (
-          <OutfitPlan selection={selection} />
+        {isPlanView && lookDetail !== null ? (
+          <OutfitPlan detail={lookDetail} selection={selection} />
         ) : (
           <OutfitOverview selection={selection} />
         )}
-        <p className="outfit-page__rule-note">比例为穿搭参考，不是五行推算规则。</p>
+        {isPlanView ? null : (
+          <p className="outfit-page__rule-note">比例为穿搭参考，不是五行推算规则。</p>
+        )}
 
+        {isPlanView && selection.shareHref !== null ? (
+          <FoundationAction fullWidth href={selection.shareHref} indicator="→">
+            分享这套搭配
+          </FoundationAction>
+        ) : null}
         <a
           className="outfit-page__back outfit-page__back--button"
           href={isPlanView ? selection.selectedCard.href : "/"}
