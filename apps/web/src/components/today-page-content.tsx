@@ -29,19 +29,17 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
     <main className="page-shell">
       <div className="today-page">
         <header className="today-masthead">
-          <div>
-            <p className="today-masthead__brand">Five</p>
-            <p className="today-masthead__description">每日五行穿衣参考</p>
+          <div className="today-masthead__identity">
+            <p className="today-masthead__brand">今日穿衣</p>
+            <p className="today-masthead__description">FIVE · 每日五行搭配</p>
           </div>
           <div className="today-masthead__actions">
             {nextSteps === null ? null : (
-              <a className="today-share-link" href={nextSteps.shareHref}>
-                分享今天
+              <a aria-label="分享今天" className="today-share-link" href={nextSteps.shareHref}>
+                <span>分享</span>
+                <span aria-hidden="true">↗</span>
               </a>
             )}
-            <span className="foundation-seal" aria-hidden="true">
-              五
-            </span>
           </div>
         </header>
 

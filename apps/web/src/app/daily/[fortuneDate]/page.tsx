@@ -37,17 +37,15 @@ function DailyLandingContent({ daily }: { daily: DailyLandingData | null }) {
     <main className="page-shell">
       <div className="today-page daily-page">
         <header className="today-masthead">
-          <div>
-            <p className="today-masthead__brand">Five</p>
-            <p className="today-masthead__description">指定日期穿衣参考</p>
+          <div className="today-masthead__identity">
+            <p className="today-masthead__brand">今日穿衣</p>
+            <p className="today-masthead__description">FIVE · 指定日期参考</p>
           </div>
           <div className="today-masthead__actions">
-            <a className="today-share-link" href="/">
-              查看今日参考
+            <a aria-label="查看今日参考" className="today-share-link" href="/">
+              <span>今日</span>
+              <span aria-hidden="true">↗</span>
             </a>
-            <span className="foundation-seal" aria-hidden="true">
-              五
-            </span>
           </div>
         </header>
 

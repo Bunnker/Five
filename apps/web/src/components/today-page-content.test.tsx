@@ -265,7 +265,7 @@ describe("TodayPageContent", () => {
     );
 
     const text = screen.getByRole("main").textContent ?? "";
-    expect(text.indexOf("今日 木 日")).toBeLessThan(text.indexOf("今日优先"));
+    expect(text.indexOf("今日木日")).toBeLessThan(text.indexOf("今日优先"));
     expect(text.indexOf("今日优先")).toBeLessThan(text.indexOf("稳妥选择"));
     expect(text.indexOf("稳妥选择")).toBeLessThan(text.indexOf("日常可穿"));
     expect(text.indexOf("日常可穿")).toBeLessThan(text.indexOf("注意"));

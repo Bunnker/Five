@@ -23,6 +23,7 @@ export function TodayDateRegion({ today }: TodayDateRegionProps) {
     <section
       className="today-date-card"
       data-day-element={calendar.dayElement}
+      data-day-element-label={calendar.dayElementLabel}
       aria-labelledby="today-element-heading"
     >
       <div className="today-date-card__calendar">
@@ -32,7 +33,7 @@ export function TodayDateRegion({ today }: TodayDateRegionProps) {
       </div>
 
       <h1 id="today-element-heading" aria-label={`今日${calendar.dayElementLabel}日`}>
-        今日 <span>{calendar.dayElementLabel}</span> 日
+        今日<span>{calendar.dayElementLabel}</span>日
       </h1>
 
       <dl className="today-date-card__details" aria-label="今日历法信息">
