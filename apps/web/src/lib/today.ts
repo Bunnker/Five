@@ -202,7 +202,7 @@ export interface AttentionSectionData {
   groups: [JiaoChaAttentionGroupData, BuLiAttentionGroupData];
 }
 
-export interface TodayDateData {
+export interface DailyDateData {
   content: {
     calendar: Pick<
       TodayCalendar,
@@ -210,13 +210,16 @@ export interface TodayDateData {
     >;
     fortuneDate: TodayResponse["content"]["fortuneDate"];
   };
+}
+
+export interface TodayDateData extends DailyDateData {
   requestContext: Pick<
     TodayRequestContext,
     "civilDate" | "crossedDayBoundary" | "fortuneDate" | "shichen"
   >;
 }
 
-export interface TodayPageData extends TodayDateData {
+export interface PublicDailyContentData extends DailyDateData {
   attentionSection: AttentionSectionData | null;
   basis?: TodayBasisData | null;
   ciJiCard: CiJiCardData | null;
@@ -226,6 +229,10 @@ export interface TodayPageData extends TodayDateData {
   outfitPreviewSection: OutfitPreviewSectionData | null;
   pingCard: PingCardData | null;
   share?: TodayShareData | null;
+}
+
+export interface TodayPageData extends TodayDateData, PublicDailyContentData {
+  nextSteps?: TodayNextStepsData | null;
 }
 
 export interface LoadTodayOptions {
@@ -350,8 +357,13 @@ function isReviewedBalanceAccessory(value: string): value is TodayBalanceAccesso
   return reviewedBalanceAccessories.has(value as TodayBalanceAccessory);
 }
 
-function isFortuneDate(value: unknown): value is string {
-  return typeof value === "string" && fortuneDatePattern.test(value);
+export function isPublicFortuneDate(value: unknown): value is string {
+  if (typeof value !== "string" || !fortuneDatePattern.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
 function hasCompleteTierIndex(tiers: unknown): tiers is Array<Record<string, unknown>> {
@@ -1352,23 +1364,14 @@ function toDecisionCardData(
   };
 }
 
-function toTodayDateData(value: unknown): TodayDateData | null {
-  if (!isRecord(value) || !isRecord(value.requestContext) || !isRecord(value.content)) {
+function toDailyDateData(value: unknown): DailyDateData | null {
+  if (!isRecord(value) || !isRecord(value.calendar)) {
     return null;
   }
 
-  const { content, requestContext } = value;
-  if (!isRecord(content.calendar)) {
-    return null;
-  }
-
-  const { calendar } = content;
+  const { calendar } = value;
   const branch = calendar.branch;
-  const civilDate = requestContext.civilDate;
-  const crossedDayBoundary = requestContext.crossedDayBoundary;
-  const fortuneDate = requestContext.fortuneDate;
-  const contentFortuneDate = content.fortuneDate;
-  const shichen = requestContext.shichen;
+  const fortuneDate = value.fortuneDate;
   const dayElement = calendar.dayElement;
   const dayElementLabel = calendar.dayElementLabel;
   const ganzhiDay = calendar.ganzhiDay;
@@ -1376,12 +1379,7 @@ function toTodayDateData(value: unknown): TodayDateData | null {
   const weekdayText = calendar.weekdayText;
 
   if (
-    !isFortuneDate(civilDate) ||
-    !isFortuneDate(fortuneDate) ||
-    !isFortuneDate(contentFortuneDate) ||
-    fortuneDate !== contentFortuneDate ||
-    typeof crossedDayBoundary !== "boolean" ||
-    !isMember(earthlyBranchNames, shichen) ||
+    !isPublicFortuneDate(fortuneDate) ||
     !isMember(earthlyBranchNames, branch) ||
     !isMember(dayElements, dayElement) ||
     dayElementLabel !== dayElementLabels[dayElement] ||
@@ -1403,14 +1401,128 @@ function toTodayDateData(value: unknown): TodayDateData | null {
         lunarDateText,
         weekdayText,
       },
-      fortuneDate: contentFortuneDate,
+      fortuneDate,
     },
+  };
+}
+
+function toTodayDateData(value: unknown): TodayDateData | null {
+  if (!isRecord(value) || !isRecord(value.requestContext)) {
+    return null;
+  }
+
+  const dateData = toDailyDateData(value.content);
+  if (dateData === null) {
+    return null;
+  }
+
+  const { requestContext } = value;
+  const civilDate = requestContext.civilDate;
+  const crossedDayBoundary = requestContext.crossedDayBoundary;
+  const fortuneDate = requestContext.fortuneDate;
+  const shichen = requestContext.shichen;
+
+  if (
+    !isPublicFortuneDate(civilDate) ||
+    !isPublicFortuneDate(fortuneDate) ||
+    fortuneDate !== dateData.content.fortuneDate ||
+    typeof crossedDayBoundary !== "boolean" ||
+    !isMember(earthlyBranchNames, shichen)
+  ) {
+    return null;
+  }
+
+  return {
+    ...dateData,
     requestContext: {
       civilDate,
       crossedDayBoundary,
       fortuneDate,
       shichen,
     },
+  };
+}
+
+export function parsePublicDailyContent(
+  value: unknown,
+  responseContentVersion: string | null,
+): PublicDailyContentData | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const dateData = toDailyDateData(value);
+  if (dateData === null) {
+    return null;
+  }
+
+  const decisionContent = toDecisionContent(value, responseContentVersion);
+  const daJiCard = decisionContent === null ? null : toDecisionCardData(decisionContent, "da_ji");
+  const ciJiCard =
+    decisionContent === null || daJiCard === null
+      ? null
+      : toDecisionCardData(decisionContent, "ci_ji");
+  const pingCard =
+    decisionContent === null || daJiCard === null || ciJiCard === null
+      ? null
+      : toDecisionCardData(decisionContent, "ping");
+  const positiveTiers =
+    daJiCard === null || ciJiCard === null || pingCard === null
+      ? null
+      : {
+          ci_ji: ciJiCard,
+          da_ji: daJiCard,
+          ping: pingCard,
+        };
+  const outfitPreviewSection =
+    decisionContent === null || positiveTiers === null
+      ? null
+      : toOutfitPreviewSectionData(
+          value,
+          decisionContent,
+          positiveTiers,
+          dateData.content.fortuneDate,
+        );
+  const attentionSection =
+    decisionContent === null || positiveTiers === null
+      ? null
+      : toAttentionSectionData(value, decisionContent);
+  const imagePreviewSection =
+    decisionContent === null || positiveTiers === null || outfitPreviewSection === null
+      ? null
+      : toTodayImagePreviewSectionData(value, decisionContent, positiveTiers);
+  const basis =
+    decisionContent === null ? null : toTodayBasisData(value.basis, decisionContent.contentVersion);
+  if (decisionContent !== null && basis === null) {
+    return null;
+  }
+
+  const completeContentVersion =
+    decisionContent !== null &&
+    positiveTiers !== null &&
+    attentionSection !== null &&
+    outfitPreviewSection !== null &&
+    imagePreviewSection !== null
+      ? decisionContent.contentVersion
+      : null;
+  const share =
+    completeContentVersion === null
+      ? null
+      : toTodayShareData(value.share, value.versions, completeContentVersion);
+  if (completeContentVersion !== null && share === null) {
+    return null;
+  }
+
+  return {
+    ...dateData,
+    attentionSection,
+    ...(basis === null ? {} : { basis }),
+    ...(share === null ? {} : { share }),
+    ciJiCard,
+    daJiCard,
+    imagePreviewSection,
+    outfitPreviewSection,
+    pingCard,
   };
 }
 
@@ -1439,86 +1551,42 @@ export async function loadToday({
 
     const body: unknown = await response.json();
     const dateData = toTodayDateData(body);
-    if (dateData === null || !isRecord(body) || !isRecord(body.content)) {
+    if (dateData === null || !isRecord(body)) {
       return null;
     }
 
-    const decisionContent = toDecisionContent(
+    const dailyContent = parsePublicDailyContent(
       body.content,
       response.headers.get("x-content-version"),
     );
-    const daJiCard = decisionContent === null ? null : toDecisionCardData(decisionContent, "da_ji");
-    const ciJiCard =
-      decisionContent === null || daJiCard === null
-        ? null
-        : toDecisionCardData(decisionContent, "ci_ji");
-    const pingCard =
-      decisionContent === null || daJiCard === null || ciJiCard === null
-        ? null
-        : toDecisionCardData(decisionContent, "ping");
-    const positiveTiers =
-      daJiCard === null || ciJiCard === null || pingCard === null
-        ? null
-        : {
-            ci_ji: ciJiCard,
-            da_ji: daJiCard,
-            ping: pingCard,
-          };
-    const outfitPreviewSection =
-      decisionContent === null || positiveTiers === null
-        ? null
-        : toOutfitPreviewSectionData(
-            body.content,
-            decisionContent,
-            positiveTiers,
-            dateData.content.fortuneDate,
-          );
-    const attentionSection =
-      decisionContent === null || positiveTiers === null
-        ? null
-        : toAttentionSectionData(body.content, decisionContent);
-    const imagePreviewSection =
-      decisionContent === null || positiveTiers === null || outfitPreviewSection === null
-        ? null
-        : toTodayImagePreviewSectionData(body.content, decisionContent, positiveTiers);
-    const basis =
-      decisionContent === null
-        ? null
-        : toTodayBasisData(body.content.basis, decisionContent.contentVersion);
-    if (decisionContent !== null && basis === null) {
+    if (
+      dailyContent === null ||
+      dailyContent.content.fortuneDate !== dateData.content.fortuneDate
+    ) {
       return null;
     }
 
     const completeHomepageContentVersion =
-      decisionContent !== null &&
-      positiveTiers !== null &&
-      attentionSection !== null &&
-      outfitPreviewSection !== null &&
-      imagePreviewSection !== null
-        ? decisionContent.contentVersion
+      dailyContent.daJiCard !== null &&
+      dailyContent.ciJiCard !== null &&
+      dailyContent.pingCard !== null &&
+      dailyContent.attentionSection !== null &&
+      dailyContent.outfitPreviewSection !== null &&
+      dailyContent.imagePreviewSection !== null
+        ? dailyContent.daJiCard.contentVersion
         : null;
-    const share =
-      completeHomepageContentVersion === null
-        ? null
-        : toTodayShareData(
-            body.content.share,
-            body.content.versions,
-            completeHomepageContentVersion,
-          );
-    if (completeHomepageContentVersion !== null && share === null) {
-      return null;
-    }
-
     const nextSteps =
       completeHomepageContentVersion === null ||
-      basis === null ||
-      share === null ||
-      outfitPreviewSection === null
+      dailyContent.basis === null ||
+      dailyContent.basis === undefined ||
+      dailyContent.share === null ||
+      dailyContent.share === undefined ||
+      dailyContent.outfitPreviewSection === null
         ? null
         : toTodayNextStepsData(
-            basis,
-            share,
-            outfitPreviewSection,
+            dailyContent.basis,
+            dailyContent.share,
+            dailyContent.outfitPreviewSection,
             dateData.content.fortuneDate,
             completeHomepageContentVersion,
           );
@@ -1527,15 +1595,9 @@ export async function loadToday({
     }
 
     return {
+      ...dailyContent,
       ...dateData,
-      attentionSection,
-      ...(basis === null ? {} : { basis }),
-      ...(share === null || nextSteps === null ? {} : { nextSteps, share }),
-      ciJiCard,
-      daJiCard,
-      imagePreviewSection,
-      outfitPreviewSection,
-      pingCard,
+      ...(nextSteps === null ? {} : { nextSteps }),
     };
   } catch {
     return null;

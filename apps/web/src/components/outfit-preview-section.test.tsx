@@ -152,6 +152,18 @@ describe("OutfitPreviewSection", () => {
     expect(within(preview).queryByRole("button")).not.toBeInTheDocument();
     expect(preview).not.toHaveTextContent(/收藏|购买|商品|吉祥物|登录|拍照试搭/u);
   });
+
+  it("renders dated landing summaries without links that would switch back to today", () => {
+    render(<OutfitPreviewSection dateLabel="当日" interactive={false} section={section} />);
+
+    const preview = screen.getByRole("region", { name: "当日怎么搭" });
+    expect(within(preview).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(preview).getAllByRole("article")).toHaveLength(3);
+    expect(within(preview).getByRole("article", { name: "单色穿法：红橙同色系" })).toHaveClass(
+      "outfit-preview-card--static",
+    );
+    expect(preview).not.toHaveTextContent("查看穿法");
+  });
 });
 
 function linksByKind(

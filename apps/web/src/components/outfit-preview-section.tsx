@@ -19,10 +19,16 @@ const cardPresentation = {
 } as const;
 
 export interface OutfitPreviewSectionProps {
+  dateLabel?: "今日" | "当日";
+  interactive?: boolean;
   section: OutfitPreviewSectionData;
 }
 
-export function OutfitPreviewSection({ section }: OutfitPreviewSectionProps) {
+export function OutfitPreviewSection({
+  dateLabel = "今日",
+  interactive = true,
+  section,
+}: OutfitPreviewSectionProps) {
   return (
     <section
       aria-labelledby="outfit-preview-title"
@@ -32,7 +38,7 @@ export function OutfitPreviewSection({ section }: OutfitPreviewSectionProps) {
       <header className="outfit-preview__header">
         <div>
           <p className="outfit-preview__eyebrow">组合预览</p>
-          <h2 id="outfit-preview-title">今日怎么搭</h2>
+          <h2 id="outfit-preview-title">{dateLabel}怎么搭</h2>
         </div>
         <p>单色、双色、三色</p>
       </header>
@@ -41,15 +47,8 @@ export function OutfitPreviewSection({ section }: OutfitPreviewSectionProps) {
         {section.cards.map((card) => {
           const presentation = cardPresentation[card.kind];
 
-          return (
-            <a
-              aria-label={`查看${presentation.label}穿法：${card.title}`}
-              className={`outfit-preview-card outfit-preview-card--${card.kind}`}
-              data-content-version={section.contentVersion}
-              data-outfit-kind={card.kind}
-              href={card.href}
-              key={card.formulaId}
-            >
+          const cardContent = (
+            <>
               <div className="outfit-preview-card__topline" aria-hidden="true">
                 <span>{presentation.number}</span>
                 <span>{presentation.label}</span>
@@ -94,11 +93,39 @@ export function OutfitPreviewSection({ section }: OutfitPreviewSectionProps) {
                 ))}
               </ul>
 
-              <span className="outfit-preview-card__action" aria-hidden="true">
-                查看穿法
-                <span>›</span>
-              </span>
+              {interactive ? (
+                <span className="outfit-preview-card__action" aria-hidden="true">
+                  查看穿法
+                  <span>›</span>
+                </span>
+              ) : null}
+            </>
+          );
+
+          const className = `outfit-preview-card outfit-preview-card--${card.kind}${
+            interactive ? "" : " outfit-preview-card--static"
+          }`;
+          return interactive ? (
+            <a
+              aria-label={`查看${presentation.label}穿法：${card.title}`}
+              className={className}
+              data-content-version={section.contentVersion}
+              data-outfit-kind={card.kind}
+              href={card.href}
+              key={card.formulaId}
+            >
+              {cardContent}
             </a>
+          ) : (
+            <article
+              aria-label={`${presentation.label}穿法：${card.title}`}
+              className={className}
+              data-content-version={section.contentVersion}
+              data-outfit-kind={card.kind}
+              key={card.formulaId}
+            >
+              {cardContent}
+            </article>
           );
         })}
       </div>

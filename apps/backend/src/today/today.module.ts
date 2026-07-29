@@ -8,6 +8,17 @@ import {
   type LookDetailReader,
 } from "./look-detail.controller";
 import { LookDetailService } from "./look-detail.service";
+import {
+  DAILY_CONTENT_READER,
+  DailyContentController,
+  type DailyContentReader,
+} from "./daily-content.controller";
+import {
+  ActivePublishedDailyContentResolutionReader,
+  DAILY_CONTENT_RESOLUTION_READER,
+  type DailyContentResolutionReader,
+} from "./daily-content-resolution.reader";
+import { DailyContentService } from "./daily-content.service";
 import { NoPublishedContentReader } from "./no-published-content.reader";
 import {
   PUBLISHED_CONTENT_READER,
@@ -18,7 +29,7 @@ import { TodayCachePolicy } from "./today-cache-policy";
 import { TODAY_CONTENT_READER, TodayController, type TodayContentReader } from "./today.controller";
 
 @Module({
-  controllers: [LookDetailController, TodayController],
+  controllers: [DailyContentController, LookDetailController, TodayController],
   imports: [RequestContextModule],
   providers: [
     TodayCachePolicy,
@@ -40,6 +51,27 @@ import { TODAY_CONTENT_READER, TodayController, type TodayContentReader } from "
       provide: LookDetailService,
       useFactory: (publishedContentReader: PublishedContentReader) =>
         new LookDetailService(publishedContentReader),
+    },
+    {
+      inject: [PUBLISHED_CONTENT_READER],
+      provide: DAILY_CONTENT_RESOLUTION_READER,
+      useFactory: (publishedContentReader: PublishedContentReader): DailyContentResolutionReader =>
+        new ActivePublishedDailyContentResolutionReader(publishedContentReader),
+    },
+    {
+      inject: [RequestContextResolver, DAILY_CONTENT_RESOLUTION_READER, TodayCachePolicy],
+      provide: DailyContentService,
+      useFactory: (
+        requestContextResolver: RequestContextResolver,
+        dailyContentResolutionReader: DailyContentResolutionReader,
+        cachePolicy: TodayCachePolicy,
+      ) =>
+        new DailyContentService(requestContextResolver, dailyContentResolutionReader, cachePolicy),
+    },
+    {
+      inject: [DailyContentService],
+      provide: DAILY_CONTENT_READER,
+      useFactory: (service: DailyContentService): DailyContentReader => service,
     },
     {
       inject: [LookDetailService],

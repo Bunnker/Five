@@ -368,6 +368,24 @@ a {
   font-size: 13px;
 }
 
+.daily-version-notice {
+  display: grid;
+  gap: 3px;
+  margin-bottom: var(--space-3);
+  padding: 12px 14px;
+  border: 1px solid rgb(180 129 49 / 28%);
+  border-radius: 14px 14px 14px 5px;
+  background: rgb(255 250 240 / 72%);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.daily-version-notice strong {
+  color: var(--accent-ochre);
+  font-size: 14px;
+}
+
 .decision-card {
   --tier-accent: var(--accent-pine);
   --tier-line: rgb(53 109 88 / 24%);
@@ -695,6 +713,12 @@ a {
   border-color: var(--outfit-card-accent);
   box-shadow: 0 8px 20px rgb(76 55 29 / 10%);
   transform: translateY(-2px);
+}
+
+.outfit-preview-card--static:hover {
+  border-color: var(--outfit-card-line);
+  box-shadow: none;
+  transform: none;
 }
 
 .outfit-preview-card:focus-visible {

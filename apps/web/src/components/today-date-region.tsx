@@ -4,7 +4,7 @@ export interface TodayDateRegionProps {
   today: TodayDateData;
 }
 
-function formatFortuneDate(fortuneDate: string): string {
+export function formatPublicFortuneDate(fortuneDate: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(fortuneDate);
 
   if (match === null) {
@@ -26,7 +26,7 @@ export function TodayDateRegion({ today }: TodayDateRegionProps) {
       aria-labelledby="today-element-heading"
     >
       <div className="today-date-card__calendar">
-        <time dateTime={fortuneDate}>{formatFortuneDate(fortuneDate)}</time>
+        <time dateTime={fortuneDate}>{formatPublicFortuneDate(fortuneDate)}</time>
         <span aria-hidden="true">·</span>
         <span>{calendar.weekdayText}</span>
       </div>

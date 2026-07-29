@@ -7,6 +7,7 @@ import type { TodayImagePreviewCardData, TodayImagePreviewSectionData } from "..
 import { ReviewedImageFallback, useReviewedImageFailure } from "./reviewed-image";
 
 export interface TodayImagePreviewSectionProps {
+  dateLabel?: "今日" | "当日";
   section: TodayImagePreviewSectionData;
 }
 
@@ -90,7 +91,10 @@ function TodayImagePreviewCard({ card, contentVersion }: TodayImagePreviewCardPr
   );
 }
 
-export function TodayImagePreviewSection({ section }: TodayImagePreviewSectionProps) {
+export function TodayImagePreviewSection({
+  dateLabel = "今日",
+  section,
+}: TodayImagePreviewSectionProps) {
   return (
     <section
       aria-labelledby="today-image-preview-title"
@@ -100,7 +104,7 @@ export function TodayImagePreviewSection({ section }: TodayImagePreviewSectionPr
       <header className="today-image-preview__header">
         <div>
           <p className="today-image-preview__eyebrow">图片预览</p>
-          <h2 id="today-image-preview-title">今日图片示范</h2>
+          <h2 id="today-image-preview-title">{dateLabel}图片示范</h2>
         </div>
         <p>2 张重点参考 · 最多 1 张补充</p>
       </header>
