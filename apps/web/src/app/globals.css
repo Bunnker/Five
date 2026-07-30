@@ -1412,6 +1412,18 @@ h1 {
   margin-top: 0;
 }
 
+.foundation-action--button {
+  border: 1px solid #8e3028;
+  font: inherit;
+  cursor: pointer;
+}
+
+.foundation-action--secondary {
+  border-color: rgb(78 117 84 / 36%);
+  background: var(--paper);
+  color: var(--accent-pine);
+}
+
 .foundation-action:hover {
   box-shadow: none;
   transform: none;
@@ -1808,6 +1820,102 @@ h1 {
   color: var(--ink-soft);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.share-actions {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 17px 0 4px 16px;
+  border-top: 1px solid rgb(118 85 47 / 25%);
+}
+
+.share-actions::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--accent-cinnabar);
+  content: "";
+}
+
+.share-actions__intro > p,
+.share-actions__intro > h2,
+.share-actions__intro > span,
+.share-actions__status {
+  margin: 0;
+}
+
+.share-actions__intro > p {
+  color: var(--accent-ochre);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.share-actions__intro > h2 {
+  margin-top: 5px;
+  font-family: var(--font-display);
+  font-size: clamp(21px, 6vw, 25px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+.share-actions__intro > span {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.share-actions__buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.share-actions__buttons > .foundation-action {
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 14px;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.share-actions__manual-link input:focus-visible {
+  outline: 3px solid rgb(161 60 47 / 26%);
+  outline-offset: 2px;
+}
+
+.share-actions__manual-link {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.share-actions__manual-link input {
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: 9px 11px;
+  border: 1px solid rgb(118 85 47 / 28%);
+  border-radius: 4px;
+  background: rgb(255 253 247 / 84%);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.share-actions__status {
+  min-height: 20px;
+  padding-top: 1px;
+  color: var(--accent-pine);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.55;
 }
 
 .basis-page__sheet {

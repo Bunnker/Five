@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEventHandler, ReactNode } from "react";
 
 type CardAccent = "cinnabar" | "ochre" | "pine";
 
@@ -76,5 +76,37 @@ export function FoundationAction({
       <span>{children}</span>
       <span aria-hidden="true">{indicator}</span>
     </a>
+  );
+}
+
+interface FoundationButtonProps {
+  children: ReactNode;
+  fullWidth?: boolean;
+  indicator?: ReactNode;
+  onClick: MouseEventHandler<HTMLButtonElement>;
+  tone?: "primary" | "secondary";
+}
+
+export function FoundationButton({
+  children,
+  fullWidth = false,
+  indicator = "→",
+  onClick,
+  tone = "primary",
+}: FoundationButtonProps) {
+  const className = [
+    "foundation-action",
+    "foundation-action--button",
+    fullWidth ? "foundation-action--full" : null,
+    tone === "secondary" ? "foundation-action--secondary" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <button className={className} onClick={onClick} type="button">
+      <span>{children}</span>
+      <span aria-hidden="true">{indicator}</span>
+    </button>
   );
 }

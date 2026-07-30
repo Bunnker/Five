@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TodayPageData } from "../../lib/today";
 import SharePage from "./page";
@@ -63,8 +63,28 @@ describe("SharePage", () => {
     loadTodayMock.mockResolvedValue(today);
   });
 
-  it("shows the published summary and selectable copy without starting later share features", async () => {
-    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(document, "execCommand");
+  });
+
+  it("opens the system share panel with only the specified-date landing parameters", async () => {
+    const shareMock = vi.fn().mockResolvedValue(undefined);
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+      share: shareMock,
+    });
+
+    render(
+      await SharePage({
+        searchParams: Promise.resolve({
+          ...validSearchParams,
+          accountId: "private-account",
+          birthDate: "1990-01-01",
+        }),
+      }),
+    );
 
     expect(loadTodayMock).toHaveBeenCalledWith({ requestId: "request-share-page" });
     expect(screen.getByRole("heading", { level: 1, name: "分享今日参考" })).toBeVisible();
@@ -76,8 +96,21 @@ describe("SharePage", () => {
     expect(screen.getByRole("textbox", { name: "可选择的今日分享文字" })).toHaveAttribute(
       "readonly",
     );
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.queryByText(/系统分享|复制链接|生成海报/u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
+
+    await waitFor(() => expect(shareMock).toHaveBeenCalledTimes(1));
+    expect(writeTextMock).not.toHaveBeenCalled();
+    const shareData = shareMock.mock.calls[0]?.[0] as ShareData;
+    const shareUrl = new URL(shareData.url ?? "");
+    expect(shareUrl.pathname).toBe("/daily/2026-07-15");
+    expect(Object.fromEntries(shareUrl.searchParams)).toEqual({
+      channelId: "wechat_group",
+      expectedContentVersion: contentVersion,
+    });
+    expect(shareData).toMatchObject({
+      text: "今日木日，优先参考红、橙、紫、粉色系。",
+      title: "Five · 2026-07-15 今日穿衣参考",
+    });
     expect(screen.getByRole("article", { name: "分享今日参考" })).toHaveAttribute(
       "data-content-version",
       contentVersion,
@@ -87,6 +120,96 @@ describe("SharePage", () => {
       "wechat_group",
     );
     expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
+  });
+
+  it("copies the specified-date link when the browser has no system share capability", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+    });
+
+    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
+
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledTimes(1));
+    const copiedUrl = new URL(writeTextMock.mock.calls[0]?.[0] as string);
+    expect(copiedUrl.pathname).toBe("/daily/2026-07-15");
+    expect(Object.fromEntries(copiedUrl.searchParams)).toEqual({
+      channelId: "wechat_group",
+      expectedContentVersion: contentVersion,
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("当前浏览器不支持系统分享，链接已复制");
+  });
+
+  it("always offers a separate copy-link action", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+      share: vi.fn().mockResolvedValue(undefined),
+    });
+
+    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+    fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
+
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent("指定日期链接已复制");
+  });
+
+  it("falls back to copying the same link when system sharing fails", async () => {
+    const shareMock = vi.fn().mockRejectedValue(new Error("share unavailable"));
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+      share: shareMock,
+    });
+
+    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+    fireEvent.click(screen.getByRole("button", { name: "系统分享" }));
+
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledTimes(1));
+    expect(writeTextMock.mock.calls[0]?.[0]).toBe(
+      new URL(
+        "/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+        window.location.origin,
+      ).toString(),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("系统分享未完成，链接已复制");
+  });
+
+  it("uses the selectable-copy fallback when clipboard permission is denied", async () => {
+    const writeTextMock = vi.fn().mockRejectedValue(new Error("clipboard denied"));
+    const execCommandMock = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommandMock,
+    });
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+    });
+
+    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+    fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
+
+    await waitFor(() => expect(execCommandMock).toHaveBeenCalledWith("copy"));
+    expect(screen.getByRole("status")).toHaveTextContent("指定日期链接已复制");
+    expect(screen.queryByRole("textbox", { name: "指定日期分享链接" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a selectable dated link when automatic copying is unavailable", async () => {
+    vi.stubGlobal("navigator", {});
+
+    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+    fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
+
+    const manualLink = await screen.findByRole("textbox", { name: "指定日期分享链接" });
+    expect(manualLink).toHaveValue(
+      new URL(
+        "/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+        window.location.origin,
+      ).toString(),
+    );
+    expect(manualLink).toHaveAttribute("readonly");
+    expect(screen.getByRole("status")).toHaveTextContent("自动复制失败，请长按下方链接手动复制");
   });
 
   it.each([

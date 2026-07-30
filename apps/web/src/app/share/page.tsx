@@ -7,6 +7,7 @@ import {
   type TodayEntrySearchParams,
   type TodayEntryResolution,
 } from "../../lib/today-entry";
+import { ShareActions } from "./share-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,13 @@ export default async function SharePage({ searchParams }: SharePageProps) {
             </div>
           </div>
         </section>
+
+        <ShareActions
+          channelId={resolution.channelId}
+          contentVersion={resolution.contentVersion}
+          fortuneDate={resolution.fortuneDate}
+          summaryText={share.summaryText}
+        />
       </article>
     </main>
   );
