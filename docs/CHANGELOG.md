@@ -1,5 +1,9 @@
 # 文档变更记录
 
+## 2026-07-30
+
+- GitHub Issue #36：公开网页不再把“较差”和“不利”显示为合并的“注意”档，改为使用 `algorithmLabel` 分别展示完整五档；`displayLabel: "注意"` 与 `displaySection: "attention"` 仅保留为兼容和布局分组元数据，OpenAPI wire contract 不变；新增 ADR-0019，并同步当前 PRD、设计、领域词汇与开发说明。
+
 ## V2.3 - 2026-07-26
 
 - P0 收敛为匿名响应式网页，不开发微信小程序、原生 App、登录、支付或大师渠道系统；

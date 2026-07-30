@@ -1,8 +1,11 @@
 # ADR-0014：公开保留吉档名称并用配饰给出平衡建议
 
-- 状态：Accepted
+> 本 ADR 关于公开页面把“较差”和“不利”合并显示为“注意”的结论已被 [ADR-0019](0019-public-pages-use-algorithm-tier-labels.md) 取代。
+
+- 状态：Superseded
 - 日期：2026-07-26
 - 补充：ADR-0005
+- 被取代：ADR-0019
 
 ## 背景
 

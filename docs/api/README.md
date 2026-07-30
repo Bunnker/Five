@@ -60,8 +60,9 @@
 
 - `contentVersion` 是不透明字符串，只能比较是否相等；
 - 内容状态只有八个：`draft`、`in_review`、`changes_requested`、`approved`、`scheduled`、`published`、`superseded`、`withdrawn`；
-- 每日内容固定返回五档内部结果，并用 `displaySection` 告诉网页前三档与“注意”区域如何分组；
-- 平衡建议单独返回，始终只推荐大吉色普通配饰的小面积补充；
+- 每日内容固定返回五条档位记录；网页按 `rank` 排序并使用 `algorithmLabel` 直接显示“大吉、次吉、平、较差、不利”；
+- `displayLabel: "注意"` 和 `displaySection: "attention"` 保留为兼容与布局分组元数据，不得用来把 `jiao_cha`、`bu_li` 的可见标题合并成“注意”；这项展示调整不修改 OpenAPI wire contract；
+- 平衡建议单独返回，适用于已经穿了较差或不利档颜色的用户，并始终只推荐大吉色普通配饰的小面积补充；
 - 正常每日图片组恰好有两张必备图，最多一张可选图；
 - 公开图片与后台图片字段分开，公开端看不到文件校验值、权利记录或内部检查状态；
 - P0 不再传 `platform`、`sourcePlatform` 和 `targetPlatform`；只有需要区分链接来源时才使用 `channelId`；
