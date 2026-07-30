@@ -29,6 +29,7 @@ const selectableTextStyle: CSSProperties = {
   userSelect: "text",
   width: "100%",
 };
+const dailyShareCopyControlId = "daily-share-copy";
 
 function ShareNotice({ status }: { status: Exclude<TodayEntryResolution["status"], "ready"> }) {
   const notices = {
@@ -104,9 +105,10 @@ export default async function SharePage({ searchParams }: SharePageProps) {
           </div>
           <div className="selected-outfit__slots">
             <div className="selected-outfit-slot">
-              <p>可以长按选择下面的文字。</p>
+              <p>可以直接复制，也可以长按选择下面的文字。</p>
               <textarea
                 aria-label="可选择的今日分享文字"
+                id={dailyShareCopyControlId}
                 readOnly
                 rows={5}
                 style={selectableTextStyle}
@@ -119,6 +121,8 @@ export default async function SharePage({ searchParams }: SharePageProps) {
         <ShareActions
           channelId={resolution.channelId}
           contentVersion={resolution.contentVersion}
+          copyText={share.copyText}
+          copyTextControlId={dailyShareCopyControlId}
           fortuneDate={resolution.fortuneDate}
           summaryText={share.summaryText}
         />

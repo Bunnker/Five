@@ -11,6 +11,8 @@ type PosterJobRequest =
 
 type ShareActionsProps = Pick<PosterJobRequest, "channelId" | "fortuneDate"> & {
   contentVersion: PosterJobRequest["expectedContentVersion"];
+  copyText: TodayShareData["copyText"];
+  copyTextControlId: string;
   summaryText: TodayShareData["summaryText"];
 };
 
@@ -52,9 +54,24 @@ function copyWithSelectableControl(value: string): boolean {
   }
 }
 
+async function copyToClipboard(value: string): Promise<boolean> {
+  if (typeof navigator.clipboard?.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Permission failures should still try the browser's legacy selection path.
+    }
+  }
+
+  return copyWithSelectableControl(value);
+}
+
 export function ShareActions({
   channelId,
   contentVersion,
+  copyText,
+  copyTextControlId,
   fortuneDate,
   summaryText,
 }: ShareActionsProps) {
@@ -68,19 +85,7 @@ export function ShareActions({
 
   async function copyLandingUrl(message: string): Promise<void> {
     const landingUrl = getLandingUrl();
-    let copied = false;
-
-    if (typeof navigator.clipboard?.writeText === "function") {
-      try {
-        await navigator.clipboard.writeText(landingUrl);
-        copied = true;
-      } catch {
-        copied = false;
-      }
-    }
-
-    copied ||= copyWithSelectableControl(landingUrl);
-    if (copied) {
+    if (await copyToClipboard(landingUrl)) {
       setManualLandingUrl(null);
       setStatusMessage(message);
       return;
@@ -88,6 +93,20 @@ export function ShareActions({
 
     setManualLandingUrl(landingUrl);
     setStatusMessage("自动复制失败，请长按下方链接手动复制。");
+  }
+
+  async function copyDailyText(): Promise<void> {
+    if (await copyToClipboard(copyText)) {
+      setStatusMessage("今日文字已复制，可直接粘贴到微信群。");
+      return;
+    }
+
+    const selectableCopy = document.getElementById(copyTextControlId);
+    if (selectableCopy instanceof HTMLTextAreaElement) {
+      selectableCopy.focus();
+      selectableCopy.select();
+    }
+    setStatusMessage("自动复制失败，请长按上方文字手动复制。");
   }
 
   async function shareWithSystem(): Promise<void> {
@@ -120,7 +139,12 @@ export function ShareActions({
         <span>链接会固定到这一天，不会包含个人信息。</span>
       </div>
       <div className="share-actions__buttons">
-        <FoundationButton fullWidth indicator="↗" onClick={shareWithSystem}>
+        <div className="share-actions__copy-text">
+          <FoundationButton fullWidth indicator="⧉" onClick={copyDailyText}>
+            复制今日文字
+          </FoundationButton>
+        </div>
+        <FoundationButton fullWidth indicator="↗" onClick={shareWithSystem} tone="secondary">
           系统分享
         </FoundationButton>
         <FoundationButton

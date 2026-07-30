@@ -18,6 +18,15 @@ vi.mock("../../lib/today", () => ({
 }));
 
 const contentVersion = "fd-20260715-r1";
+const dailyCopyText = [
+  "2026年7月15日 · 木日",
+  "大吉：红色、橙色、紫色、粉色系",
+  "次吉：绿色、青色、翠色、湖蓝、浅绿系",
+  "平：白色、乳白、银色、金色、浅色系",
+  "较差：黑色、藏青、宝蓝、墨绿、深灰系",
+  "不利：黄色、咖色、棕色、卡其、褐色系",
+  "内容基于传统文化规则整理，仅供穿搭参考。",
+].join("\n");
 const today = {
   attentionSection: null,
   ciJiCard: null,
@@ -44,7 +53,7 @@ const today = {
   },
   share: {
     contentVersion,
-    copyText: "今日穿搭参考：优先火色，稳妥选择木色。",
+    copyText: dailyCopyText,
     summaryText: "今日木日，优先参考红、橙、紫、粉色系。",
   },
 } as TodayPageData;
@@ -89,9 +98,9 @@ describe("SharePage", () => {
     expect(loadTodayMock).toHaveBeenCalledWith({ requestId: "request-share-page" });
     expect(screen.getByRole("heading", { level: 1, name: "分享今日参考" })).toBeVisible();
     expect(screen.getByText("今日木日，优先参考红、橙、紫、粉色系。")).toBeVisible();
-    expect(screen.getByText("可以长按选择下面的文字。")).toBeVisible();
+    expect(screen.getByText("可以直接复制，也可以长按选择下面的文字。")).toBeVisible();
     expect(screen.getByRole("textbox", { name: "可选择的今日分享文字" })).toHaveValue(
-      "今日穿搭参考：优先火色，稳妥选择木色。",
+      dailyCopyText,
     );
     expect(screen.getByRole("textbox", { name: "可选择的今日分享文字" })).toHaveAttribute(
       "readonly",
@@ -119,6 +128,50 @@ describe("SharePage", () => {
       "data-channel-id",
       "wechat_group",
     );
+    expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
+  });
+
+  it("copies the complete public daily summary for pasting into a WeChat group", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+      share: vi.fn().mockResolvedValue(undefined),
+    });
+
+    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+    fireEvent.click(screen.getByRole("button", { name: "复制今日文字" }));
+
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith(dailyCopyText));
+    const copiedText = writeTextMock.mock.calls[0]?.[0] as string;
+    expect(copiedText).toContain("2026年7月15日 · 木日");
+    expect(copiedText).toContain("大吉：");
+    expect(copiedText).toContain("次吉：");
+    expect(copiedText).toContain("平：");
+    expect(copiedText).toContain("较差：");
+    expect(copiedText).toContain("不利：");
+    expect(copiedText).not.toMatch(/contentVersion|published|version|吉祥物|商品|卖货|转运/u);
+    expect(screen.getByRole("status")).toHaveTextContent("今日文字已复制，可直接粘贴到微信群");
+  });
+
+  it("keeps browsing available and selects the public summary when text copying fails", async () => {
+    const writeTextMock = vi.fn().mockRejectedValue(new Error("clipboard denied"));
+    const execCommandMock = vi.fn().mockReturnValue(false);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommandMock,
+    });
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+    });
+
+    render(await SharePage({ searchParams: Promise.resolve(validSearchParams) }));
+    fireEvent.click(screen.getByRole("button", { name: "复制今日文字" }));
+
+    const selectableCopy = screen.getByRole("textbox", { name: "可选择的今日分享文字" });
+    await waitFor(() => expect(selectableCopy).toHaveFocus());
+    expect(selectableCopy).toHaveProperty("selectionStart", 0);
+    expect(selectableCopy).toHaveProperty("selectionEnd", dailyCopyText.length);
+    expect(screen.getByRole("status")).toHaveTextContent("自动复制失败，请长按上方文字手动复制");
     expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
   });
 

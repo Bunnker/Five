@@ -7,6 +7,16 @@ import { TodayCachePolicy } from "./today-cache-policy";
 
 type DailyContent = components["schemas"]["DailyContent"];
 
+const completePublicShareCopyText = [
+  "2026年7月24日 · 水日",
+  "大吉：绿色",
+  "次吉：蓝色",
+  "平：米色",
+  "较差：白色",
+  "不利：红色",
+  "内容基于传统文化规则整理，仅供穿搭参考。",
+].join("\n");
+
 function publishedContent(overrides: Partial<DailyContent> = {}): DailyContent {
   const scenario = { code: "daily", label: "日常" };
   const audience = { code: "all", label: "通用" };
@@ -235,7 +245,7 @@ function publishedContent(overrides: Partial<DailyContent> = {}): DailyContent {
     looks,
     outfitFormulas: formulas,
     share: {
-      copyText: "今日穿搭参考",
+      copyText: completePublicShareCopyText,
       posterJobEndpoint: "/api/v1/poster-jobs",
       posterTemplateVersion: "poster-v1",
       summaryText: "今日优先绿色",
@@ -315,6 +325,9 @@ describe("TodayContentService", () => {
       sharedMaxAgeSeconds: 60,
     });
     expect(result.kind === "ready" ? result.body.content : null).toBe(fixture);
+    expect(result.kind === "ready" ? result.body.content.share.copyText : null).toBe(
+      completePublicShareCopyText,
+    );
     expect(result.kind === "ready" ? result.etag : "").toMatch(/^"sha256-[A-Za-z0-9_-]+"$/);
     expect(lookedUpDates).toEqual(["2026-07-24"]);
     expect(clockCalls()).toBe(1);
