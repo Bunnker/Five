@@ -56,8 +56,16 @@ describe("AttentionColorSection", () => {
 
     const lowerTiers = screen.getByRole("region", { name: "较差 · 不利" });
     expect(lowerTiers).toHaveAttribute("data-content-version", "fd-20260715-r1");
-    expect(within(lowerTiers).getByRole("heading", { name: "较差" })).toBeVisible();
-    expect(within(lowerTiers).getByRole("heading", { name: "不利" })).toBeVisible();
+    const jiaoCha = within(lowerTiers).getByRole("article", { name: "较差 · 建议减少" });
+    const buLi = within(lowerTiers).getByRole("article", { name: "不利 · 今日先收起" });
+    expect(jiaoCha).toHaveClass("decision-card--quaternary");
+    expect(jiaoCha).toHaveTextContent("04");
+    expect(jiaoCha).toHaveTextContent("较差");
+    expect(jiaoCha).toHaveTextContent("水生木");
+    expect(buLi).toHaveClass("decision-card--quinary");
+    expect(buLi).toHaveTextContent("05");
+    expect(buLi).toHaveTextContent("不利");
+    expect(buLi).toHaveTextContent("木克土");
     expect(lowerTiers).not.toHaveTextContent("注意");
 
     expect(

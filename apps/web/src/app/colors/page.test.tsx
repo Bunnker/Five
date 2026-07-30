@@ -224,8 +224,8 @@ describe("ColorsPage", () => {
     expect(ciJi).toHaveTextContent("木与木同类");
     expect(ping).toHaveTextContent("平");
     expect(ping).toHaveTextContent("金克木");
-    expect(within(lowerTiers).getByRole("heading", { name: "较差" })).toBeVisible();
-    expect(within(lowerTiers).getByRole("heading", { name: "不利" })).toBeVisible();
+    expect(within(lowerTiers).getByRole("article", { name: "较差 · 建议减少" })).toBeVisible();
+    expect(within(lowerTiers).getByRole("article", { name: "不利 · 今日先收起" })).toBeVisible();
     expect(lowerTiers).not.toHaveTextContent("注意");
     expect(within(lowerTiers).queryByRole("link")).not.toBeInTheDocument();
 

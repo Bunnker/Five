@@ -1,35 +1,62 @@
 import { reviewedColorPalette } from "../lib/color-palette";
-import type { DecisionCardData } from "../lib/today";
+import type { AttentionGroupData, AttentionSectionData, DecisionCardData } from "../lib/today";
 import { ColorSwatch } from "./visual-foundation";
 
 const cardPresentation = {
+  bu_li: {
+    cardId: "bu-li-card-title",
+    headingLabel: "不利 · 今日先收起",
+    priority: "quinary",
+  },
   ci_ji: {
     cardId: "ci-ji-card-title",
+    headingLabel: "稳妥选择",
     priority: "secondary",
   },
   da_ji: {
     cardId: "da-ji-card-title",
+    headingLabel: "今日优先",
     priority: "primary",
+  },
+  jiao_cha: {
+    cardId: "jiao-cha-card-title",
+    headingLabel: "较差 · 建议减少",
+    priority: "quaternary",
   },
   ping: {
     cardId: "ping-card-title",
+    headingLabel: "日常可穿",
     priority: "tertiary",
   },
 } as const;
 
-export interface DecisionColorCardProps {
+type LowerTierCardData = AttentionGroupData & {
+  contentVersion: AttentionSectionData["contentVersion"];
+};
+
+interface PositiveDecisionColorCardProps {
   actionHref?: string | undefined;
   tier: DecisionCardData;
 }
 
+interface LowerTierDecisionColorCardProps {
+  actionHref?: never;
+  tier: LowerTierCardData;
+}
+
+export type DecisionColorCardProps =
+  LowerTierDecisionColorCardProps | PositiveDecisionColorCardProps;
+
 export function DecisionColorCard({ actionHref, tier }: DecisionColorCardProps) {
-  const { cardId, priority } = cardPresentation[tier.tierCode];
+  const { cardId, headingLabel, priority } = cardPresentation[tier.tierCode];
 
   return (
     <article
-      className={`decision-card decision-card--${priority}`}
+      className={`decision-card today-tier-card decision-card--${priority}`}
       data-content-version={tier.contentVersion}
       data-tier-element={tier.element}
+      data-tier-code={tier.tierCode}
+      data-tier-rank={tier.rank}
       aria-labelledby={cardId}
     >
       <div className="decision-card__rank" aria-label={`第 ${tier.rank} 档`}>
@@ -39,7 +66,7 @@ export function DecisionColorCard({ actionHref, tier }: DecisionColorCardProps) 
 
       <div className="decision-card__body">
         <header className="decision-card__header">
-          <h2 id={cardId}>{tier.displayLabel}</h2>
+          <h2 id={cardId}>{headingLabel}</h2>
           <p className="decision-card__element">
             <span>{tier.elementLabel}</span>
             {tier.relationText}

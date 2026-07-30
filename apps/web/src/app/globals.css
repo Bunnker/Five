@@ -420,9 +420,9 @@ a {
 }
 
 .decision-card--secondary .decision-card__rank {
-  border-right: 1px solid var(--tier-line);
-  background: var(--tier-soft);
-  color: var(--tier-accent);
+  border-right: 0;
+  background: var(--tier-accent);
+  color: var(--paper);
 }
 
 .decision-card--secondary .decision-card__number {
@@ -447,9 +447,9 @@ a {
 }
 
 .decision-card--tertiary .decision-card__rank {
-  border-right: 1px solid var(--tier-line);
-  background: var(--tier-soft);
-  color: var(--tier-accent);
+  border-right: 0;
+  background: var(--tier-accent);
+  color: var(--paper);
 }
 
 .decision-card--tertiary .decision-card__number {
@@ -480,11 +480,10 @@ a {
 .attention-section {
   --attention-accent: #685d45;
   --attention-line: rgb(117 106 80 / 24%);
-  margin-top: 8px;
-  padding: 10px;
-  border: 1px solid var(--attention-line);
-  border-radius: 8px;
-  background: #eeeae1;
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   box-shadow: none;
   animation: none;
 }
@@ -521,8 +520,8 @@ a {
 }
 
 .attention-section__groups {
-  margin-top: 6px;
-  border-top: 1px solid var(--attention-line);
+  margin-top: 0;
+  border-top: 0;
 }
 
 .attention-group {
@@ -591,6 +590,7 @@ a {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px 8px;
+  margin-top: 8px;
   padding: 8px;
   border: 1px solid rgb(82 107 86 / 18%);
   border-radius: 6px;
@@ -1152,6 +1152,18 @@ a {
   --tier-soft: rgb(139 105 61 / 7%);
 }
 
+.decision-card.decision-card--quaternary {
+  --tier-accent: #536572;
+  --tier-line: rgb(83 101 114 / 24%);
+  --tier-soft: rgb(83 101 114 / 7%);
+}
+
+.decision-card.decision-card--quinary {
+  --tier-accent: #84683f;
+  --tier-line: rgb(132 104 63 / 24%);
+  --tier-soft: rgb(132 104 63 / 7%);
+}
+
 .decision-card__rank {
   display: grid;
   align-content: center;
@@ -1252,7 +1264,7 @@ a {
 }
 
 /* The landing page keeps the full explanation for assistive tech while the visible card stays decision-first. */
-.today-page > .decision-card .decision-card__explanation {
+.today-page .today-tier-card .decision-card__explanation {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -2984,7 +2996,7 @@ h1 {
   font-size: 11px;
 }
 
-.today-page--home > .decision-card {
+.today-page--home .today-tier-card {
   grid-template-columns: 54px minmax(0, 1fr);
   min-height: 108px;
   margin-top: 8px;
@@ -2995,7 +3007,7 @@ h1 {
   box-shadow: var(--shadow-paper);
 }
 
-.today-page--home > .decision-card .decision-card__rank {
+.today-page--home .today-tier-card .decision-card__rank {
   position: relative;
   z-index: 1;
   min-height: 108px;
@@ -3009,57 +3021,57 @@ h1 {
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), 50% 100%, 0 calc(100% - 12px));
 }
 
-.today-page--home > .decision-card .decision-card__number,
-.today-page--home > .decision-card.decision-card--secondary .decision-card__number,
-.today-page--home > .decision-card.decision-card--tertiary .decision-card__number {
+.today-page--home .today-tier-card .decision-card__number,
+.today-page--home .today-tier-card.decision-card--secondary .decision-card__number,
+.today-page--home .today-tier-card.decision-card--tertiary .decision-card__number {
   font-size: 27px;
   font-weight: 500;
 }
 
-.today-page--home > .decision-card .decision-card__algorithm {
+.today-page--home .today-tier-card .decision-card__algorithm {
   font-family: var(--font-display);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.1em;
 }
 
-.today-page--home > .decision-card .decision-card__body,
-.today-page--home > .decision-card.decision-card--tertiary .decision-card__body {
+.today-page--home .today-tier-card .decision-card__body,
+.today-page--home .today-tier-card.decision-card--tertiary .decision-card__body {
   align-self: stretch;
   padding: 10px 10px 9px;
   border-radius: 0 12px 12px 0;
   background: linear-gradient(90deg, var(--tier-soft), transparent 36%), rgb(252 248 238 / 76%);
 }
 
-.today-page--home > .decision-card .decision-card__header h2,
-.today-page--home > .decision-card.decision-card--secondary .decision-card__header h2,
-.today-page--home > .decision-card.decision-card--tertiary .decision-card__header h2 {
+.today-page--home .today-tier-card .decision-card__header h2,
+.today-page--home .today-tier-card.decision-card--secondary .decision-card__header h2,
+.today-page--home .today-tier-card.decision-card--tertiary .decision-card__header h2 {
   font-size: 20px;
   font-weight: 600;
   letter-spacing: 0.03em;
 }
 
-.today-page--home > .decision-card .decision-card__element {
+.today-page--home .today-tier-card .decision-card__element {
   font-size: 10px;
 }
 
-.today-page--home > .decision-card .decision-card__element span {
+.today-page--home .today-tier-card .decision-card__element span {
   font-size: 17px;
 }
 
-.today-page--home > .decision-card .decision-card__colors {
+.today-page--home .today-tier-card .decision-card__colors {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 3px;
   margin-top: 7px;
 }
 
-.today-page--home > .decision-card .color-swatch {
+.today-page--home .today-tier-card .color-swatch {
   min-width: 0;
   gap: 3px;
 }
 
-.today-page--home > .decision-card .color-swatch__dot {
+.today-page--home .today-tier-card .color-swatch__dot {
   width: clamp(28px, 8vw, 32px);
   height: clamp(28px, 8vw, 32px);
   border-color: rgb(41 38 32 / 14%);
@@ -3068,14 +3080,14 @@ h1 {
     0 1px 3px rgb(74 52 25 / 8%);
 }
 
-.today-page--home > .decision-card .color-swatch__dot--light {
+.today-page--home .today-tier-card .color-swatch__dot--light {
   border: 1px solid #9f927c;
   box-shadow:
     inset 0 0 0 2px rgb(255 255 255 / 62%),
     0 1px 3px rgb(74 52 25 / 8%);
 }
 
-.today-page--home > .decision-card .color-swatch__name {
+.today-page--home .today-tier-card .color-swatch__name {
   max-width: 100%;
   font-size: 11px;
   line-height: 1.2;
@@ -3085,12 +3097,11 @@ h1 {
 .today-page--home > .attention-section {
   --attention-accent: #5d5a50;
   --attention-line: rgb(93 90 80 / 24%);
-  margin-top: 8px;
-  padding: 11px 10px 10px;
-  border: 1px solid var(--attention-line);
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgb(93 90 80 / 6%), transparent 40%), rgb(247 243 233 / 88%);
-  box-shadow: var(--shadow-paper);
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .today-page--home .attention-section__header {
@@ -3112,7 +3123,8 @@ h1 {
 }
 
 .today-page--home .attention-section__groups {
-  margin-top: 7px;
+  margin-top: 0;
+  border-top: 0;
 }
 
 .today-page--home .attention-group {
@@ -3174,7 +3186,7 @@ h1 {
 
 .today-page--home .attention-balance {
   grid-template-columns: minmax(0, 1fr) auto;
-  margin-top: 1px;
+  margin-top: 8px;
   padding: 8px 9px;
   border-color: rgb(78 117 84 / 18%);
   border-radius: 7px;
@@ -3352,16 +3364,16 @@ h1 {
     font-size: 36px;
   }
 
-  .today-page--home > .decision-card {
+  .today-page--home .today-tier-card {
     grid-template-columns: 49px minmax(0, 1fr);
   }
 
-  .today-page--home > .decision-card .decision-card__body,
-  .today-page--home > .decision-card.decision-card--tertiary .decision-card__body {
+  .today-page--home .today-tier-card .decision-card__body,
+  .today-page--home .today-tier-card.decision-card--tertiary .decision-card__body {
     padding-inline: 7px;
   }
 
-  .today-page--home > .decision-card .color-swatch__dot {
+  .today-page--home .today-tier-card .color-swatch__dot {
     width: 26px;
     height: 26px;
   }
@@ -3437,22 +3449,22 @@ h1 {
 
 @media (prefers-reduced-motion: no-preference) {
   .today-page--home .today-date-card,
-  .today-page--home > .decision-card,
+  .today-page--home .today-tier-card,
   .today-page--home > .attention-section,
   .today-page--home .outfit-preview,
   .today-page--home .today-image-preview {
     animation: editorial-settle 420ms ease-out both;
   }
 
-  .today-page--home > .decision-card:nth-of-type(2) {
+  .today-page--home .today-tier-card:nth-of-type(2) {
     animation-delay: 45ms;
   }
 
-  .today-page--home > .decision-card:nth-of-type(3) {
+  .today-page--home .today-tier-card:nth-of-type(3) {
     animation-delay: 90ms;
   }
 
-  .today-page--home > .decision-card:nth-of-type(4) {
+  .today-page--home .today-tier-card:nth-of-type(4) {
     animation-delay: 135ms;
   }
 }
