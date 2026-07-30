@@ -155,12 +155,9 @@ describe("BasisPage", () => {
     expect(within(relations).getByRole("article", { name: "平 日常可穿" })).toHaveTextContent(
       "金克木",
     );
-    expect(within(relations).getByRole("article", { name: "注意 较差" })).toHaveTextContent(
-      "水生木",
-    );
-    expect(within(relations).getByRole("article", { name: "注意 不利" })).toHaveTextContent(
-      "木克土",
-    );
+    expect(within(relations).getByRole("article", { name: "较差" })).toHaveTextContent("水生木");
+    expect(within(relations).getByRole("article", { name: "不利" })).toHaveTextContent("木克土");
+    expect(relations).not.toHaveTextContent("注意");
     expect(within(relations).getByText("红色")).toBeVisible();
     expect(within(relations).getByText("绿色")).toBeVisible();
     expect(within(relations).getByText("白色")).toBeVisible();

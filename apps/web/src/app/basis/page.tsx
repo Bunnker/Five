@@ -17,10 +17,12 @@ interface BasisPageProps {
 }
 
 function BasisTier({ tier }: { tier: BasisTierData }) {
-  const isAttention = tier.displayLabel === "注意";
-  const accessibleName = isAttention
-    ? `${tier.displayLabel} ${tier.algorithmLabel}`
-    : `${tier.algorithmLabel} ${tier.displayLabel}`;
+  const isLowerTier = tier.tierCode === "jiao_cha" || tier.tierCode === "bu_li";
+  const publicLabel = isLowerTier ? tier.algorithmLabel : tier.displayLabel;
+  const supportingLabel = isLowerTier ? "今天减少大面积使用" : tier.algorithmLabel;
+  const accessibleName = isLowerTier
+    ? tier.algorithmLabel
+    : `${tier.algorithmLabel} ${publicLabel}`;
 
   return (
     <li>
@@ -30,8 +32,8 @@ function BasisTier({ tier }: { tier: BasisTierData }) {
             {String(tier.rank).padStart(2, "0")}
           </span>
           <div>
-            <h3>{tier.displayLabel}</h3>
-            <p>{isAttention ? `内部关系：${tier.algorithmLabel}` : tier.algorithmLabel}</p>
+            <h3>{publicLabel}</h3>
+            <p>{supportingLabel}</p>
           </div>
           <strong>{tier.elementLabel}</strong>
         </header>

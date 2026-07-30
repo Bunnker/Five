@@ -2,8 +2,6 @@ import { reviewedColorPalette } from "../lib/color-palette";
 import type { AttentionSectionData } from "../lib/today";
 import { ColorSwatch } from "./visual-foundation";
 
-const groupLabels = ["第一组", "第二组"] as const;
-
 export interface AttentionColorSectionProps {
   section: AttentionSectionData;
 }
@@ -13,18 +11,18 @@ export function AttentionColorSection({ section }: AttentionColorSectionProps) {
     <section
       className="attention-section"
       data-content-version={section.contentVersion}
-      aria-labelledby="attention-section-title"
+      aria-labelledby="lower-tier-section-title"
     >
       <header className="attention-section__header">
         <div>
           <p className="attention-section__eyebrow">今天建议少用</p>
-          <h2 id="attention-section-title">注意</h2>
+          <h2 id="lower-tier-section-title">较差 · 不利</h2>
         </div>
-        <p>减少大面积使用即可</p>
+        <p>大面积使用请谨慎</p>
       </header>
 
       <div className="attention-section__groups">
-        {section.groups.map((group, index) => (
+        {section.groups.map((group) => (
           <div
             className="attention-group"
             data-tier-code={group.tierCode}
@@ -32,16 +30,19 @@ export function AttentionColorSection({ section }: AttentionColorSectionProps) {
             key={group.tierCode}
           >
             <header className="attention-group__header">
-              <p>
-                <span>{groupLabels[index]}</span>
-                {group.elementLabel}系颜色
-              </p>
+              <span aria-hidden="true" className="attention-group__rank">
+                {String(group.rank).padStart(2, "0")}
+              </span>
+              <div>
+                <h3>{group.algorithmLabel}</h3>
+                <p>{group.elementLabel}系颜色</p>
+              </div>
               <small>{group.relationText}</small>
             </header>
 
             <ul
               className="color-grid attention-group__colors"
-              aria-label={`${groupLabels[index]}颜色`}
+              aria-label={`${group.algorithmLabel}颜色`}
             >
               {group.colors.map((color) => {
                 const presentation = reviewedColorPalette[color.colorCode];
@@ -57,6 +58,8 @@ export function AttentionColorSection({ section }: AttentionColorSectionProps) {
                 );
               })}
             </ul>
+
+            <p className="attention-group__explanation">{group.explanation}</p>
           </div>
         ))}
       </div>
@@ -64,7 +67,7 @@ export function AttentionColorSection({ section }: AttentionColorSectionProps) {
       <aside className="attention-balance">
         <div>
           <p className="attention-balance__eyebrow">已经穿了也不用换</p>
-          <h3>{section.balanceSuggestion.title}</h3>
+          <h3>用大吉色小配饰补充</h3>
           <p>{section.balanceSuggestion.description}</p>
         </div>
         <ul aria-label="可选的小面积配饰">

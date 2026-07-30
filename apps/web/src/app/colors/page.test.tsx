@@ -205,7 +205,7 @@ describe("ColorsPage", () => {
     loadTodayMock.mockResolvedValue(today);
   });
 
-  it("shows the three positive decisions and the combined attention section from one version", async () => {
+  it("shows all five public tier labels from one version", async () => {
     render(await ColorsPage({ searchParams: Promise.resolve(validSearchParams) }));
 
     expect(loadTodayMock).toHaveBeenCalledWith({ requestId: "request-colors-page" });
@@ -213,7 +213,7 @@ describe("ColorsPage", () => {
     const daJi = screen.getByRole("article", { name: "今日优先" });
     const ciJi = screen.getByRole("article", { name: "稳妥选择" });
     const ping = screen.getByRole("article", { name: "日常可穿" });
-    const attention = screen.getByRole("region", { name: "注意" });
+    const lowerTiers = screen.getByRole("region", { name: "较差 · 不利" });
 
     expect(daJi).toHaveTextContent("大吉");
     expect(daJi).toHaveTextContent("火");
@@ -224,8 +224,10 @@ describe("ColorsPage", () => {
     expect(ciJi).toHaveTextContent("木与木同类");
     expect(ping).toHaveTextContent("平");
     expect(ping).toHaveTextContent("金克木");
-    expect(attention).toBeVisible();
-    expect(within(attention).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(lowerTiers).getByRole("heading", { name: "较差" })).toBeVisible();
+    expect(within(lowerTiers).getByRole("heading", { name: "不利" })).toBeVisible();
+    expect(lowerTiers).not.toHaveTextContent("注意");
+    expect(within(lowerTiers).queryByRole("link")).not.toBeInTheDocument();
 
     expect(within(daJi).getByRole("link", { name: "查看大吉穿法" })).toHaveAttribute(
       "href",

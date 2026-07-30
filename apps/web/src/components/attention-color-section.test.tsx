@@ -51,25 +51,27 @@ const section = {
 } satisfies AttentionSectionData;
 
 describe("AttentionColorSection", () => {
-  it("shows one gentle attention region while preserving both published groups and color order", () => {
+  it("shows the direct lower-tier labels while preserving both published groups and color order", () => {
     const { container } = render(<AttentionColorSection section={section} />);
 
-    const attention = screen.getByRole("region", { name: "注意" });
-    expect(attention).toHaveAttribute("data-content-version", "fd-20260715-r1");
-    expect(screen.getAllByRole("heading", { name: "注意" })).toHaveLength(1);
-    expect(attention).not.toHaveTextContent(/较差|不利/u);
-    expect(screen.queryByLabelText(/较差|不利/u)).not.toBeInTheDocument();
+    const lowerTiers = screen.getByRole("region", { name: "较差 · 不利" });
+    expect(lowerTiers).toHaveAttribute("data-content-version", "fd-20260715-r1");
+    expect(within(lowerTiers).getByRole("heading", { name: "较差" })).toBeVisible();
+    expect(within(lowerTiers).getByRole("heading", { name: "不利" })).toBeVisible();
+    expect(lowerTiers).not.toHaveTextContent("注意");
 
     expect(
-      within(screen.getByRole("list", { name: "第一组颜色" }))
+      within(screen.getByRole("list", { name: "较差颜色" }))
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["黑色", "藏青", "宝蓝", "墨绿", "深灰系"]);
     expect(
-      within(screen.getByRole("list", { name: "第二组颜色" }))
+      within(screen.getByRole("list", { name: "不利颜色" }))
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["黄色", "咖色", "棕色", "卡其", "褐色系"]);
+    expect(lowerTiers).toHaveTextContent("今日建议降低大面积使用比例。");
+    expect(lowerTiers).toHaveTextContent("今日建议减少使用。");
 
     expect(
       [...container.querySelectorAll<HTMLElement>("[data-tier-rank]")].map((group) => ({
@@ -85,19 +87,21 @@ describe("AttentionColorSection", () => {
   it("shows the reviewed balance advice without creating a negative detail action", () => {
     render(<AttentionColorSection section={section} />);
 
-    const attention = screen.getByRole("region", { name: "注意" });
-    expect(within(attention).getByRole("heading", { name: "已经穿了注意色" })).toBeVisible();
-    expect(attention).toHaveTextContent("可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。");
+    const lowerTiers = screen.getByRole("region", { name: "较差 · 不利" });
+    expect(within(lowerTiers).getByRole("heading", { name: "用大吉色小配饰补充" })).toBeVisible();
+    expect(lowerTiers).toHaveTextContent(
+      "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。",
+    );
     expect(
       within(screen.getByRole("list", { name: "可选的小面积配饰" }))
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["丝巾", "包", "鞋", "耳饰"]);
 
-    expect(within(attention).queryByRole("link")).not.toBeInTheDocument();
-    expect(within(attention).queryByRole("button")).not.toBeInTheDocument();
-    expect(within(attention).queryByRole("alert")).not.toBeInTheDocument();
-    expect(attention.querySelector('[aria-live="assertive"]')).not.toBeInTheDocument();
-    expect(attention).not.toHaveTextContent(/化解|保证转运|查看穿法|详情|→|➜|›/u);
+    expect(within(lowerTiers).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(lowerTiers).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(lowerTiers).queryByRole("alert")).not.toBeInTheDocument();
+    expect(lowerTiers.querySelector('[aria-live="assertive"]')).not.toBeInTheDocument();
+    expect(lowerTiers).not.toHaveTextContent(/化解|保证转运|查看穿法|详情|→|➜|›/u);
   });
 });

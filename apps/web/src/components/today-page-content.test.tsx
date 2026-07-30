@@ -268,15 +268,16 @@ describe("TodayPageContent", () => {
     expect(text.indexOf("今日木日")).toBeLessThan(text.indexOf("今日优先"));
     expect(text.indexOf("今日优先")).toBeLessThan(text.indexOf("稳妥选择"));
     expect(text.indexOf("稳妥选择")).toBeLessThan(text.indexOf("日常可穿"));
-    expect(text.indexOf("日常可穿")).toBeLessThan(text.indexOf("注意"));
-    expect(text.indexOf("注意")).toBeLessThan(text.indexOf("今日怎么搭"));
+    expect(text.indexOf("日常可穿")).toBeLessThan(text.indexOf("较差"));
+    expect(text.indexOf("较差")).toBeLessThan(text.indexOf("不利"));
+    expect(text.indexOf("不利")).toBeLessThan(text.indexOf("今日怎么搭"));
     expect(text.indexOf("今日怎么搭")).toBeLessThan(text.indexOf("今日图片示范"));
 
     const decisionRegions = [
       screen.getByRole("article", { name: "今日优先" }),
       screen.getByRole("article", { name: "稳妥选择" }),
       screen.getByRole("article", { name: "日常可穿" }),
-      screen.getByRole("region", { name: "注意" }),
+      screen.getByRole("region", { name: "较差 · 不利" }),
       screen.getByRole("region", { name: "今日怎么搭" }),
       screen.getByRole("region", { name: "今日图片示范" }),
     ];
@@ -304,7 +305,7 @@ describe("TodayPageContent", () => {
     expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "稳妥选择" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
   });
 
   it("does not show orphan ci_ji or ping cards when da_ji is unavailable", () => {
@@ -323,7 +324,7 @@ describe("TodayPageContent", () => {
     expect(screen.queryByRole("heading", { name: "今日优先" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "稳妥选择" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
   });
 
   it("keeps da_ji and ci_ji when ping is unavailable", () => {
@@ -342,7 +343,7 @@ describe("TodayPageContent", () => {
     expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "稳妥选择" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
   });
 
   it("keeps positive cards, formulas and images when attention is unavailable", () => {
@@ -364,7 +365,7 @@ describe("TodayPageContent", () => {
     expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "稳妥选择" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "日常可穿" })).toBeVisible();
-    expect(screen.queryByRole("region", { name: "注意" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "今日怎么搭" })).toBeVisible();
     expect(screen.getByRole("region", { name: "今日图片示范" })).toBeVisible();
     expect(screen.getByText(basis.disclaimer)).toBeVisible();

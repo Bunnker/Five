@@ -27,11 +27,14 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
 
   return (
     <main className="page-shell">
-      <div className="today-page">
+      <div className="today-page today-page--home">
         <header className="today-masthead">
           <div className="today-masthead__identity">
-            <p className="today-masthead__brand">今日穿衣</p>
-            <p className="today-masthead__description">FIVE · 每日五行搭配</p>
+            <p className="today-masthead__brand">
+              <span>Five</span>
+              <span>五行穿衣</span>
+            </p>
+            <p className="today-masthead__description">每日五行搭配参考</p>
           </div>
           <div className="today-masthead__actions">
             {nextSteps === null ? null : (
