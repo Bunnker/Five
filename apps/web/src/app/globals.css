@@ -4054,6 +4054,15 @@ h1 {
   line-height: 1.4;
 }
 
+.today-update-notice {
+  border-color: color-mix(in srgb, var(--accent-pine), transparent 68%);
+  background: color-mix(in srgb, var(--accent-pine), var(--paper) 91%);
+}
+
+.today-update-notice strong {
+  color: var(--accent-pine);
+}
+
 .today-cache-notice button {
   flex: 0 0 auto;
   min-width: 76px;

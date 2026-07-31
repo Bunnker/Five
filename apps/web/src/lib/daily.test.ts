@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadDaily } from "./daily";
+import { loadDaily, loadDailyResult } from "./daily";
 
 const fortuneDate = "2026-07-15";
 const currentContentVersion = "fd-20260715-r4";
@@ -140,6 +140,37 @@ function dailyResponse(
   });
 }
 
+function expiredResponse(
+  overrides: {
+    body?: Record<string, unknown>;
+    contentType?: string;
+    responseRequestId?: string;
+  } = {},
+): Response {
+  const requestId = "web-daily-request-123";
+
+  return new Response(
+    JSON.stringify(
+      overrides.body ?? {
+        error: {
+          code: "HISTORICAL_CONTENT_EXPIRED",
+          details: { fortuneDate },
+          message: "该日期内容已不在公开保留期内。",
+          requestId,
+          retryable: false,
+        },
+      },
+    ),
+    {
+      headers: {
+        "content-type": overrides.contentType ?? "application/json; charset=utf-8",
+        "x-request-id": overrides.responseRequestId ?? requestId,
+      },
+      status: 410,
+    },
+  );
+}
+
 describe("loadDaily", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -250,6 +281,7 @@ describe("loadDaily", () => {
         apiOrigin: "http://backend.test:3100",
         expectedContentVersion,
         fortuneDate,
+        requestId: "web-daily-request-123",
       }),
     ).resolves.toBeNull();
   });
@@ -262,8 +294,99 @@ describe("loadDaily", () => {
         apiOrigin: "http://backend.test:3100",
         expectedContentVersion,
         fortuneDate,
+        requestId: "web-daily-request-123",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("distinguishes an expired historical share from a generic unavailable response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(expiredResponse()).mockResolvedValueOnce(expiredResponse()),
+    );
+
+    await expect(
+      loadDailyResult({
+        apiOrigin: "http://backend.test:3100",
+        expectedContentVersion,
+        fortuneDate,
+        requestId: "web-daily-request-123",
+      }),
+    ).resolves.toEqual({ kind: "expired" });
+
+    await expect(
+      loadDaily({
+        apiOrigin: "http://backend.test:3100",
+        expectedContentVersion,
+        fortuneDate,
+        requestId: "web-daily-request-123",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it.each([
+    {
+      label: "non-JSON response",
+      response: expiredResponse({ contentType: "text/html" }),
+    },
+    {
+      label: "different error code",
+      response: expiredResponse({
+        body: {
+          error: {
+            code: "CONTENT_NOT_FOUND",
+            details: { fortuneDate },
+            message: "该日期内容不存在。",
+            requestId: "web-daily-request-123",
+            retryable: false,
+          },
+        },
+      }),
+    },
+    {
+      label: "mismatched response request ID",
+      response: expiredResponse({ responseRequestId: "different-request-id" }),
+    },
+    {
+      label: "self-consistent request ID that was not sent",
+      response: expiredResponse({
+        body: {
+          error: {
+            code: "HISTORICAL_CONTENT_EXPIRED",
+            details: { fortuneDate },
+            message: "该日期内容已不在公开保留期内。",
+            requestId: "foreign-request-id",
+            retryable: false,
+          },
+        },
+        responseRequestId: "foreign-request-id",
+      }),
+    },
+    {
+      label: "different details date",
+      response: expiredResponse({
+        body: {
+          error: {
+            code: "HISTORICAL_CONTENT_EXPIRED",
+            details: { fortuneDate: "2026-07-14" },
+            message: "该日期内容已不在公开保留期内。",
+            requestId: "web-daily-request-123",
+            retryable: false,
+          },
+        },
+      }),
+    },
+  ])("keeps a malformed 410 $label in the generic unavailable state", async ({ response }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(
+      loadDailyResult({
+        apiOrigin: "http://backend.test:3100",
+        expectedContentVersion,
+        fortuneDate,
+        requestId: "web-daily-request-123",
+      }),
+    ).resolves.toEqual({ kind: "unavailable" });
   });
 
   it("rejects an impossible route date without making a request", async () => {

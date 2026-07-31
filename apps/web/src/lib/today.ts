@@ -1650,6 +1650,54 @@ function isZonedDateTime(value: unknown): value is string {
   );
 }
 
+function nextPublicDate(value: string): string | null {
+  const instant = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(instant)) {
+    return null;
+  }
+  return new Date(instant + 86_400_000).toISOString().slice(0, 10);
+}
+
+function hasConsistentStrictRequestContext(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const responseGeneratedAt = value.responseGeneratedAt;
+  const civilDate = value.civilDate;
+  const fortuneDate = value.fortuneDate;
+  const crossedDayBoundary = value.crossedDayBoundary;
+  const shichen = value.shichen;
+  if (
+    value.timezone !== "Asia/Shanghai" ||
+    value.dayBoundary !== "23:00" ||
+    !isZonedDateTime(responseGeneratedAt) ||
+    !isPublicFortuneDate(civilDate) ||
+    !isPublicFortuneDate(fortuneDate) ||
+    typeof crossedDayBoundary !== "boolean" ||
+    !isMember(earthlyBranchNames, shichen)
+  ) {
+    return false;
+  }
+
+  const shanghaiWallClock = new Date(Date.parse(responseGeneratedAt) + 8 * 60 * 60 * 1_000);
+  const observedCivilDate = [
+    shanghaiWallClock.getUTCFullYear().toString().padStart(4, "0"),
+    (shanghaiWallClock.getUTCMonth() + 1).toString().padStart(2, "0"),
+    shanghaiWallClock.getUTCDate().toString().padStart(2, "0"),
+  ].join("-");
+  const observedHour = shanghaiWallClock.getUTCHours();
+  const expectedCrossedDayBoundary = observedHour >= 23;
+  const expectedFortuneDate = expectedCrossedDayBoundary ? nextPublicDate(civilDate) : civilDate;
+  const expectedShichen = earthlyBranchNames[Math.floor((observedHour + 1) / 2) % 12];
+
+  return (
+    civilDate === observedCivilDate &&
+    crossedDayBoundary === expectedCrossedDayBoundary &&
+    fortuneDate === expectedFortuneDate &&
+    shichen === expectedShichen
+  );
+}
+
 function parseServerObservedAt(headers: Headers): number | null {
   const dateHeader = headers.get("date");
   const dateMilliseconds = dateHeader === null ? Number.NaN : Date.parse(dateHeader);
@@ -1663,7 +1711,9 @@ function parseServerObservedAt(headers: Headers): number | null {
   ) {
     return null;
   }
-  return dateMilliseconds + ageSeconds * 1_000;
+  // HTTP Date and Age only carry whole seconds. Treat the observed time as the end of that
+  // second so a truncated header can expire a client snapshot early, never after a hard boundary.
+  return dateMilliseconds + ageSeconds * 1_000 + 999;
 }
 
 function toTodaySnapshot(
@@ -1673,7 +1723,12 @@ function toTodaySnapshot(
 ): TodaySnapshot | null {
   const data = parseTodayPageData(body, responseContentVersion);
   const completeData = data === null ? null : toCompleteTodayPageData(data);
-  if (completeData === null || !isRecord(body) || !isRecord(body.content)) {
+  if (
+    completeData === null ||
+    !isRecord(body) ||
+    !isRecord(body.content) ||
+    !hasConsistentStrictRequestContext(body.requestContext)
+  ) {
     return null;
   }
   const effectiveFrom = body.content.effectiveFrom;
@@ -1698,7 +1753,8 @@ function toTodaySnapshot(
     serverObservedAtMs < effectiveFromMs ||
     serverObservedAtMs >= effectiveToMs ||
     responseGeneratedAtMs < effectiveFromMs ||
-    responseGeneratedAtMs >= effectiveToMs
+    responseGeneratedAtMs >= effectiveToMs ||
+    responseGeneratedAtMs > serverObservedAtMs
   ) {
     return null;
   }

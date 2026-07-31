@@ -7,7 +7,7 @@ import { DaJiColorCard } from "../../../components/da-ji-color-card";
 import { OutfitPreviewSection } from "../../../components/outfit-preview-section";
 import { PingColorCard } from "../../../components/ping-color-card";
 import { TodayImagePreviewSection } from "../../../components/today-image-preview-section";
-import { loadDaily, type DailyLandingData } from "../../../lib/daily";
+import { loadDailyResult, type LoadDailyResult } from "../../../lib/daily";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,21 @@ function DailyUnavailable() {
   );
 }
 
-function DailyLandingContent({ daily }: { daily: DailyLandingData | null }) {
+function DailyExpired() {
+  return (
+    <section className="today-unavailable daily-unavailable" role="status">
+      <p>历史内容已下线</p>
+      <small>这份分享已超过公开保留期，可以主动查看今日内容。</small>
+      <a className="outfit-page__back outfit-page__back--button" href="/">
+        回到今日参考
+      </a>
+    </section>
+  );
+}
+
+function DailyLandingContent({ result }: { result: LoadDailyResult }) {
+  const daily = result.kind === "ready" ? result.daily : null;
+
   return (
     <main className="page-shell">
       <div className="today-page daily-page">
@@ -49,7 +63,9 @@ function DailyLandingContent({ daily }: { daily: DailyLandingData | null }) {
           </div>
         </header>
 
-        {daily === null ? (
+        {result.kind === "expired" ? (
+          <DailyExpired />
+        ) : daily === null ? (
           <DailyUnavailable />
         ) : (
           <>
@@ -111,14 +127,14 @@ export default async function DailyPage({ params, searchParams }: DailyPageProps
   const expectedContentVersion = query.expectedContentVersion;
 
   if (expectedContentVersion !== undefined && typeof expectedContentVersion !== "string") {
-    return <DailyLandingContent daily={null} />;
+    return <DailyLandingContent result={{ kind: "unavailable" }} />;
   }
 
-  const daily = await loadDaily({
+  const result = await loadDailyResult({
     expectedContentVersion: expectedContentVersion ?? null,
     fortuneDate: route.fortuneDate,
     requestId: requestHeaders.get("x-request-id"),
   });
 
-  return <DailyLandingContent daily={daily} />;
+  return <DailyLandingContent result={result} />;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -11,7 +11,8 @@ import {
   writeTodaySnapshotCache,
 } from "../lib/today-cache";
 import type { TodaySnapshotCacheHit } from "../lib/today-cache";
-import type { LoadTodayResult } from "../lib/today";
+import type { LoadTodayResult, TodaySnapshot } from "../lib/today";
+import { resolveTodayRefreshSchedule } from "../lib/today-refresh-policy";
 import { TodayPageContent } from "./today-page-content";
 import { TodayPageSkeleton } from "./today-page-skeleton";
 
@@ -20,6 +21,60 @@ export interface TodayPageStateProps {
 }
 
 const PENDING_REFRESH_ANCHOR_KEY = "five:today:v1:pending-refresh-anchor";
+const REFRESH_WATCHDOG_MILLISECONDS = 10_000;
+
+interface ActiveTodaySnapshot extends TodaySnapshotCacheHit {
+  expiresAtClientMs: number;
+}
+
+type TodayUpdateKind = "civil_midnight" | "content_version" | "fortune_day";
+
+interface TodayUpdateNotice {
+  description: string;
+  headline: string;
+  kind: TodayUpdateKind;
+}
+
+function activateSnapshot(
+  hit: TodaySnapshotCacheHit,
+  clientNowMs = Date.now(),
+): ActiveTodaySnapshot {
+  return {
+    ...hit,
+    expiresAtClientMs: clientNowMs + hit.expiresInMs,
+  };
+}
+
+function describeSnapshotUpdate(
+  previous: TodaySnapshot | null,
+  next: TodaySnapshot,
+): TodayUpdateNotice | null {
+  if (previous === null) {
+    return null;
+  }
+  if (previous.fortuneDate !== next.fortuneDate) {
+    return {
+      description: "日期、时辰与穿衣建议已经整包切换。",
+      headline: "已进入新命理日，今日内容已更新",
+      kind: "fortune_day",
+    };
+  }
+  if (previous.data.requestContext.civilDate !== next.data.requestContext.civilDate) {
+    return {
+      description: "民用日期已更新，命理日没有再次顺延。",
+      headline: "已过午夜，仍按当前命理日展示",
+      kind: "civil_midnight",
+    };
+  }
+  if (previous.contentVersion !== next.contentVersion) {
+    return {
+      description: "颜色、穿法与图片均来自同一个最新版本。",
+      headline: "今日内容已更新，已切换为最新完整内容",
+      kind: "content_version",
+    };
+  }
+  return null;
+}
 
 function clearPendingRefreshAnchor(): void {
   try {
@@ -99,12 +154,81 @@ function RetryButton({ isRetrying, onRetry }: RetryButtonProps) {
 
 export function TodayPageState({ result }: TodayPageStateProps) {
   const router = useRouter();
-  const [activeSnapshot, setActiveSnapshot] = useState<TodaySnapshotCacheHit | null>(null);
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  const [activeSnapshot, setActiveSnapshot] = useState<ActiveTodaySnapshot | null>(null);
   const [stateChecked, setStateChecked] = useState(result.kind === "content_not_ready");
   const [hasExpired, setHasExpired] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isBoundaryRefreshing, setIsBoundaryRefreshing] = useState(false);
+  const [updateNotice, setUpdateNotice] = useState<TodayUpdateNotice | null>(null);
+  const activeSnapshotRef = useRef<ActiveTodaySnapshot | null>(null);
+  const boundaryBlockedRef = useRef(false);
+  const boundaryRefreshPendingRef = useRef(false);
+  const lastDisplayedSnapshotRef = useRef<TodaySnapshot | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const requestRefreshRef = useRef<(showRetryProgress?: boolean) => boolean>(() => false);
+  const refreshWatchdogRef = useRef<number | null>(null);
+
+  const clearRefreshWatchdog = useCallback((): void => {
+    if (refreshWatchdogRef.current !== null) {
+      window.clearTimeout(refreshWatchdogRef.current);
+      refreshWatchdogRef.current = null;
+    }
+  }, []);
+
+  const requestRefresh = useCallback(
+    (showRetryProgress = false): boolean => {
+      if (refreshInFlightRef.current) {
+        return false;
+      }
+      refreshInFlightRef.current = true;
+      rememberPendingRefreshAnchor(Date.now());
+      if (showRetryProgress) {
+        setIsRetrying(true);
+      }
+      routerRef.current.refresh();
+      clearRefreshWatchdog();
+      refreshWatchdogRef.current = window.setTimeout(() => {
+        refreshWatchdogRef.current = null;
+        refreshInFlightRef.current = false;
+        if (boundaryBlockedRef.current && boundaryRefreshPendingRef.current) {
+          boundaryRefreshPendingRef.current = false;
+          requestRefreshRef.current();
+          return;
+        }
+        setIsRetrying(false);
+        if (boundaryBlockedRef.current) {
+          setIsBoundaryRefreshing(false);
+        }
+      }, REFRESH_WATCHDOG_MILLISECONDS);
+      return true;
+    },
+    [clearRefreshWatchdog],
+  );
+  requestRefreshRef.current = requestRefresh;
+
+  const blockExpiredContext = useCallback(
+    (snapshot: ActiveTodaySnapshot): void => {
+      if (activeSnapshotRef.current !== snapshot) {
+        return;
+      }
+      boundaryBlockedRef.current = true;
+      activeSnapshotRef.current = null;
+      setActiveSnapshot(null);
+      setHasExpired(true);
+      setIsBoundaryRefreshing(true);
+      boundaryRefreshPendingRef.current = !requestRefresh();
+    },
+    [requestRefresh],
+  );
 
   useEffect(() => {
+    clearRefreshWatchdog();
+    refreshInFlightRef.current = false;
+    const wasBoundaryBlocked = boundaryBlockedRef.current;
+    const queuedBoundaryRefresh = boundaryRefreshPendingRef.current;
+    boundaryRefreshPendingRef.current = false;
     setIsRetrying(false);
     setHasExpired(false);
     if (result.kind === "ready") {
@@ -112,55 +236,163 @@ export function TodayPageState({ result }: TodayPageStateProps) {
       const anchorClientMs = consumeResponseClientAnchor(clientNowMs);
       const expiresInMs = getTodaySnapshotRemainingMs(result.snapshot, anchorClientMs, clientNowMs);
       if (expiresInMs === null) {
+        boundaryBlockedRef.current = true;
+        activeSnapshotRef.current = null;
         setActiveSnapshot(null);
         setHasExpired(true);
+        if (queuedBoundaryRefresh || !wasBoundaryBlocked) {
+          setIsBoundaryRefreshing(true);
+          requestRefresh();
+        } else {
+          setIsBoundaryRefreshing(false);
+        }
         setStateChecked(true);
         return;
       }
       writeTodaySnapshotCache(result.snapshot, undefined, anchorClientMs, clientNowMs);
-      setActiveSnapshot({ expiresInMs, snapshot: result.snapshot });
+      const nextActiveSnapshot = activateSnapshot(
+        { expiresInMs, snapshot: result.snapshot },
+        clientNowMs,
+      );
+      setUpdateNotice(describeSnapshotUpdate(lastDisplayedSnapshotRef.current, result.snapshot));
+      lastDisplayedSnapshotRef.current = result.snapshot;
+      boundaryBlockedRef.current = false;
+      boundaryRefreshPendingRef.current = false;
+      activeSnapshotRef.current = nextActiveSnapshot;
+      setActiveSnapshot(nextActiveSnapshot);
+      setIsBoundaryRefreshing(false);
       setStateChecked(true);
       return;
     }
     if (result.kind === "content_not_ready") {
       clearPendingRefreshAnchor();
       clearTodaySnapshotPointer();
+      boundaryBlockedRef.current = false;
+      boundaryRefreshPendingRef.current = false;
+      activeSnapshotRef.current = null;
+      lastDisplayedSnapshotRef.current = null;
       setActiveSnapshot(null);
+      setUpdateNotice(null);
+      setIsBoundaryRefreshing(false);
       setStateChecked(true);
       return;
     }
     clearPendingRefreshAnchor();
-    setActiveSnapshot(readTodaySnapshotCache());
+    if (boundaryBlockedRef.current) {
+      activeSnapshotRef.current = null;
+      setActiveSnapshot(null);
+      setHasExpired(true);
+      if (queuedBoundaryRefresh) {
+        setIsBoundaryRefreshing(true);
+        requestRefresh();
+      } else {
+        setIsBoundaryRefreshing(false);
+      }
+      setStateChecked(true);
+      return;
+    }
+    const clientNowMs = Date.now();
+    const currentSnapshot = activeSnapshotRef.current;
+    const fallbackHit =
+      currentSnapshot !== null && currentSnapshot.expiresAtClientMs > clientNowMs
+        ? {
+            expiresInMs: currentSnapshot.expiresAtClientMs - clientNowMs,
+            snapshot: currentSnapshot.snapshot,
+          }
+        : readTodaySnapshotCache();
+    const fallbackSnapshot =
+      fallbackHit === null ? null : activateSnapshot(fallbackHit, clientNowMs);
+    activeSnapshotRef.current = fallbackSnapshot;
+    if (fallbackSnapshot !== null && lastDisplayedSnapshotRef.current === null) {
+      lastDisplayedSnapshotRef.current = fallbackSnapshot.snapshot;
+    }
+    setActiveSnapshot(fallbackSnapshot);
+    setIsBoundaryRefreshing(false);
     setStateChecked(true);
-  }, [result]);
+  }, [clearRefreshWatchdog, requestRefresh, result]);
+
+  useEffect(() => () => clearRefreshWatchdog(), [clearRefreshWatchdog]);
 
   useEffect(() => {
     if (activeSnapshot === null) {
       return;
     }
-    const timeout = window.setTimeout(
-      () => {
-        setActiveSnapshot(null);
-        setHasExpired(true);
-      },
-      Math.max(1, activeSnapshot.expiresInMs),
+    const remainingMs = activeSnapshot.expiresAtClientMs - Date.now();
+    if (remainingMs <= 0) {
+      blockExpiredContext(activeSnapshot);
+      return;
+    }
+    const hardBoundaryTimeout = window.setTimeout(
+      () => blockExpiredContext(activeSnapshot),
+      Math.max(1, remainingMs),
     );
-    return () => window.clearTimeout(timeout);
-  }, [activeSnapshot]);
+    const schedule = resolveTodayRefreshSchedule(activeSnapshot.snapshot, remainingMs);
+    const pollInterval =
+      schedule !== null && !schedule.blocksStaleContext
+        ? window.setInterval(() => requestRefresh(), schedule.delayMs)
+        : null;
+    return () => {
+      window.clearTimeout(hardBoundaryTimeout);
+      if (pollInterval !== null) {
+        window.clearInterval(pollInterval);
+      }
+    };
+  }, [activeSnapshot, blockExpiredContext, requestRefresh]);
+
+  useEffect(() => {
+    function revalidateVisiblePage(): void {
+      const currentSnapshot = activeSnapshotRef.current;
+      if (currentSnapshot !== null && currentSnapshot.expiresAtClientMs <= Date.now()) {
+        blockExpiredContext(currentSnapshot);
+        return;
+      }
+      requestRefresh();
+    }
+
+    function handleVisibilityChange(): void {
+      if (document.visibilityState === "visible") {
+        revalidateVisiblePage();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", revalidateVisiblePage);
+    window.addEventListener("pageshow", revalidateVisiblePage);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", revalidateVisiblePage);
+      window.removeEventListener("pageshow", revalidateVisiblePage);
+    };
+  }, [blockExpiredContext, requestRefresh]);
 
   function retry(): void {
-    rememberPendingRefreshAnchor(Date.now());
-    setIsRetrying(true);
-    router.refresh();
+    boundaryRefreshPendingRef.current = false;
+    requestRefresh(true);
   }
 
-  if (!stateChecked) {
+  if (!stateChecked || isBoundaryRefreshing) {
     return <TodayPageSkeleton />;
   }
 
   if (activeSnapshot !== null) {
     if (result.kind !== "refresh_failed") {
-      return <TodayPageContent today={activeSnapshot.snapshot.data} />;
+      return (
+        <>
+          {updateNotice === null ? null : (
+            <aside
+              className="today-cache-notice today-update-notice"
+              data-update-kind={updateNotice.kind}
+              role="status"
+            >
+              <div>
+                <strong>{updateNotice.headline}</strong>
+                <span>{updateNotice.description}</span>
+              </div>
+            </aside>
+          )}
+          <TodayPageContent today={activeSnapshot.snapshot.data} />
+        </>
+      );
     }
     return (
       <>

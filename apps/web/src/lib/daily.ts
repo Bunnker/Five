@@ -15,6 +15,9 @@ export interface DailyLandingData extends PublicDailyContentData {
   versionChanged: boolean;
 }
 
+export type LoadDailyResult =
+  { daily: DailyLandingData; kind: "ready" } | { kind: "expired" } | { kind: "unavailable" };
+
 export interface LoadDailyOptions {
   apiOrigin?: string;
   expectedContentVersion?: string | null;
@@ -63,18 +66,48 @@ function hasConsistentResolution(
   );
 }
 
-export async function loadDaily({
+function isJsonResponse(headers: Headers): boolean {
+  return headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
+}
+
+function isHistoricalContentExpiredEnvelope(
+  value: unknown,
+  responseRequestId: string | null,
+  sentRequestId: string,
+  fortuneDate: string,
+): boolean {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !isRecord(value.error)) {
+    return false;
+  }
+
+  const error = value.error;
+  return (
+    Object.keys(error).length === 5 &&
+    error.code === "HISTORICAL_CONTENT_EXPIRED" &&
+    isOpaquePublicValue(error.message, 500) &&
+    error.retryable === false &&
+    isOpaquePublicValue(error.requestId) &&
+    error.requestId.length >= 8 &&
+    error.requestId === responseRequestId &&
+    error.requestId === sentRequestId &&
+    isRecord(error.details) &&
+    Object.keys(error.details).length === 1 &&
+    error.details.fortuneDate === fortuneDate
+  );
+}
+
+export async function loadDailyResult({
   apiOrigin = getPublicApiOrigin(),
   expectedContentVersion = null,
   fortuneDate,
   requestId,
   timeoutMs = DEFAULT_PUBLIC_REQUEST_TIMEOUT_MS,
-}: LoadDailyOptions): Promise<DailyLandingData | null> {
+}: LoadDailyOptions): Promise<LoadDailyResult> {
   if (
     !isPublicFortuneDate(fortuneDate) ||
     (expectedContentVersion !== null && !isOpaquePublicValue(expectedContentVersion))
   ) {
-    return null;
+    return { kind: "unavailable" };
   }
 
   const controller = new AbortController();
@@ -86,21 +119,38 @@ export async function loadDaily({
       endpoint.searchParams.set("expectedContentVersion", expectedContentVersion);
     }
 
+    const sentRequestId = resolvePublicRequestId(requestId);
     const response = await fetch(endpoint.toString(), {
       cache: "no-store",
       headers: {
         accept: "application/json",
-        "x-request-id": resolvePublicRequestId(requestId),
+        "x-request-id": sentRequestId,
       },
       signal: controller.signal,
     });
-    if (!response.ok) {
-      return null;
+    let body: unknown;
+    try {
+      body = (await response.json()) as unknown;
+    } catch {
+      return { kind: "unavailable" };
     }
 
-    const body: unknown = await response.json();
+    if (!response.ok) {
+      return response.status === 410 &&
+        isJsonResponse(response.headers) &&
+        isHistoricalContentExpiredEnvelope(
+          body,
+          response.headers.get("x-request-id"),
+          sentRequestId,
+          fortuneDate,
+        )
+        ? { kind: "expired" }
+        : { kind: "unavailable" };
+    }
+
     const responseContentVersion = response.headers.get("x-content-version");
     if (
+      !isJsonResponse(response.headers) ||
       !isRecord(body) ||
       body.requestedFortuneDate !== fortuneDate ||
       !isRecord(body.content) ||
@@ -109,21 +159,29 @@ export async function loadDaily({
       body.content.versions.contentVersion !== responseContentVersion ||
       !hasConsistentResolution(body.resolution, expectedContentVersion, responseContentVersion)
     ) {
-      return null;
+      return { kind: "unavailable" };
     }
 
     const dailyContent = parsePublicDailyContent(body.content, responseContentVersion);
     if (dailyContent === null || dailyContent.content.fortuneDate !== fortuneDate) {
-      return null;
+      return { kind: "unavailable" };
     }
 
     return {
-      ...dailyContent,
-      versionChanged: body.resolution.versionChanged,
+      daily: {
+        ...dailyContent,
+        versionChanged: body.resolution.versionChanged,
+      },
+      kind: "ready",
     };
   } catch {
-    return null;
+    return { kind: "unavailable" };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function loadDaily(options: LoadDailyOptions): Promise<DailyLandingData | null> {
+  const result = await loadDailyResult(options);
+  return result.kind === "ready" ? result.daily : null;
 }

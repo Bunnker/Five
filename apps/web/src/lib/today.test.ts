@@ -383,7 +383,9 @@ const cacheableApiTodayResponse = {
   },
   requestContext: {
     ...apiTodayResponse.requestContext,
-    responseGeneratedAt: "2026-07-15T10:00:00+08:00",
+    dayBoundary: "23:00",
+    responseGeneratedAt: "2026-07-14T23:30:00+08:00",
+    timezone: "Asia/Shanghai",
   },
 };
 
@@ -681,7 +683,7 @@ function cacheableResponse(
     age = "5",
     contentType = "application/json",
     contentVersionHeader = contentVersion,
-    date = "Wed, 15 Jul 2026 02:00:00 GMT",
+    date = "Tue, 14 Jul 2026 15:30:00 GMT",
     requestIdHeader = "web-request-123",
     status = 200,
   }: {
@@ -740,9 +742,28 @@ describe("loadToday", () => {
         effectiveFrom: "2026-07-14T23:00:00+08:00",
         effectiveTo: "2026-07-15T23:00:00+08:00",
         fortuneDate: "2026-07-15",
-        responseGeneratedAt: "2026-07-15T10:00:00+08:00",
-        serverObservedAtMs: Date.parse("Wed, 15 Jul 2026 02:00:00 GMT") + 5_000,
+        responseGeneratedAt: "2026-07-14T23:30:00+08:00",
+        serverObservedAtMs: Date.parse("Tue, 14 Jul 2026 15:30:00 GMT") + 5_999,
       },
+    });
+  });
+
+  it("rejects a body generated after the conservative whole-second HTTP observation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        cacheableResponse(cacheableApiTodayResponse, {
+          age: "0",
+          date: "Tue, 14 Jul 2026 15:29:59 GMT",
+        }),
+      ),
+    );
+
+    await expect(
+      loadTodayResult({ apiOrigin: "http://backend.test:3100", requestId: "web-request-123" }),
+    ).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
     });
   });
 
@@ -804,6 +825,32 @@ describe("loadToday", () => {
           requestContext: {
             ...cacheableApiTodayResponse.requestContext,
             responseGeneratedAt: "2026-07-15T23:00:00+08:00",
+          },
+        }),
+      ),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
+  it.each([
+    ["wrong timezone", { timezone: "UTC" }],
+    ["wrong day boundary", { dayBoundary: "00:00" }],
+    ["civil/fortune relation", { fortuneDate: "2026-07-16" }],
+    ["crossed-day flag", { crossedDayBoundary: false }],
+    ["shichen", { shichen: "丑" }],
+  ])("rejects a complete 200 with an inconsistent %s", async (_label, requestOverride) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        cacheableResponse({
+          ...cacheableApiTodayResponse,
+          requestContext: {
+            ...cacheableApiTodayResponse.requestContext,
+            ...requestOverride,
           },
         }),
       ),

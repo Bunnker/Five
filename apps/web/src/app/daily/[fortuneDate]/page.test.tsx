@@ -4,9 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyLandingData } from "../../../lib/daily";
 import DailyPage from "./page";
 
-const { headersMock, loadDailyMock } = vi.hoisted(() => ({
+const { headersMock, loadDailyResultMock } = vi.hoisted(() => ({
   headersMock: vi.fn(),
-  loadDailyMock: vi.fn(),
+  loadDailyResultMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -14,7 +14,7 @@ vi.mock("next/headers", () => ({
 }));
 
 vi.mock("../../../lib/daily", () => ({
-  loadDaily: loadDailyMock,
+  loadDailyResult: loadDailyResultMock,
 }));
 
 const contentVersion = "fd-20260715-r4";
@@ -80,9 +80,9 @@ const daily = {
 describe("DailyPage", () => {
   beforeEach(() => {
     headersMock.mockReset();
-    loadDailyMock.mockReset();
+    loadDailyResultMock.mockReset();
     headersMock.mockResolvedValue(new Headers({ "x-request-id": "request-daily-page" }));
-    loadDailyMock.mockResolvedValue(daily);
+    loadDailyResultMock.mockResolvedValue({ daily, kind: "ready" });
   });
 
   it("renders the specified date and its current safe public version", async () => {
@@ -96,7 +96,7 @@ describe("DailyPage", () => {
       }),
     );
 
-    expect(loadDailyMock).toHaveBeenCalledWith({
+    expect(loadDailyResultMock).toHaveBeenCalledWith({
       expectedContentVersion: "fd-20260715-r3",
       fortuneDate: "2026-07-15",
       requestId: "request-daily-page",
@@ -128,7 +128,7 @@ describe("DailyPage", () => {
   });
 
   it("shows one safe state when the target is not public", async () => {
-    loadDailyMock.mockResolvedValue(null);
+    loadDailyResultMock.mockResolvedValue({ kind: "unavailable" });
 
     render(
       await DailyPage({
@@ -146,6 +146,25 @@ describe("DailyPage", () => {
     expect(screen.getByRole("link", { name: "查看今日参考" })).toHaveAttribute("href", "/");
   });
 
+  it("shows an explicit safe landing when the historical share has expired", async () => {
+    loadDailyResultMock.mockResolvedValue({ kind: "expired" });
+
+    render(
+      await DailyPage({
+        params: Promise.resolve({ fortuneDate: "2026-04-01" }),
+        searchParams: Promise.resolve({
+          expectedContentVersion: "fd-20260401-r1",
+        }),
+      }),
+    );
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("历史内容已下线");
+    expect(status).not.toHaveTextContent(/2026-04-01|fd-20260401-r1/iu);
+    expect(screen.queryByText("红色")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "回到今日参考" })).toHaveAttribute("href", "/");
+  });
+
   it("fails closed when the expected version query is ambiguous", async () => {
     render(
       await DailyPage({
@@ -156,7 +175,7 @@ describe("DailyPage", () => {
       }),
     );
 
-    expect(loadDailyMock).not.toHaveBeenCalled();
+    expect(loadDailyResultMock).not.toHaveBeenCalled();
     expect(screen.getByRole("status")).toHaveTextContent("该日期内容暂时无法查看");
   });
 });

@@ -47,7 +47,12 @@ function completeData(version = contentVersion, date = fortuneDate): CompleteTod
     },
     outfitPreviewSection: { ...versioned, cards: [{}, {}, {}] },
     pingCard: versioned,
-    requestContext: { fortuneDate: date },
+    requestContext: {
+      civilDate: date,
+      crossedDayBoundary: false,
+      fortuneDate: date,
+      shichen: "巳",
+    },
     share: versioned,
   } as unknown as CompleteTodayPageData;
 }
@@ -81,19 +86,19 @@ describe("today snapshot browser cache", () => {
       TODAY_CACHE_POINTER_KEY,
     ]);
     expect(readTodaySnapshotCache(storage, serverObservedAtMs)).toEqual({
-      expiresInMs: Date.parse(value.effectiveTo) - serverObservedAtMs,
+      expiresInMs: Date.parse("2026-07-15T11:00:00+08:00") - serverObservedAtMs,
       snapshot: value,
     });
   });
 
-  it("uses the server Date+Age anchor and expires at effectiveTo as a right-open boundary", () => {
+  it("uses the server Date+Age anchor and expires at the next context boundary", () => {
     const storage = new MemoryStorage();
     const value = snapshot();
     expect(writeTodaySnapshotCache(value, storage, serverObservedAtMs, serverObservedAtMs)).toBe(
       true,
     );
 
-    const remaining = Date.parse(value.effectiveTo) - serverObservedAtMs;
+    const remaining = Date.parse("2026-07-15T11:00:00+08:00") - serverObservedAtMs;
     expect(readTodaySnapshotCache(storage, serverObservedAtMs + remaining - 1)).toEqual({
       expiresInMs: 1,
       snapshot: value,
@@ -214,6 +219,7 @@ describe("today snapshot browser cache", () => {
   it("expires conservatively when more than a minute in transit crosses effectiveTo", () => {
     const storage = new MemoryStorage();
     const nearBoundary = snapshot({
+      responseGeneratedAt: "2026-07-15T22:58:59+08:00",
       serverObservedAtMs: Date.parse("2026-07-15T22:58:59+08:00"),
     });
 

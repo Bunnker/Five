@@ -1,4 +1,5 @@
 import type { CompleteTodayPageData, TodaySnapshot } from "./today";
+import { resolveTodayContextBoundary } from "./today-refresh-policy";
 
 const CACHE_SCHEMA_VERSION = 1;
 const CACHE_KEY_PREFIX = "five:today:v1";
@@ -224,11 +225,15 @@ export function getTodaySnapshotRemainingMs(
   // whole request therefore expires content early rather than letting hydration extend it.
   const estimatedServerNow = snapshot.serverObservedAtMs + elapsed;
   const effectiveFromMs = Date.parse(snapshot.effectiveFrom);
-  const effectiveToMs = Date.parse(snapshot.effectiveTo);
-  if (estimatedServerNow < effectiveFromMs || estimatedServerNow >= effectiveToMs) {
+  const contextBoundary = resolveTodayContextBoundary(snapshot);
+  if (
+    contextBoundary === null ||
+    estimatedServerNow < effectiveFromMs ||
+    estimatedServerNow >= contextBoundary.atMs
+  ) {
     return null;
   }
-  return effectiveToMs - estimatedServerNow;
+  return contextBoundary.atMs - estimatedServerNow;
 }
 
 export function todaySnapshotCacheKey(fortuneDate: string, contentVersion: string): string {
