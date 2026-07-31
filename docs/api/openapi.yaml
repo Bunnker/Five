@@ -11,6 +11,7 @@ info:
     `contentVersion`、各种 ID 和修订号都是不透明值，调用方不得解析其字符串。
     P0 只有网页端，因此接口不包含 `platform`、`sourcePlatform` 或 `targetPlatform`。
     `channelId` 只用于区分链接分发来源，不得改变日期、档位、正文或图片。
+    所有 `/admin/api/v1` 响应（包括错误）必须使用 `Cache-Control: no-store`，防止退出后从缓存读取后台内容或核对凭证。
 servers:
   - url: /
     description: 与网页同源的后端
@@ -19,6 +20,10 @@ tags:
     description: 匿名用户读取已经发布的内容
   - name: Public sharing
     description: 海报、分享落地和反馈
+  - name: Admin authentication
+    description: 单一维护者登录、会话与控制权恢复
+  - name: Admin security
+    description: 安全记录与全局公开内容紧急控制
   - name: Admin drafts
     description: 单一维护者编辑草稿并提交为不可变内容版本
   - name: Admin lifecycle
@@ -67,7 +72,7 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
-          $ref: "#/components/responses/ContentNotReady"
+          $ref: "#/components/responses/PublicContentUnavailable"
 
   /api/v1/daily/{fortuneDate}:
     get:
@@ -108,6 +113,8 @@ paths:
           $ref: "#/components/responses/ContentNotFound"
         "410":
           $ref: "#/components/responses/HistoricalContentExpired"
+        "503":
+          $ref: "#/components/responses/PublicContentUnavailable"
 
   /api/v1/daily/{fortuneDate}/looks/{lookId}:
     get:
@@ -139,6 +146,8 @@ paths:
           $ref: "#/components/responses/LookNotFound"
         "409":
           $ref: "#/components/responses/ContentVersionChanged"
+        "503":
+          $ref: "#/components/responses/PublicContentUnavailable"
 
   /api/v1/poster-jobs:
     post:
@@ -260,6 +269,396 @@ paths:
         "503":
           $ref: "#/components/responses/FeedbackUnavailable"
 
+  /admin/api/v1/auth/password-challenges:
+    post:
+      operationId: createAdminPasswordChallenge
+      tags: [Admin authentication]
+      summary: 校验单一维护者账号与密码并创建一次性 TOTP 挑战
+      description: |
+        无论账号是否存在，失败时都执行等价密码哈希校验并返回同一错误。
+        请求在解析正文前先接受持久化的请求来源级限流；严格解析并规范化账号后、
+        执行昂贵密码哈希前，再接受持久化的账号级限流。
+        虽然此阶段尚无会话 CSRF 令牌，请求仍必须携带并通过可信同源 `Origin` 校验。
+        挑战只能使用一次，并在五分钟后失效。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePasswordChallengeRequest"
+      responses:
+        "200":
+          description: 密码已校验，等待验证器动态码
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordChallenge"
+        "400":
+          $ref: "#/components/responses/AuthInvalidArgument"
+        "401":
+          $ref: "#/components/responses/AuthenticationFailed"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "429":
+          $ref: "#/components/responses/AuthRateLimited"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/auth/sessions:
+    post:
+      operationId: createAdminSession
+      tags: [Admin authentication]
+      summary: 使用密码挑战与 TOTP 动态码建立后台会话
+      description: |
+        服务端在 PostgreSQL 中原子消费一次性密码挑战和 TOTP counter；允许的时钟偏差内，
+        已用于登录或其他高风险动作的同一 counter 也不能再次使用。成功后只通过同源
+        `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/admin` 且无 `Domain` 的 Cookie
+        返回随机会话令牌，响应正文只返回与该会话绑定的 CSRF 令牌和会话期限。此请求在
+        会话建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAdminSessionRequest"
+      responses:
+        "201":
+          description: 已建立 30 分钟闲置、12 小时绝对上限的后台会话
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            Set-Cookie:
+              $ref: "#/components/headers/AdminSessionSetCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "400":
+          $ref: "#/components/responses/AuthInvalidArgument"
+        "401":
+          $ref: "#/components/responses/AuthenticationFailed"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "429":
+          $ref: "#/components/responses/AuthRateLimited"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/auth/session:
+    get:
+      operationId: getAdminSession
+      tags: [Admin authentication]
+      summary: 查看当前后台会话及 CSRF 令牌
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: 当前会话有效；访问会刷新闲置期限，但不能延长绝对期限
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+    delete:
+      operationId: deleteAdminSession
+      tags: [Admin authentication]
+      summary: 安全退出当前后台会话
+      description: 必须同时通过可信同源 `Origin` 与会话绑定的 CSRF 令牌校验。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+      responses:
+        "204":
+          description: 当前会话已注销；响应同时清除浏览器 Cookie
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            Set-Cookie:
+              $ref: "#/components/headers/AdminSessionClearedCookie"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/auth/logout-all:
+    post:
+      operationId: logoutAllAdminSessions
+      tags: [Admin authentication]
+      summary: 原子注销单一维护者的全部后台会话
+      description: |
+        必须同时通过可信同源 `Origin` 与会话绑定的 CSRF 令牌校验。成功后原子撤销
+        全部现有会话并作废尚未消费的登录挑战，不能由操作前签发的挑战重新建立会话。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+      responses:
+        "204":
+          description: 全部会话已注销；当前浏览器 Cookie 同时清除
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            Set-Cookie:
+              $ref: "#/components/headers/AdminSessionClearedCookie"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/auth/recovery-challenges:
+    post:
+      operationId: createAdminRecoveryChallenge
+      tags: [Admin authentication]
+      summary: 原子消费一个恢复码并开始两阶段控制权恢复
+      description: |
+        正确恢复码在 PostgreSQL 中只消费一次，并立即提升凭据修订号、注销全部会话、
+        使旧验证器和全部旧恢复码失效。随后只签发十分钟有效、一次性的恢复挑战，
+        同时给出待启用的新 TOTP 配置。失败不暴露账号或恢复码是否存在；请求来源在正文解析前
+        限流，账号在严格解析并规范化后、校验恢复码前限流。此未登录请求仍必须通过可信同源
+        `Origin` 校验。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecoveryChallengeRequest"
+      responses:
+        "200":
+          description: 恢复码已消费，等待设置新密码并验证新的 TOTP
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryChallenge"
+        "400":
+          $ref: "#/components/responses/AuthInvalidArgument"
+        "401":
+          $ref: "#/components/responses/AuthenticationFailed"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "429":
+          $ref: "#/components/responses/AuthRateLimited"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/auth/recovery-completions:
+    post:
+      operationId: completeAdminRecovery
+      tags: [Admin authentication]
+      summary: 完成新密码与新验证器设置并签发新的恢复码
+      description: |
+        原子消费十分钟恢复挑战并校验待启用 TOTP 的未使用 counter。成功后启用新凭据，
+        一次性返回恰好十个新恢复码并建立新会话；服务端只保存恢复码摘要。此请求在新会话
+        建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteRecoveryRequest"
+      responses:
+        "201":
+          description: 已恢复控制权；新的恢复码只在本响应显示一次
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            Set-Cookie:
+              $ref: "#/components/headers/AdminSessionSetCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCompletion"
+        "400":
+          $ref: "#/components/responses/AuthInvalidArgument"
+        "401":
+          $ref: "#/components/responses/AuthenticationFailed"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "409":
+          $ref: "#/components/responses/AuthConflict"
+        "429":
+          $ref: "#/components/responses/AuthRateLimited"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/security-events:
+    get:
+      operationId: listSecurityEvents
+      tags: [Admin security]
+      summary: 查询至少保留 365 天的关键登录与安全记录
+      description: |
+        只返回单向来源指纹和受限浏览器摘要，不返回 IP、密码、动态码、恢复码、挑战或会话原文。
+      security:
+        - AdminSession: []
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 256
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 按发生时间倒序返回安全记录
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityEventPage"
+        "400":
+          $ref: "#/components/responses/AuthInvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/emergency-control:
+    get:
+      operationId: getEmergencyControlStatus
+      tags: [Admin security]
+      summary: 查看全局公开内容开关及其修订号
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: 返回当前公开状态
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/EmergencyControlETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmergencyControlStatus"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/emergency-control/stop:
+    post:
+      operationId: stopPublicAccess
+      tags: [Admin security]
+      summary: 紧急停止全部公开内容
+      description: |
+        必须重新校验当前 TOTP、精确短语“停止全部公开内容”和原因，并原子消费 TOTP counter。
+        成功后源站立即 fail closed；已经下载或被外部转发的副本无法召回，正式 CDN 的
+        `purge/deny` 联动由 Issue #34 在真实部署环境验收。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmergencyStopRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmergencyControlSucceeded"
+        "400":
+          $ref: "#/components/responses/AuthInvalidArgument"
+        "401":
+          $ref: "#/components/responses/AdminReauthenticationFailed"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "409":
+          $ref: "#/components/responses/AuthConflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/emergency-control/resume:
+    post:
+      operationId: resumePublicAccess
+      tags: [Admin security]
+      summary: 恢复全部公开内容
+      description: |
+        必须重新校验当前 TOTP、精确短语“恢复全部公开内容”和原因，并原子消费 TOTP counter。
+        恢复只解除全局开关；每个内容版本仍须独立满足已发布、审核和素材安全条件。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmergencyResumeRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/EmergencyControlSucceeded"
+        "400":
+          $ref: "#/components/responses/AuthInvalidArgument"
+        "401":
+          $ref: "#/components/responses/AdminReauthenticationFailed"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "409":
+          $ref: "#/components/responses/AuthConflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
   /admin/api/v1/daily-content-drafts:
     post:
       operationId: createDailyContentDraft
@@ -267,6 +666,8 @@ paths:
       summary: 创建某个命理日的草稿
       security:
         - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -284,6 +685,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
             ETag:
               $ref: "#/components/headers/DraftETag"
           content:
@@ -297,6 +700,8 @@ paths:
           $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
 
@@ -315,6 +720,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
             ETag:
               $ref: "#/components/headers/DraftETag"
           content:
@@ -340,6 +747,7 @@ paths:
         - $ref: "#/components/parameters/DraftId"
         - $ref: "#/components/parameters/ModuleCode"
         - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -352,6 +760,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
             ETag:
               $ref: "#/components/headers/DraftETag"
           content:
@@ -362,6 +772,8 @@ paths:
           $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/InvalidStateTransition"
         "412":
@@ -380,12 +792,15 @@ paths:
         - $ref: "#/components/parameters/DraftId"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       responses:
         "201":
           description: 已创建 `in_review` 内容版本
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
             ETag:
               $ref: "#/components/headers/LifecycleETag"
           content:
@@ -397,6 +812,8 @@ paths:
                   $ref: "#/components/examples/DraftSubmitted"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -419,6 +836,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
           content:
             application/json:
               schema:
@@ -456,6 +875,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
             ETag:
               $ref: "#/components/headers/LifecycleETag"
           content:
@@ -478,6 +899,7 @@ paths:
         - $ref: "#/components/parameters/ContentVersionPath"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -490,6 +912,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
             ETag:
               $ref: "#/components/headers/LifecycleETag"
           content:
@@ -498,6 +922,8 @@ paths:
                 $ref: "#/components/schemas/AdminContentVersion"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/InvalidStateTransition"
         "412":
@@ -516,6 +942,7 @@ paths:
         - $ref: "#/components/parameters/ContentVersionPath"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -527,6 +954,8 @@ paths:
           $ref: "#/components/responses/LifecycleActionSucceeded"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/InvalidStateTransition"
         "412":
@@ -547,6 +976,7 @@ paths:
         - $ref: "#/components/parameters/ContentVersionPath"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -558,6 +988,8 @@ paths:
           $ref: "#/components/responses/LifecycleActionSucceeded"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -578,6 +1010,7 @@ paths:
         - $ref: "#/components/parameters/ContentVersionPath"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -589,6 +1022,8 @@ paths:
           $ref: "#/components/responses/LifecycleActionSucceeded"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -607,6 +1042,7 @@ paths:
         - $ref: "#/components/parameters/ContentVersionPath"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -618,6 +1054,8 @@ paths:
           $ref: "#/components/responses/LifecycleActionSucceeded"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -638,6 +1076,7 @@ paths:
         - $ref: "#/components/parameters/ContentVersionPath"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -649,6 +1088,8 @@ paths:
           $ref: "#/components/responses/LifecycleActionSucceeded"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -669,6 +1110,7 @@ paths:
         - $ref: "#/components/parameters/FortuneDate"
         - $ref: "#/components/parameters/IfMatch"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
       requestBody:
         required: true
         content:
@@ -680,6 +1122,8 @@ paths:
           $ref: "#/components/responses/LifecycleActionSucceeded"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -720,6 +1164,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
           content:
             application/json:
               schema:
@@ -734,8 +1180,9 @@ components:
       in: cookie
       name: five_admin_session
       description: |
-        后台受同源安全会话保护。登录、二次确认、找回和紧急控制的具体接口由 Issue #31 冻结；
-        本契约只固定后台业务接口必须经过身份验证。
+        Issue #31 已确认的同源安全会话。生产 Cookie 固定为 `HttpOnly`、`Secure`、
+        `SameSite=Strict`、`Path=/admin` 且无 `Domain`；闲置 30 分钟、绝对 12 小时失效。
+        所有后台写操作还必须校验可信同源 `Origin` 与会话绑定的 `X-CSRF-Token`。
 
   parameters:
     FortuneDate:
@@ -803,8 +1250,8 @@ components:
       in: header
       required: true
       description: |
-        草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-        调用方必须原样回传，不能自行拼接。
+        草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+        全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
       schema:
         type: string
         minLength: 3
@@ -818,6 +1265,17 @@ components:
         type: string
         minLength: 16
         maxLength: 128
+    XCsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: |
+        当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+        令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+      schema:
+        type: string
+        minLength: 32
+        maxLength: 256
 
   headers:
     XRequestId:
@@ -844,6 +1302,26 @@ components:
       schema:
         type: string
         example: '"lifecycle:12"'
+    EmergencyControlETag:
+      description: 全局公开内容开关当前修订号的强 ETag，例如 `"emergency-control:4"`。
+      schema:
+        type: string
+        example: '"emergency-control:4"'
+    NoStoreCacheControl:
+      description: 认证、恢复、安全记录和紧急控制响应不得被浏览器或中间层保存。
+      schema:
+        type: string
+        const: no-store
+    AdminSessionSetCookie:
+      description: |
+        只包含随机会话令牌；生产环境固定使用 `HttpOnly; Secure; SameSite=Strict; Path=/admin`，
+        不设置 `Domain`，闲置 30 分钟失效且绝对有效期不超过 12 小时。
+      schema:
+        type: string
+    AdminSessionClearedCookie:
+      description: 以相同 Cookie 属性和立即过期时间清除 `five_admin_session`。
+      schema:
+        type: string
     DynamicCacheControl:
       description: |
         `public, max-age=0, s-maxage=N, must-revalidate`。
@@ -902,6 +1380,294 @@ components:
         - copy_and_formula
         - visual_and_rights
         - poster_consistency
+    AdminUsername:
+      type: string
+      minLength: 3
+      maxLength: 64
+      pattern: '^[a-z0-9][a-z0-9._-]{2,63}$'
+      description: 由离线 bootstrap 命令首次创建的唯一小写 ASCII 维护者账号名；限流与校验使用同一规范值。
+    AdminUsernameInput:
+      type: string
+      minLength: 3
+      maxLength: 64
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$'
+      description: 登录或恢复输入；服务端在限流与凭据校验前执行 NFKC、去除首尾空白并转为规范小写账号名。
+    AdminPassword:
+      type: string
+      minLength: 16
+      maxLength: 128
+      writeOnly: true
+      description: 以 Unicode code point 计 16 至 128 位；只从请求正文或交互式 stdin 接收，禁止进入 CLI 参数、环境变量或日志。
+    TotpCode:
+      type: string
+      pattern: '^\d{6}$'
+      writeOnly: true
+      description: 当前验证器生成的六位动态码；服务端必须原子拒绝已经接受过的 counter。
+    AuthChallengeToken:
+      type: string
+      minLength: 32
+      maxLength: 512
+      description: 256-bit 随机一次性挑战原文；服务端只持久化域分离 HMAC 摘要。
+    RecoveryCode:
+      type: string
+      minLength: 16
+      maxLength: 128
+      description: 高强度一次性恢复码原文；服务端只持久化域分离 HMAC 摘要。
+    CreatePasswordChallengeRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          $ref: "#/components/schemas/AdminUsernameInput"
+        password:
+          $ref: "#/components/schemas/AdminPassword"
+    PasswordChallenge:
+      type: object
+      additionalProperties: false
+      required: [challengeToken, expiresAt]
+      properties:
+        challengeToken:
+          $ref: "#/components/schemas/AuthChallengeToken"
+        expiresAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+    CreateAdminSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [challengeToken, totpCode]
+      properties:
+        challengeToken:
+          $ref: "#/components/schemas/AuthChallengeToken"
+        totpCode:
+          $ref: "#/components/schemas/TotpCode"
+    AdminSession:
+      type: object
+      additionalProperties: false
+      required:
+        - username
+        - issuedAt
+        - idleExpiresAt
+        - absoluteExpiresAt
+        - csrfToken
+        - credentialRevision
+      properties:
+        username:
+          $ref: "#/components/schemas/AdminUsername"
+        issuedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        idleExpiresAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        absoluteExpiresAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        csrfToken:
+          type: string
+          minLength: 32
+          maxLength: 256
+          description: 会话绑定的随机令牌，只保存在运行中页面内存。
+        credentialRevision:
+          type: integer
+          minimum: 1
+    CreateRecoveryChallengeRequest:
+      type: object
+      additionalProperties: false
+      required: [username, recoveryCode]
+      properties:
+        username:
+          $ref: "#/components/schemas/AdminUsernameInput"
+        recoveryCode:
+          $ref: "#/components/schemas/RecoveryCode"
+    TotpProvisioning:
+      type: object
+      additionalProperties: false
+      required: [secret, otpauthUri, algorithm, digits, periodSeconds]
+      properties:
+        secret:
+          type: string
+          minLength: 32
+          maxLength: 128
+          pattern: '^[A-Z2-7]+=*$'
+          description: 待启用的 TOTP Base32 密钥，只在本次 no-store 恢复挑战响应中返回。
+        otpauthUri:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: 与 `secret` 相同的待启用配置，只用于验证器录入，禁止记录日志。
+        algorithm:
+          type: string
+          const: SHA1
+        digits:
+          type: integer
+          const: 6
+        periodSeconds:
+          type: integer
+          const: 30
+    RecoveryChallenge:
+      type: object
+      additionalProperties: false
+      required: [challengeToken, expiresAt, totpProvisioning]
+      properties:
+        challengeToken:
+          $ref: "#/components/schemas/AuthChallengeToken"
+        expiresAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        totpProvisioning:
+          $ref: "#/components/schemas/TotpProvisioning"
+    CompleteRecoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [challengeToken, newPassword, totpCode]
+      properties:
+        challengeToken:
+          $ref: "#/components/schemas/AuthChallengeToken"
+        newPassword:
+          $ref: "#/components/schemas/AdminPassword"
+        totpCode:
+          $ref: "#/components/schemas/TotpCode"
+    RecoveryCompletion:
+      type: object
+      additionalProperties: false
+      required: [session, recoveryCodes]
+      properties:
+        session:
+          $ref: "#/components/schemas/AdminSession"
+        recoveryCodes:
+          type: array
+          minItems: 10
+          maxItems: 10
+          uniqueItems: true
+          description: 新的一套十个一次性恢复码；只在本次 no-store 响应显示。
+          items:
+            $ref: "#/components/schemas/RecoveryCode"
+    SecurityEventAction:
+      type: string
+      enum:
+        - bootstrap_completed
+        - login_password
+        - login_totp
+        - logout_current
+        - logout_all
+        - recovery_code
+        - recovery_completed
+        - offline_reset
+        - csrf_rejected
+        - rate_limited
+        - emergency_stop
+        - emergency_resume
+    SecurityEventOutcome:
+      type: string
+      enum: [succeeded, rejected]
+    SecurityEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - occurredAt
+        - action
+        - outcome
+        - requestId
+        - sourceFingerprint
+        - clientSummary
+        - reason
+      properties:
+        eventId:
+          $ref: "#/components/schemas/OpaqueId"
+        occurredAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        action:
+          $ref: "#/components/schemas/SecurityEventAction"
+        outcome:
+          $ref: "#/components/schemas/SecurityEventOutcome"
+        requestId:
+          type: string
+          minLength: 8
+          maxLength: 128
+        sourceFingerprint:
+          type: string
+          minLength: 16
+          maxLength: 128
+          description: 使用部署密钥生成的单向来源指纹，不是 IP 或可逆地址。
+        clientSummary:
+          oneOf:
+            - type: string
+              maxLength: 160
+            - type: "null"
+          description: 经过截断和字段白名单处理的浏览器摘要，不保存完整 User-Agent。
+        reason:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 2000
+            - type: "null"
+          description: 仅返回紧急控制或离线重置等动作明确记录的审计原因；认证凭据和内部异常不得写入此字段。
+    SecurityEventPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecurityEvent"
+        nextCursor:
+          oneOf:
+            - type: string
+              maxLength: 256
+            - type: "null"
+    EmergencyControlStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - publicAccessEnabled
+        - revision
+        - changedAt
+        - reason
+        - auditEventId
+      properties:
+        publicAccessEnabled:
+          type: boolean
+        revision:
+          type: integer
+          minimum: 1
+        changedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        reason:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 2000
+            - type: "null"
+        auditEventId:
+          oneOf:
+            - $ref: "#/components/schemas/OpaqueId"
+            - type: "null"
+    EmergencyStopRequest:
+      type: object
+      additionalProperties: false
+      required: [totpCode, confirmationPhrase, reason]
+      properties:
+        totpCode:
+          $ref: "#/components/schemas/TotpCode"
+        confirmationPhrase:
+          type: string
+          const: 停止全部公开内容
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    EmergencyResumeRequest:
+      type: object
+      additionalProperties: false
+      required: [totpCode, confirmationPhrase, reason]
+      properties:
+        totpCode:
+          $ref: "#/components/schemas/TotpCode"
+        confirmationPhrase:
+          type: string
+          const: 恢复全部公开内容
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
     RequestContext:
       type: object
       additionalProperties: false
@@ -2223,14 +2989,20 @@ components:
       enum:
         - INVALID_ARGUMENT
         - INVALID_FORTUNE_DATE
+        - AUTHENTICATION_FAILED
+        - AUTH_CHALLENGE_EXPIRED
+        - RECOVERY_CHALLENGE_EXPIRED
         - UNAUTHENTICATED
         - FORBIDDEN
+        - CSRF_VALIDATION_FAILED
         - RESOURCE_NOT_FOUND
         - CONTENT_NOT_FOUND
         - LOOK_NOT_FOUND
         - CONTENT_VERSION_CHANGED
         - ACTIVE_CONTENT_VERSION_CHANGED
         - IDEMPOTENCY_KEY_REUSED
+        - TOTP_REPLAYED
+        - EMERGENCY_CONTROL_CONFLICT
         - INVALID_STATE_TRANSITION
         - VERSION_WITHDRAWN
         - HISTORICAL_CONTENT_EXPIRED
@@ -2242,8 +3014,10 @@ components:
         - PRECONDITION_REQUIRED
         - RATE_LIMITED
         - CONTENT_NOT_READY
+        - PUBLIC_ACCESS_STOPPED
         - POSTER_GENERATION_UNAVAILABLE
         - FEEDBACK_UNAVAILABLE
+        - ADMIN_SERVICE_UNAVAILABLE
     Error:
       type: object
       additionalProperties: false
@@ -2282,6 +3056,41 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    AuthInvalidArgument:
+      description: 认证、恢复或高风险确认请求字段无效
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    AuthenticationFailed:
+      description: |
+        凭据、一次性挑战或动态码无效。账号不存在、密码错误、恢复码错误和未认证阶段的
+        TOTP 重放必须使用相同状态和对外文案，不能帮助枚举账号或凭据。
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    AdminReauthenticationFailed:
+      description: 后台会话不存在或已失效，或者高风险操作要求的当前 TOTP 无效
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
     InvalidFortuneDate:
       description: 命理日格式或允许范围无效
       headers:
@@ -2296,6 +3105,45 @@ components:
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    AdminServiceUnavailable:
+      description: 后台凭据库或安全控制服务暂时不可用；调用方应保留当前输入并稍后重试
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    CsrfValidationFailed:
+      description: 后台写请求的可信同源 `Origin` 或会话绑定 CSRF 令牌校验失败
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    AuthConflict:
+      description: TOTP counter 重放、幂等键复用或紧急控制状态发生冲突
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
       content:
         application/json:
           schema:
@@ -2377,6 +3225,8 @@ components:
           description: 当前资源 ETag，调用方必须刷新后再操作。
           schema:
             type: string
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
       content:
         application/json:
           schema:
@@ -2407,6 +3257,8 @@ components:
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
       content:
         application/json:
           schema:
@@ -2424,8 +3276,25 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
-    ContentNotReady:
-      description: 当前命理日还没有可公开内容
+    AuthRateLimited:
+      description: 登录或恢复请求触发持久化的请求来源级或账号级限流
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PublicContentUnavailable:
+      description: |
+        当前日期没有可公开内容（`CONTENT_NOT_READY`），或全局紧急开关已经关闭公开读取
+        （`PUBLIC_ACCESS_STOPPED`）。两种情况都必须 fail closed，不能返回旧缓存或临时计算结果。
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
@@ -2438,7 +3307,9 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     PosterUnavailable:
-      description: 海报暂时不可用，基础每日内容不受影响
+      description: |
+        海报服务暂时不可用（`POSTER_GENERATION_UNAVAILABLE`），或全局紧急开关已经关闭海报创建、
+        查询与源站素材读取（`PUBLIC_ACCESS_STOPPED`）。只有前一种情况不影响基础每日内容。
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
@@ -2463,11 +3334,26 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    EmergencyControlSucceeded:
+      description: 全局公开内容开关已在 PostgreSQL 事务中更新并追加安全审计
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+        ETag:
+          $ref: "#/components/headers/EmergencyControlETag"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/EmergencyControlStatus"
     LifecycleActionSucceeded:
       description: 状态变化已在一个事务中完成
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
         ETag:
           $ref: "#/components/headers/LifecycleETag"
       content:

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  clearTodaySnapshotCache,
   clearTodaySnapshotPointer,
   getTodayCacheClientAnchorMs,
   getTodaySnapshotRemainingMs,
@@ -157,7 +158,9 @@ export function TodayPageState({ result }: TodayPageStateProps) {
   const routerRef = useRef(router);
   routerRef.current = router;
   const [activeSnapshot, setActiveSnapshot] = useState<ActiveTodaySnapshot | null>(null);
-  const [stateChecked, setStateChecked] = useState(result.kind === "content_not_ready");
+  const [stateChecked, setStateChecked] = useState(
+    result.kind === "content_not_ready" || result.kind === "public_access_stopped",
+  );
   const [hasExpired, setHasExpired] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isBoundaryRefreshing, setIsBoundaryRefreshing] = useState(false);
@@ -266,7 +269,6 @@ export function TodayPageState({ result }: TodayPageStateProps) {
     }
     if (result.kind === "content_not_ready") {
       clearPendingRefreshAnchor();
-      clearTodaySnapshotPointer();
       boundaryBlockedRef.current = false;
       boundaryRefreshPendingRef.current = false;
       activeSnapshotRef.current = null;
@@ -275,6 +277,28 @@ export function TodayPageState({ result }: TodayPageStateProps) {
       setUpdateNotice(null);
       setIsBoundaryRefreshing(false);
       setStateChecked(true);
+      try {
+        clearTodaySnapshotPointer();
+      } catch {
+        // The authoritative server state already removed the in-memory snapshot; disabled storage cannot restore it.
+      }
+      return;
+    }
+    if (result.kind === "public_access_stopped") {
+      clearPendingRefreshAnchor();
+      boundaryBlockedRef.current = false;
+      boundaryRefreshPendingRef.current = false;
+      activeSnapshotRef.current = null;
+      lastDisplayedSnapshotRef.current = null;
+      setActiveSnapshot(null);
+      setUpdateNotice(null);
+      setIsBoundaryRefreshing(false);
+      setStateChecked(true);
+      try {
+        clearTodaySnapshotCache();
+      } catch {
+        // Emergency stop is authoritative even when browser storage is unavailable.
+      }
       return;
     }
     clearPendingRefreshAnchor();
@@ -374,7 +398,10 @@ export function TodayPageState({ result }: TodayPageStateProps) {
     return <TodayPageSkeleton />;
   }
 
-  if (activeSnapshot !== null) {
+  const authoritativeUnavailable =
+    result.kind === "content_not_ready" || result.kind === "public_access_stopped";
+
+  if (activeSnapshot !== null && !authoritativeUnavailable) {
     if (result.kind !== "refresh_failed") {
       return (
         <>
@@ -413,6 +440,7 @@ export function TodayPageState({ result }: TodayPageStateProps) {
   }
 
   const contentNotReady = result.kind === "content_not_ready";
+  const publicAccessStopped = result.kind === "public_access_stopped";
   const unavailableHeadline = hasExpired
     ? "今日内容已到有效期"
     : result.kind === "refresh_failed" && result.reason === "rate_limited"
@@ -432,14 +460,24 @@ export function TodayPageState({ result }: TodayPageStateProps) {
       <div className="today-page today-page--home">
         <PageMasthead />
         <section className="today-load-error" role="status">
-          <p>{contentNotReady ? "内容发布状态" : "加载状态"}</p>
-          <h1>{contentNotReady ? "今日内容正在校验中" : unavailableHeadline}</h1>
-          <span>
-            {contentNotReady && result.retryAfterSeconds !== null
-              ? `建议 ${result.retryAfterSeconds} 秒后重试。`
+          <p>
+            {publicAccessStopped ? "内容安全状态" : contentNotReady ? "内容发布状态" : "加载状态"}
+          </p>
+          <h1>
+            {publicAccessStopped
+              ? "公开内容已暂停"
               : contentNotReady
-                ? "请稍后重新加载，页面不会展示尚未发布的内容。"
-                : unavailableDescription}
+                ? "今日内容正在校验中"
+                : unavailableHeadline}
+          </h1>
+          <span>
+            {publicAccessStopped
+              ? "维护者正在处理内容安全问题，请稍后再来。"
+              : contentNotReady && result.retryAfterSeconds !== null
+                ? `建议 ${result.retryAfterSeconds} 秒后重试。`
+                : contentNotReady
+                  ? "请稍后重新加载，页面不会展示尚未发布的内容。"
+                  : unavailableDescription}
           </span>
           <RetryButton isRetrying={isRetrying} onRetry={retry} />
         </section>

@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "calendar:golden:generate": "node -r ts-node/register/transpile-only scripts/generate-calendar-golden.ts --write",
     "calendar:golden:check": "node -r ts-node/register/transpile-only scripts/check-calendar-golden.ts",
+    "admin:credentials": "node -r ts-node/register/transpile-only scripts/admin-credentials.ts",
     "db:migrate": "node-pg-migrate -j mts --envPath ../../.env up",
     "db:rollback": "node-pg-migrate -j mts --envPath ../../.env down"
   },

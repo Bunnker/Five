@@ -7,6 +7,8 @@ import { TodayPageState } from "./today-page-state";
 const mocks = vi.hoisted(() => ({
   anchor: vi.fn(),
   clear: vi.fn(),
+  clearAll: vi.fn(),
+  contentRender: vi.fn(),
   read: vi.fn(),
   refresh: vi.fn(),
   remaining: vi.fn(),
@@ -19,6 +21,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("../lib/today-cache", () => ({
   TODAY_PENDING_REFRESH_ANCHOR_KEY: "five:today:v1:pending-refresh-anchor",
+  clearTodaySnapshotCache: mocks.clearAll,
   clearTodaySnapshotPointer: mocks.clear,
   getTodayCacheClientAnchorMs: mocks.anchor,
   getTodaySnapshotRemainingMs: mocks.remaining,
@@ -27,12 +30,15 @@ vi.mock("../lib/today-cache", () => ({
 }));
 
 vi.mock("./today-page-content", () => ({
-  TodayPageContent: ({ today }: { today: TodaySnapshot["data"] }) => (
-    <main data-content-version={today.daJiCard.contentVersion}>
-      <h1>{today.content.fortuneDate}</h1>
-      <p>完整内容</p>
-    </main>
-  ),
+  TodayPageContent: ({ today }: { today: TodaySnapshot["data"] }) => {
+    mocks.contentRender(today);
+    return (
+      <main data-content-version={today.daJiCard.contentVersion}>
+        <h1>{today.content.fortuneDate}</h1>
+        <p>完整内容</p>
+      </main>
+    );
+  },
 }));
 
 vi.mock("./today-page-skeleton", () => ({
@@ -125,6 +131,59 @@ describe("TodayPageState", () => {
     await waitFor(() => expect(mocks.clear).toHaveBeenCalledTimes(1));
     expect(mocks.read).not.toHaveBeenCalled();
   });
+
+  it("treats an emergency stop as authoritative and removes every Five cache entry", async () => {
+    mocks.read.mockReturnValue({ expiresInMs: 60_000, snapshot });
+    renderResult({ kind: "public_access_stopped", retryAfterSeconds: 60 });
+
+    expect(screen.getByRole("heading", { name: "公开内容已暂停" })).toBeVisible();
+    expect(screen.getByText("维护者正在处理内容安全问题，请稍后再来。")).toBeVisible();
+    expect(screen.queryByText("2026-07-15")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.clearAll).toHaveBeenCalledTimes(1));
+    expect(mocks.clear).not.toHaveBeenCalled();
+    expect(mocks.read).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["content_not_ready", { kind: "content_not_ready", retryAfterSeconds: 30 } as const],
+    ["public_access_stopped", { kind: "public_access_stopped", retryAfterSeconds: 60 } as const],
+  ])(
+    "never renders the previous ready snapshot during a %s transition",
+    async (_name, nextResult) => {
+      const view = renderResult({ kind: "ready", snapshot });
+      await screen.findByRole("heading", { name: "2026-07-15" });
+      expect(mocks.contentRender).toHaveBeenCalledTimes(1);
+
+      view.rerender(<TodayPageState result={nextResult} />);
+
+      expect(mocks.contentRender).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("2026-07-15")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    ["content_not_ready", { kind: "content_not_ready", retryAfterSeconds: 30 } as const, "clear"],
+    [
+      "public_access_stopped",
+      { kind: "public_access_stopped", retryAfterSeconds: 60 } as const,
+      "clearAll",
+    ],
+  ])(
+    "clears the in-memory ready snapshot when %s cache storage is disabled",
+    async (_name, nextResult, failingClear) => {
+      const view = renderResult({ kind: "ready", snapshot });
+      await screen.findByRole("heading", { name: "2026-07-15" });
+      mocks[failingClear as "clear" | "clearAll"].mockImplementationOnce(() => {
+        throw new Error("storage disabled");
+      });
+
+      view.rerender(<TodayPageState result={nextResult} />);
+      view.rerender(<TodayPageState result={{ kind: "refresh_failed", reason: "network" }} />);
+
+      expect(await screen.findByRole("heading", { name: "暂时没能加载今日内容" })).toBeVisible();
+      expect(screen.queryByText("2026-07-15")).not.toBeInTheDocument();
+    },
+  );
 
   it("keeps the exact retry anchor after hours on-page and more than a minute in transit", async () => {
     vi.mocked(Date.now).mockReturnValue(45_010_000);

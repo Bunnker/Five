@@ -888,6 +888,59 @@ describe("loadToday", () => {
     });
   });
 
+  it("classifies a valid PUBLIC_ACCESS_STOPPED envelope as authoritative emergency state", async () => {
+    const body = {
+      error: {
+        code: "PUBLIC_ACCESS_STOPPED",
+        details: {},
+        message: "公开内容已由维护者紧急暂停。",
+        requestId: "web-request-stopped",
+        retryable: true,
+      },
+    };
+    const response = cacheableResponse(body, {
+      age: null,
+      contentVersionHeader: null,
+      date: null,
+      requestIdHeader: "web-request-stopped",
+      status: 503,
+    });
+    response.headers.set("retry-after", "60");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "public_access_stopped",
+      retryAfterSeconds: 60,
+    });
+  });
+
+  it("does not trust a PUBLIC_ACCESS_STOPPED body whose request id differs from the response", async () => {
+    const response = cacheableResponse(
+      {
+        error: {
+          code: "PUBLIC_ACCESS_STOPPED",
+          details: {},
+          message: "公开内容已暂停",
+          requestId: "web-request-stopped-body",
+          retryable: true,
+        },
+      },
+      {
+        age: null,
+        contentVersionHeader: null,
+        date: null,
+        requestIdHeader: "web-request-stopped-header",
+        status: 503,
+      },
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
   it.each([
     ["wrong media type", { contentType: "text/plain", requestIdHeader: "web-request-503" }],
     ["missing response request id", { requestIdHeader: null }],

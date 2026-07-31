@@ -119,6 +119,222 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/v1/auth/password-challenges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 校验单一维护者账号与密码并创建一次性 TOTP 挑战
+         * @description 无论账号是否存在，失败时都执行等价密码哈希校验并返回同一错误。
+         *     请求在解析正文前先接受持久化的请求来源级限流；严格解析并规范化账号后、
+         *     执行昂贵密码哈希前，再接受持久化的账号级限流。
+         *     虽然此阶段尚无会话 CSRF 令牌，请求仍必须携带并通过可信同源 `Origin` 校验。
+         *     挑战只能使用一次，并在五分钟后失效。
+         */
+        post: operations["createAdminPasswordChallenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 使用密码挑战与 TOTP 动态码建立后台会话
+         * @description 服务端在 PostgreSQL 中原子消费一次性密码挑战和 TOTP counter；允许的时钟偏差内，
+         *     已用于登录或其他高风险动作的同一 counter 也不能再次使用。成功后只通过同源
+         *     `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/admin` 且无 `Domain` 的 Cookie
+         *     返回随机会话令牌，响应正文只返回与该会话绑定的 CSRF 令牌和会话期限。此请求在
+         *     会话建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
+         */
+        post: operations["createAdminSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看当前后台会话及 CSRF 令牌 */
+        get: operations["getAdminSession"];
+        put?: never;
+        post?: never;
+        /**
+         * 安全退出当前后台会话
+         * @description 必须同时通过可信同源 `Origin` 与会话绑定的 CSRF 令牌校验。
+         */
+        delete: operations["deleteAdminSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/auth/logout-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 原子注销单一维护者的全部后台会话
+         * @description 必须同时通过可信同源 `Origin` 与会话绑定的 CSRF 令牌校验。成功后原子撤销
+         *     全部现有会话并作废尚未消费的登录挑战，不能由操作前签发的挑战重新建立会话。
+         */
+        post: operations["logoutAllAdminSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/auth/recovery-challenges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 原子消费一个恢复码并开始两阶段控制权恢复
+         * @description 正确恢复码在 PostgreSQL 中只消费一次，并立即提升凭据修订号、注销全部会话、
+         *     使旧验证器和全部旧恢复码失效。随后只签发十分钟有效、一次性的恢复挑战，
+         *     同时给出待启用的新 TOTP 配置。失败不暴露账号或恢复码是否存在；请求来源在正文解析前
+         *     限流，账号在严格解析并规范化后、校验恢复码前限流。此未登录请求仍必须通过可信同源
+         *     `Origin` 校验。
+         */
+        post: operations["createAdminRecoveryChallenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/auth/recovery-completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 完成新密码与新验证器设置并签发新的恢复码
+         * @description 原子消费十分钟恢复挑战并校验待启用 TOTP 的未使用 counter。成功后启用新凭据，
+         *     一次性返回恰好十个新恢复码并建立新会话；服务端只保存恢复码摘要。此请求在新会话
+         *     建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
+         */
+        post: operations["completeAdminRecovery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/security-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查询至少保留 365 天的关键登录与安全记录
+         * @description 只返回单向来源指纹和受限浏览器摘要，不返回 IP、密码、动态码、恢复码、挑战或会话原文。
+         */
+        get: operations["listSecurityEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/emergency-control": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看全局公开内容开关及其修订号 */
+        get: operations["getEmergencyControlStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/emergency-control/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 紧急停止全部公开内容
+         * @description 必须重新校验当前 TOTP、精确短语“停止全部公开内容”和原因，并原子消费 TOTP counter。
+         *     成功后源站立即 fail closed；已经下载或被外部转发的副本无法召回，正式 CDN 的
+         *     `purge/deny` 联动由 Issue #34 在真实部署环境验收。
+         */
+        post: operations["stopPublicAccess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/emergency-control/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 恢复全部公开内容
+         * @description 必须重新校验当前 TOTP、精确短语“恢复全部公开内容”和原因，并原子消费 TOTP counter。
+         *     恢复只解除全局开关；每个内容版本仍须独立满足已发布、审核和素材安全条件。
+         */
+        post: operations["resumePublicAccess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/api/v1/daily-content-drafts": {
         parameters: {
             query?: never;
@@ -392,6 +608,113 @@ export interface components {
         ContentState: "draft" | "in_review" | "changes_requested" | "approved" | "scheduled" | "published" | "superseded" | "withdrawn";
         /** @enum {string} */
         ModuleCode: "calendar_algorithm" | "copy_and_formula" | "visual_and_rights" | "poster_consistency";
+        /** @description 由离线 bootstrap 命令首次创建的唯一小写 ASCII 维护者账号名；限流与校验使用同一规范值。 */
+        AdminUsername: string;
+        /** @description 登录或恢复输入；服务端在限流与凭据校验前执行 NFKC、去除首尾空白并转为规范小写账号名。 */
+        AdminUsernameInput: string;
+        /** @description 以 Unicode code point 计 16 至 128 位；只从请求正文或交互式 stdin 接收，禁止进入 CLI 参数、环境变量或日志。 */
+        AdminPassword: string;
+        /** @description 当前验证器生成的六位动态码；服务端必须原子拒绝已经接受过的 counter。 */
+        TotpCode: string;
+        /** @description 256-bit 随机一次性挑战原文；服务端只持久化域分离 HMAC 摘要。 */
+        AuthChallengeToken: string;
+        /** @description 高强度一次性恢复码原文；服务端只持久化域分离 HMAC 摘要。 */
+        RecoveryCode: string;
+        CreatePasswordChallengeRequest: {
+            username: components["schemas"]["AdminUsernameInput"];
+            password: components["schemas"]["AdminPassword"];
+        };
+        PasswordChallenge: {
+            challengeToken: components["schemas"]["AuthChallengeToken"];
+            expiresAt: components["schemas"]["ZonedDateTime"];
+        };
+        CreateAdminSessionRequest: {
+            challengeToken: components["schemas"]["AuthChallengeToken"];
+            totpCode: components["schemas"]["TotpCode"];
+        };
+        AdminSession: {
+            username: components["schemas"]["AdminUsername"];
+            issuedAt: components["schemas"]["ZonedDateTime"];
+            idleExpiresAt: components["schemas"]["ZonedDateTime"];
+            absoluteExpiresAt: components["schemas"]["ZonedDateTime"];
+            /** @description 会话绑定的随机令牌，只保存在运行中页面内存。 */
+            csrfToken: string;
+            credentialRevision: number;
+        };
+        CreateRecoveryChallengeRequest: {
+            username: components["schemas"]["AdminUsernameInput"];
+            recoveryCode: components["schemas"]["RecoveryCode"];
+        };
+        TotpProvisioning: {
+            /** @description 待启用的 TOTP Base32 密钥，只在本次 no-store 恢复挑战响应中返回。 */
+            secret: string;
+            /**
+             * Format: uri
+             * @description 与 `secret` 相同的待启用配置，只用于验证器录入，禁止记录日志。
+             */
+            otpauthUri: string;
+            /** @constant */
+            algorithm: "SHA1";
+            /** @constant */
+            digits: 6;
+            /** @constant */
+            periodSeconds: 30;
+        };
+        RecoveryChallenge: {
+            challengeToken: components["schemas"]["AuthChallengeToken"];
+            expiresAt: components["schemas"]["ZonedDateTime"];
+            totpProvisioning: components["schemas"]["TotpProvisioning"];
+        };
+        CompleteRecoveryRequest: {
+            challengeToken: components["schemas"]["AuthChallengeToken"];
+            newPassword: components["schemas"]["AdminPassword"];
+            totpCode: components["schemas"]["TotpCode"];
+        };
+        RecoveryCompletion: {
+            session: components["schemas"]["AdminSession"];
+            /** @description 新的一套十个一次性恢复码；只在本次 no-store 响应显示。 */
+            recoveryCodes: components["schemas"]["RecoveryCode"][];
+        };
+        /** @enum {string} */
+        SecurityEventAction: "bootstrap_completed" | "login_password" | "login_totp" | "logout_current" | "logout_all" | "recovery_code" | "recovery_completed" | "offline_reset" | "csrf_rejected" | "rate_limited" | "emergency_stop" | "emergency_resume";
+        /** @enum {string} */
+        SecurityEventOutcome: "succeeded" | "rejected";
+        SecurityEvent: {
+            eventId: components["schemas"]["OpaqueId"];
+            occurredAt: components["schemas"]["ZonedDateTime"];
+            action: components["schemas"]["SecurityEventAction"];
+            outcome: components["schemas"]["SecurityEventOutcome"];
+            requestId: string;
+            /** @description 使用部署密钥生成的单向来源指纹，不是 IP 或可逆地址。 */
+            sourceFingerprint: string;
+            /** @description 经过截断和字段白名单处理的浏览器摘要，不保存完整 User-Agent。 */
+            clientSummary: string | null;
+            /** @description 仅返回紧急控制或离线重置等动作明确记录的审计原因；认证凭据和内部异常不得写入此字段。 */
+            reason: string | null;
+        };
+        SecurityEventPage: {
+            items: components["schemas"]["SecurityEvent"][];
+            nextCursor: string | null;
+        };
+        EmergencyControlStatus: {
+            publicAccessEnabled: boolean;
+            revision: number;
+            changedAt: components["schemas"]["ZonedDateTime"];
+            reason: string | null;
+            auditEventId: components["schemas"]["OpaqueId"] | null;
+        };
+        EmergencyStopRequest: {
+            totpCode: components["schemas"]["TotpCode"];
+            /** @constant */
+            confirmationPhrase: "停止全部公开内容";
+            reason: string;
+        };
+        EmergencyResumeRequest: {
+            totpCode: components["schemas"]["TotpCode"];
+            /** @constant */
+            confirmationPhrase: "恢复全部公开内容";
+            reason: string;
+        };
         RequestContext: {
             responseGeneratedAt: components["schemas"]["ZonedDateTime"];
             /** Format: date */
@@ -817,7 +1140,7 @@ export interface components {
             nextCursor: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "UNAUTHENTICATED" | "FORBIDDEN" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "IDEMPOTENCY_KEY_REUSED" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "POSTER_GENERATION_UNAVAILABLE" | "FEEDBACK_UNAVAILABLE";
+        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "AUTHENTICATION_FAILED" | "AUTH_CHALLENGE_EXPIRED" | "RECOVERY_CHALLENGE_EXPIRED" | "UNAUTHENTICATED" | "FORBIDDEN" | "CSRF_VALIDATION_FAILED" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "IDEMPOTENCY_KEY_REUSED" | "TOTP_REPLAYED" | "EMERGENCY_CONTROL_CONFLICT" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "PUBLIC_ACCESS_STOPPED" | "POSTER_GENERATION_UNAVAILABLE" | "FEEDBACK_UNAVAILABLE" | "ADMIN_SERVICE_UNAVAILABLE";
         Error: {
             code: components["schemas"]["ErrorCode"];
             message: string;
@@ -842,6 +1165,42 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description 认证、恢复或高风险确认请求字段无效 */
+        AuthInvalidArgument: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /**
+         * @description 凭据、一次性挑战或动态码无效。账号不存在、密码错误、恢复码错误和未认证阶段的
+         *     TOTP 重放必须使用相同状态和对外文案，不能帮助枚举账号或凭据。
+         */
+        AuthenticationFailed: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 后台会话不存在或已失效，或者高风险操作要求的当前 TOTP 无效 */
+        AdminReauthenticationFailed: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description 命理日格式或允许范围无效 */
         InvalidFortuneDate: {
             headers: {
@@ -856,6 +1215,41 @@ export interface components {
         Unauthenticated: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 后台凭据库或安全控制服务暂时不可用；调用方应保留当前输入并稍后重试 */
+        AdminServiceUnavailable: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Retry-After"?: number;
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 后台写请求的可信同源 `Origin` 或会话绑定 CSRF 令牌校验失败 */
+        CsrfValidationFailed: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description TOTP counter 重放、幂等键复用或紧急控制状态发生冲突 */
+        AuthConflict: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
                 [name: string]: unknown;
             };
             content: {
@@ -939,6 +1333,7 @@ export interface components {
                 "X-Request-Id": components["headers"]["XRequestId"];
                 /** @description 当前资源 ETag，调用方必须刷新后再操作。 */
                 ETag?: string;
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
                 [name: string]: unknown;
             };
             content: {
@@ -969,6 +1364,7 @@ export interface components {
         PreconditionRequired: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
                 [name: string]: unknown;
             };
             content: {
@@ -986,8 +1382,23 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description 当前命理日还没有可公开内容 */
-        ContentNotReady: {
+        /** @description 登录或恢复请求触发持久化的请求来源级或账号级限流 */
+        AuthRateLimited: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Retry-After"?: number;
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /**
+         * @description 当前日期没有可公开内容（`CONTENT_NOT_READY`），或全局紧急开关已经关闭公开读取
+         *     （`PUBLIC_ACCESS_STOPPED`）。两种情况都必须 fail closed，不能返回旧缓存或临时计算结果。
+         */
+        PublicContentUnavailable: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
                 "Retry-After"?: number;
@@ -997,7 +1408,10 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description 海报暂时不可用，基础每日内容不受影响 */
+        /**
+         * @description 海报服务暂时不可用（`POSTER_GENERATION_UNAVAILABLE`），或全局紧急开关已经关闭海报创建、
+         *     查询与源站素材读取（`PUBLIC_ACCESS_STOPPED`）。只有前一种情况不影响基础每日内容。
+         */
         PosterUnavailable: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
@@ -1019,10 +1433,23 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description 全局公开内容开关已在 PostgreSQL 事务中更新并追加安全审计 */
+        EmergencyControlSucceeded: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                ETag: components["headers"]["EmergencyControlETag"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["EmergencyControlStatus"];
+            };
+        };
         /** @description 状态变化已在一个事务中完成 */
         LifecycleActionSucceeded: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
                 ETag: components["headers"]["LifecycleETag"];
                 [name: string]: unknown;
             };
@@ -1043,12 +1470,17 @@ export interface components {
         ExpectedContentVersionOptional: components["schemas"]["ContentVersion"];
         ExpectedContentVersionRequired: components["schemas"]["ContentVersion"];
         /**
-         * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-         *     调用方必须原样回传，不能自行拼接。
+         * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+         *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
          */
         IfMatch: string;
         /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
         IdempotencyKey: string;
+        /**
+         * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+         *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+         */
+        XCsrfToken: string;
     };
     requestBodies: never;
     headers: {
@@ -1062,6 +1494,17 @@ export interface components {
         DraftETag: string;
         /** @description 内容生命周期当前修订号的强 ETag，例如 `"lifecycle:12"`。 */
         LifecycleETag: string;
+        /** @description 全局公开内容开关当前修订号的强 ETag，例如 `"emergency-control:4"`。 */
+        EmergencyControlETag: string;
+        /** @description 认证、恢复、安全记录和紧急控制响应不得被浏览器或中间层保存。 */
+        NoStoreCacheControl: "no-store";
+        /**
+         * @description 只包含随机会话令牌；生产环境固定使用 `HttpOnly; Secure; SameSite=Strict; Path=/admin`，
+         *     不设置 `Domain`，闲置 30 分钟失效且绝对有效期不超过 12 小时。
+         */
+        AdminSessionSetCookie: string;
+        /** @description 以相同 Cookie 属性和立即过期时间清除 `five_admin_session`。 */
+        AdminSessionClearedCookie: string;
         /**
          * @description `public, max-age=0, s-maxage=N, must-revalidate`。
          *     N 是 60 秒、内容结束、下一时辰和下一民用午夜剩余秒数中的最小值。
@@ -1105,7 +1548,7 @@ export interface operations {
                 content?: never;
             };
             429: components["responses"]["RateLimited"];
-            503: components["responses"]["ContentNotReady"];
+            503: components["responses"]["PublicContentUnavailable"];
         };
     };
     getDailyContent: {
@@ -1137,6 +1580,7 @@ export interface operations {
             400: components["responses"]["InvalidFortuneDate"];
             404: components["responses"]["ContentNotFound"];
             410: components["responses"]["HistoricalContentExpired"];
+            503: components["responses"]["PublicContentUnavailable"];
         };
     };
     getLookDetail: {
@@ -1167,6 +1611,7 @@ export interface operations {
             400: components["responses"]["InvalidFortuneDate"];
             404: components["responses"]["LookNotFound"];
             409: components["responses"]["ContentVersionChanged"];
+            503: components["responses"]["PublicContentUnavailable"];
         };
     };
     createPosterJob: {
@@ -1272,10 +1717,352 @@ export interface operations {
             503: components["responses"]["FeedbackUnavailable"];
         };
     };
-    createDailyContentDraft: {
+    createAdminPasswordChallenge: {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePasswordChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description 密码已校验，等待验证器动态码 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordChallenge"];
+                };
+            };
+            400: components["responses"]["AuthInvalidArgument"];
+            401: components["responses"]["AuthenticationFailed"];
+            403: components["responses"]["CsrfValidationFailed"];
+            429: components["responses"]["AuthRateLimited"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    createAdminSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAdminSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description 已建立 30 分钟闲置、12 小时绝对上限的后台会话 */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    "Set-Cookie": components["headers"]["AdminSessionSetCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSession"];
+                };
+            };
+            400: components["responses"]["AuthInvalidArgument"];
+            401: components["responses"]["AuthenticationFailed"];
+            403: components["responses"]["CsrfValidationFailed"];
+            429: components["responses"]["AuthRateLimited"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    getAdminSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 当前会话有效；访问会刷新闲置期限，但不能延长绝对期限 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSession"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    deleteAdminSession: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 当前会话已注销；响应同时清除浏览器 Cookie */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    "Set-Cookie": components["headers"]["AdminSessionClearedCookie"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    logoutAllAdminSessions: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 全部会话已注销；当前浏览器 Cookie 同时清除 */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    "Set-Cookie": components["headers"]["AdminSessionClearedCookie"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    createAdminRecoveryChallenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRecoveryChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description 恢复码已消费，等待设置新密码并验证新的 TOTP */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryChallenge"];
+                };
+            };
+            400: components["responses"]["AuthInvalidArgument"];
+            401: components["responses"]["AuthenticationFailed"];
+            403: components["responses"]["CsrfValidationFailed"];
+            429: components["responses"]["AuthRateLimited"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    completeAdminRecovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteRecoveryRequest"];
+            };
+        };
+        responses: {
+            /** @description 已恢复控制权；新的恢复码只在本响应显示一次 */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    "Set-Cookie": components["headers"]["AdminSessionSetCookie"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCompletion"];
+                };
+            };
+            400: components["responses"]["AuthInvalidArgument"];
+            401: components["responses"]["AuthenticationFailed"];
+            403: components["responses"]["CsrfValidationFailed"];
+            409: components["responses"]["AuthConflict"];
+            429: components["responses"]["AuthRateLimited"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    listSecurityEvents: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 按发生时间倒序返回安全记录 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecurityEventPage"];
+                };
+            };
+            400: components["responses"]["AuthInvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    getEmergencyControlStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回当前公开状态 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["EmergencyControlETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmergencyControlStatus"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    stopPublicAccess: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmergencyStopRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["EmergencyControlSucceeded"];
+            400: components["responses"]["AuthInvalidArgument"];
+            401: components["responses"]["AdminReauthenticationFailed"];
+            403: components["responses"]["CsrfValidationFailed"];
+            409: components["responses"]["AuthConflict"];
+            412: components["responses"]["RevisionMismatch"];
+            428: components["responses"]["PreconditionRequired"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    resumePublicAccess: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmergencyResumeRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["EmergencyControlSucceeded"];
+            400: components["responses"]["AuthInvalidArgument"];
+            401: components["responses"]["AdminReauthenticationFailed"];
+            403: components["responses"]["CsrfValidationFailed"];
+            409: components["responses"]["AuthConflict"];
+            412: components["responses"]["RevisionMismatch"];
+            428: components["responses"]["PreconditionRequired"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    createDailyContentDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -1289,6 +2076,7 @@ export interface operations {
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     ETag: components["headers"]["DraftETag"];
                     [name: string]: unknown;
                 };
@@ -1298,6 +2086,7 @@ export interface operations {
             };
             400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
         };
     };
@@ -1316,6 +2105,7 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     ETag: components["headers"]["DraftETag"];
                     [name: string]: unknown;
                 };
@@ -1332,10 +2122,15 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 draftId: components["parameters"]["DraftId"];
@@ -1353,6 +2148,7 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     ETag: components["headers"]["DraftETag"];
                     [name: string]: unknown;
                 };
@@ -1362,6 +2158,7 @@ export interface operations {
             };
             400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["InvalidStateTransition"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -1372,12 +2169,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 draftId: components["parameters"]["DraftId"];
@@ -1390,6 +2192,7 @@ export interface operations {
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     ETag: components["headers"]["LifecycleETag"];
                     [name: string]: unknown;
                 };
@@ -1398,6 +2201,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -1418,6 +2222,7 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1447,6 +2252,7 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     ETag: components["headers"]["LifecycleETag"];
                     [name: string]: unknown;
                 };
@@ -1463,12 +2269,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 contentVersion: components["parameters"]["ContentVersionPath"];
@@ -1485,6 +2296,7 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     ETag: components["headers"]["LifecycleETag"];
                     [name: string]: unknown;
                 };
@@ -1493,6 +2305,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["InvalidStateTransition"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -1503,12 +2316,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 contentVersion: components["parameters"]["ContentVersionPath"];
@@ -1523,6 +2341,7 @@ export interface operations {
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["InvalidStateTransition"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["ReviewMissing"];
@@ -1534,12 +2353,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 contentVersion: components["parameters"]["ContentVersionPath"];
@@ -1554,6 +2378,7 @@ export interface operations {
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
@@ -1565,12 +2390,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 contentVersion: components["parameters"]["ContentVersionPath"];
@@ -1585,6 +2415,7 @@ export interface operations {
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -1595,12 +2426,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 contentVersion: components["parameters"]["ContentVersionPath"];
@@ -1615,6 +2451,7 @@ export interface operations {
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
@@ -1626,12 +2463,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 contentVersion: components["parameters"]["ContentVersionPath"];
@@ -1646,6 +2488,7 @@ export interface operations {
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
@@ -1657,12 +2500,17 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag。
-                 *     调用方必须原样回传，不能自行拼接。
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
                  */
                 "If-Match": components["parameters"]["IfMatch"];
                 /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
             };
             path: {
                 fortuneDate: components["parameters"]["FortuneDate"];
@@ -1677,6 +2525,7 @@ export interface operations {
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
@@ -1701,6 +2550,7 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
                     [name: string]: unknown;
                 };
                 content: {

@@ -60,6 +60,22 @@ function waitForExit(child, timeoutMs = 30_000) {
   });
 }
 
+async function verifyAdminBoundary() {
+  const response = await fetch("http://127.0.0.1:3100/admin/api/v1/auth/session", {
+    headers: { "x-request-id": "smoke-admin-boundary" },
+  });
+  const payload = await response.json();
+  if (
+    response.status !== 401 ||
+    response.headers.get("cache-control") !== "no-store" ||
+    response.headers.get("x-content-type-options") !== "nosniff" ||
+    response.headers.get("x-request-id") !== "smoke-admin-boundary" ||
+    payload?.error?.code !== "UNAUTHENTICATED"
+  ) {
+    throw new Error("Admin HTTP boundary did not fail closed with the frozen response");
+  }
+}
+
 async function stop(child) {
   if (child.exitCode !== null || child.signalCode !== null) {
     return;
@@ -96,6 +112,7 @@ try {
       return html.includes("每日五行搭配参考");
     }),
   ]);
+  await verifyAdminBoundary();
 
   const worker = start("worker", process.execPath, [resolve(backendDist, "main-worker.js")], {
     env: {

@@ -261,6 +261,7 @@ export interface TodaySnapshot {
 
 export type LoadTodayResult =
   | { kind: "content_not_ready"; retryAfterSeconds: number | null }
+  | { kind: "public_access_stopped"; retryAfterSeconds: number | null }
   | {
       kind: "refresh_failed";
       reason: "http" | "invalid_response" | "network" | "rate_limited" | "timeout";
@@ -1818,14 +1819,18 @@ function isJsonResponse(headers: Headers): boolean {
   return headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 
-function isContentNotReadyEnvelope(value: unknown, responseRequestId: string | null): boolean {
+function isAuthoritativeUnavailableEnvelope(
+  value: unknown,
+  responseRequestId: string | null,
+  code: "CONTENT_NOT_READY" | "PUBLIC_ACCESS_STOPPED",
+): boolean {
   if (!isRecord(value) || Object.keys(value).length !== 1 || !isRecord(value.error)) {
     return false;
   }
   const error = value.error;
   return (
     Object.keys(error).length === 5 &&
-    error.code === "CONTENT_NOT_READY" &&
+    error.code === code &&
     isNonEmptyString(error.message) &&
     error.message.length <= 500 &&
     error.retryable === true &&
@@ -1845,14 +1850,25 @@ export async function loadTodayResult(options: LoadTodayOptions = {}): Promise<L
   }
   if (!result.response.ok) {
     if (result.response.status === 503) {
-      return result.body !== invalidJson &&
-        isJsonResponse(result.response.headers) &&
-        isContentNotReadyEnvelope(result.body, result.response.headers.get("x-request-id"))
-        ? {
-            kind: "content_not_ready",
-            retryAfterSeconds: parseRetryAfter(result.response.headers.get("retry-after")),
-          }
-        : { kind: "refresh_failed", reason: "invalid_response" };
+      if (result.body !== invalidJson && isJsonResponse(result.response.headers)) {
+        const responseRequestId = result.response.headers.get("x-request-id");
+        const retryAfterSeconds = parseRetryAfter(result.response.headers.get("retry-after"));
+        if (
+          isAuthoritativeUnavailableEnvelope(
+            result.body,
+            responseRequestId,
+            "PUBLIC_ACCESS_STOPPED",
+          )
+        ) {
+          return { kind: "public_access_stopped", retryAfterSeconds };
+        }
+        if (
+          isAuthoritativeUnavailableEnvelope(result.body, responseRequestId, "CONTENT_NOT_READY")
+        ) {
+          return { kind: "content_not_ready", retryAfterSeconds };
+        }
+      }
+      return { kind: "refresh_failed", reason: "invalid_response" };
     }
     return {
       kind: "refresh_failed",

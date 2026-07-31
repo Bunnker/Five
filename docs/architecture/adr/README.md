@@ -36,3 +36,4 @@
 - [ADR-0017：OpenAPI 是网页、后台和后端接口的唯一事实源](0017-openapi-as-interface-source-of-truth.md)
 - [ADR-0018：使用最小 pnpm 工作区和版本化数据库迁移](0018-minimal-pnpm-workspace-and-versioned-migrations.md)
 - [ADR-0019：公开页面直接显示完整五档算法标签](0019-public-pages-use-algorithm-tier-labels.md)
+- [ADR-0020：单一维护者使用强密码、TOTP、恢复码与全局紧急开关](0020-single-operator-authentication-recovery-and-emergency-control.md)

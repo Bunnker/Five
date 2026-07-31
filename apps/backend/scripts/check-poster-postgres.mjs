@@ -146,15 +146,17 @@ async function main() {
         "run",
         "src/poster/postgres-poster-job.repository.integration.test.ts",
         "src/feedback/postgres-feedback-report.repository.integration.test.ts",
+        "src/admin-auth/postgres-admin-security.store.integration.test.ts",
       ],
       {
         FIVE_FEEDBACK_TEST_DATABASE_URL: testUrl.toString(),
+        FIVE_ADMIN_SECURITY_TEST_DATABASE_URL: testUrl.toString(),
         FIVE_POSTER_TEST_DATABASE_URL: testUrl.toString(),
       },
     );
     assertNotInterrupted();
     process.stdout.write(
-      "Poster and feedback PostgreSQL integration checks passed in an isolated disposable database.\n",
+      "Poster, feedback, and admin-security PostgreSQL integration checks passed in an isolated disposable database.\n",
     );
   } finally {
     await cleanupDisposableDatabase();
