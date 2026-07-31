@@ -81,6 +81,7 @@ export function FoundationAction({
 
 interface FoundationButtonProps {
   children: ReactNode;
+  disabled?: boolean;
   fullWidth?: boolean;
   indicator?: ReactNode;
   onClick: MouseEventHandler<HTMLButtonElement>;
@@ -89,6 +90,7 @@ interface FoundationButtonProps {
 
 export function FoundationButton({
   children,
+  disabled = false,
   fullWidth = false,
   indicator = "→",
   onClick,
@@ -104,7 +106,7 @@ export function FoundationButton({
     .join(" ");
 
   return (
-    <button className={className} onClick={onClick} type="button">
+    <button className={className} disabled={disabled} onClick={onClick} type="button">
       <span>{children}</span>
       <span aria-hidden="true">{indicator}</span>
     </button>

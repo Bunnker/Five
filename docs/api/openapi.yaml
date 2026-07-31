@@ -220,6 +220,8 @@ paths:
                   $ref: "#/components/examples/PosterJobReady"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PosterUnavailable"
 
   /api/v1/feedback-reports:
     post:

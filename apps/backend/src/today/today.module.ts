@@ -30,6 +30,7 @@ import { TODAY_CONTENT_READER, TodayController, type TodayContentReader } from "
 
 @Module({
   controllers: [DailyContentController, LookDetailController, TodayController],
+  exports: [PUBLISHED_CONTENT_READER],
   imports: [RequestContextModule],
   providers: [
     TodayCachePolicy,

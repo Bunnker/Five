@@ -4,6 +4,7 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 
 import { DATABASE_PROBE, type DatabaseProbe } from "./database/database-probe";
+import { PosterWorker } from "./poster/poster-worker";
 import { WorkerModule } from "./worker/worker.module";
 
 function readInterval(value: string | undefined): number {
@@ -14,13 +15,16 @@ function readInterval(value: string | undefined): number {
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.createApplicationContext(WorkerModule);
   const database = app.get<DatabaseProbe>(DATABASE_PROBE);
+  const posterWorker = app.get(PosterWorker);
 
   await database.check();
+  const initialPosterResult = await posterWorker.runOne();
   Logger.log(
     JSON.stringify({
       database: "reachable",
       service: "five-worker",
       status: "ready",
+      posterWorker: initialPosterResult,
     }),
     "Worker",
   );
@@ -30,11 +34,20 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
+  let cycleRunning = false;
   const interval = setInterval(() => {
-    void database
-      .check()
-      .then(() => Logger.log("PostgreSQL is reachable", "Worker"))
-      .catch((error: unknown) => Logger.error(error, "Worker database check failed", "Worker"));
+    if (cycleRunning) {
+      return;
+    }
+    cycleRunning = true;
+    void Promise.all([database.check(), posterWorker.runOne()])
+      .then(([, posterResult]) =>
+        Logger.log(`PostgreSQL is reachable; poster worker: ${posterResult}`, "Worker"),
+      )
+      .catch((error: unknown) => Logger.error(error, "Worker cycle failed", "Worker"))
+      .finally(() => {
+        cycleRunning = false;
+      });
   }, readInterval(process.env.WORKER_POLL_INTERVAL_MS));
 
   await new Promise<void>((resolve) => {

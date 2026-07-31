@@ -26,8 +26,9 @@
     "infra:down": "docker compose down",
     "db:migrate": "pnpm --filter @five/backend db:migrate",
     "db:rollback": "pnpm --filter @five/backend db:rollback",
+    "poster:postgres:check": "dotenv -e .env -- node apps/backend/scripts/check-poster-postgres.mjs",
     "local:setup": "node scripts/ensure-local-env.mjs && pnpm infra:up && pnpm db:migrate",
-    "smoke": "pnpm local:setup && pnpm build && dotenv -e .env -- node scripts/smoke.mjs"
+    "smoke": "pnpm local:setup && pnpm poster:postgres:check && pnpm build && dotenv -e .env -- node scripts/smoke.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

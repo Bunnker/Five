@@ -180,6 +180,8 @@ export interface TodayBasisData {
 export interface TodayShareData {
   contentVersion: TodayResponse["content"]["versions"]["contentVersion"];
   copyText: string;
+  posterJobEndpoint: TodayResponse["content"]["share"]["posterJobEndpoint"];
+  posterTemplateVersion: TodayResponse["content"]["share"]["posterTemplateVersion"];
   summaryText: string;
 }
 
@@ -573,6 +575,8 @@ function toTodayShareData(
   return {
     contentVersion,
     copyText: value.copyText,
+    posterJobEndpoint: value.posterJobEndpoint,
+    posterTemplateVersion: value.posterTemplateVersion,
     summaryText: value.summaryText,
   };
 }

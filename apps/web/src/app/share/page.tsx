@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
 import type { CSSProperties } from "react";
 
+import { FoundationAction } from "../../components/visual-foundation";
+import { buildPosterPagePath } from "../../lib/poster-job";
 import { loadToday } from "../../lib/today";
 import {
   resolveTodayEntry,
@@ -78,6 +80,13 @@ export default async function SharePage({ searchParams }: SharePageProps) {
   if (share === null || share === undefined || resolution.channelId === null) {
     return <ShareNotice status="unavailable" />;
   }
+  const posterHref = buildPosterPagePath({
+    channelId: resolution.channelId,
+    expectedContentVersion: resolution.contentVersion,
+    fortuneDate: resolution.fortuneDate,
+    posterJobEndpoint: share.posterJobEndpoint,
+    posterTemplateVersion: share.posterTemplateVersion,
+  });
 
   return (
     <main className="outfit-page">
@@ -117,6 +126,17 @@ export default async function SharePage({ searchParams }: SharePageProps) {
             </div>
           </div>
         </section>
+
+        <aside className="share-poster-entry">
+          <div>
+            <p>日签海报</p>
+            <strong>用当天已审核内容生成分享图片</strong>
+            <span>进入页面后由你确认生成，不会自动创建任务。</span>
+          </div>
+          <FoundationAction fullWidth href={posterHref} indicator="↗">
+            生成日签海报
+          </FoundationAction>
+        </aside>
 
         <ShareActions
           channelId={resolution.channelId}

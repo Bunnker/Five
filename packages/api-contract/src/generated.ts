@@ -1228,6 +1228,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["ResourceNotFound"];
+            503: components["responses"]["PosterUnavailable"];
         };
     };
     createFeedbackReport: {

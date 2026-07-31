@@ -54,6 +54,8 @@ const today = {
   share: {
     contentVersion,
     copyText: dailyCopyText,
+    posterJobEndpoint: "/api/v1/poster-jobs",
+    posterTemplateVersion: "poster-template-v3",
     summaryText: "今日木日，优先参考红、橙、紫、粉色系。",
   },
 } as TodayPageData;
@@ -129,6 +131,17 @@ describe("SharePage", () => {
       "wechat_group",
     );
     expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
+    const posterUrl = new URL(
+      screen.getByRole("link", { name: "生成日签海报" }).getAttribute("href") ?? "",
+      "https://five.test",
+    );
+    expect(posterUrl.pathname).toBe("/poster");
+    expect(Object.fromEntries(posterUrl.searchParams)).toEqual({
+      channelId: "wechat_group",
+      expectedContentVersion: contentVersion,
+      fortuneDate: "2026-07-15",
+      posterTemplateVersion: "poster-template-v3",
+    });
   });
 
   it("copies the complete public daily summary for pasting into a WeChat group", async () => {
@@ -150,7 +163,9 @@ describe("SharePage", () => {
     expect(copiedText).toContain("较差：");
     expect(copiedText).toContain("不利：");
     expect(copiedText).not.toMatch(/contentVersion|published|version|吉祥物|商品|卖货|转运/u);
-    expect(screen.getByRole("status")).toHaveTextContent("今日文字已复制，可直接粘贴到微信群");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "今日文字已复制，可直接粘贴到微信群",
+    );
   });
 
   it("keeps browsing available and selects the public summary when text copying fails", async () => {
@@ -171,7 +186,9 @@ describe("SharePage", () => {
     await waitFor(() => expect(selectableCopy).toHaveFocus());
     expect(selectableCopy).toHaveProperty("selectionStart", 0);
     expect(selectableCopy).toHaveProperty("selectionEnd", dailyCopyText.length);
-    expect(screen.getByRole("status")).toHaveTextContent("自动复制失败，请长按上方文字手动复制");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "自动复制失败，请长按上方文字手动复制",
+    );
     expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
   });
 
@@ -191,7 +208,9 @@ describe("SharePage", () => {
       channelId: "wechat_group",
       expectedContentVersion: contentVersion,
     });
-    expect(screen.getByRole("status")).toHaveTextContent("当前浏览器不支持系统分享，链接已复制");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "当前浏览器不支持系统分享，链接已复制",
+    );
   });
 
   it("always offers a separate copy-link action", async () => {
@@ -205,7 +224,7 @@ describe("SharePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
 
     await waitFor(() => expect(writeTextMock).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("status")).toHaveTextContent("指定日期链接已复制");
+    expect(await screen.findByRole("status")).toHaveTextContent("指定日期链接已复制");
   });
 
   it("falls back to copying the same link when system sharing fails", async () => {
@@ -226,7 +245,7 @@ describe("SharePage", () => {
         window.location.origin,
       ).toString(),
     );
-    expect(screen.getByRole("status")).toHaveTextContent("系统分享未完成，链接已复制");
+    expect(await screen.findByRole("status")).toHaveTextContent("系统分享未完成，链接已复制");
   });
 
   it("uses the selectable-copy fallback when clipboard permission is denied", async () => {
@@ -244,7 +263,7 @@ describe("SharePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "复制链接" }));
 
     await waitFor(() => expect(execCommandMock).toHaveBeenCalledWith("copy"));
-    expect(screen.getByRole("status")).toHaveTextContent("指定日期链接已复制");
+    expect(await screen.findByRole("status")).toHaveTextContent("指定日期链接已复制");
     expect(screen.queryByRole("textbox", { name: "指定日期分享链接" })).not.toBeInTheDocument();
   });
 
@@ -262,7 +281,9 @@ describe("SharePage", () => {
       ).toString(),
     );
     expect(manualLink).toHaveAttribute("readonly");
-    expect(screen.getByRole("status")).toHaveTextContent("自动复制失败，请长按下方链接手动复制");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "自动复制失败，请长按下方链接手动复制",
+    );
   });
 
   it.each([

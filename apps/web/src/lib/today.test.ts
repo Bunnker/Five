@@ -352,7 +352,7 @@ const basis = {
 };
 const share = {
   copyText: "今日穿搭参考：优先火色，稳妥选择木色。",
-  posterJobEndpoint: "/api/v1/poster-jobs",
+  posterJobEndpoint: "/api/v1/poster-jobs" as const,
   posterTemplateVersion: "poster-v1",
   summaryText: "今日木日，优先参考红、橙、紫、粉色系。",
 };
@@ -618,6 +618,8 @@ const basisData = {
 const shareData = {
   contentVersion,
   copyText: share.copyText,
+  posterJobEndpoint: share.posterJobEndpoint,
+  posterTemplateVersion: share.posterTemplateVersion,
   summaryText: share.summaryText,
 } satisfies TodayShareData;
 
