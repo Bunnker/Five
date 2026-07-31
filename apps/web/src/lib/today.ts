@@ -237,6 +237,36 @@ export interface TodayPageData extends TodayDateData, PublicDailyContentData {
   nextSteps?: TodayNextStepsData | null;
 }
 
+export interface CompleteTodayPageData extends TodayPageData {
+  attentionSection: AttentionSectionData;
+  basis: TodayBasisData;
+  ciJiCard: CiJiCardData;
+  daJiCard: DaJiCardData;
+  imagePreviewSection: TodayImagePreviewSectionData;
+  nextSteps: TodayNextStepsData;
+  outfitPreviewSection: OutfitPreviewSectionData;
+  pingCard: PingCardData;
+  share: TodayShareData;
+}
+
+export interface TodaySnapshot {
+  contentVersion: string;
+  data: CompleteTodayPageData;
+  effectiveFrom: string;
+  effectiveTo: string;
+  fortuneDate: string;
+  responseGeneratedAt: string;
+  serverObservedAtMs: number | null;
+}
+
+export type LoadTodayResult =
+  | { kind: "content_not_ready"; retryAfterSeconds: number | null }
+  | {
+      kind: "refresh_failed";
+      reason: "http" | "invalid_response" | "network" | "rate_limited" | "timeout";
+    }
+  | { kind: "ready"; snapshot: TodaySnapshot };
+
 export interface LoadTodayOptions {
   apiOrigin?: string;
   requestId?: string | null;
@@ -1530,11 +1560,171 @@ export function parsePublicDailyContent(
   };
 }
 
-export async function loadToday({
+function parseTodayPageData(
+  body: unknown,
+  responseContentVersion: string | null,
+): TodayPageData | null {
+  const dateData = toTodayDateData(body);
+  if (dateData === null || !isRecord(body)) {
+    return null;
+  }
+
+  const dailyContent = parsePublicDailyContent(body.content, responseContentVersion);
+  if (dailyContent === null || dailyContent.content.fortuneDate !== dateData.content.fortuneDate) {
+    return null;
+  }
+
+  const completeHomepageContentVersion =
+    dailyContent.daJiCard !== null &&
+    dailyContent.ciJiCard !== null &&
+    dailyContent.pingCard !== null &&
+    dailyContent.attentionSection !== null &&
+    dailyContent.outfitPreviewSection !== null &&
+    dailyContent.imagePreviewSection !== null
+      ? dailyContent.daJiCard.contentVersion
+      : null;
+  const nextSteps =
+    completeHomepageContentVersion === null ||
+    dailyContent.basis === null ||
+    dailyContent.basis === undefined ||
+    dailyContent.share === null ||
+    dailyContent.share === undefined ||
+    dailyContent.outfitPreviewSection === null
+      ? null
+      : toTodayNextStepsData(
+          dailyContent.basis,
+          dailyContent.share,
+          dailyContent.outfitPreviewSection,
+          dateData.content.fortuneDate,
+          completeHomepageContentVersion,
+        );
+  if (completeHomepageContentVersion !== null && nextSteps === null) {
+    return null;
+  }
+
+  return {
+    ...dailyContent,
+    ...dateData,
+    ...(nextSteps === null ? {} : { nextSteps }),
+  };
+}
+
+function toCompleteTodayPageData(data: TodayPageData): CompleteTodayPageData | null {
+  const contentVersion = data.daJiCard?.contentVersion;
+  if (
+    contentVersion === undefined ||
+    data.ciJiCard === null ||
+    data.pingCard === null ||
+    data.attentionSection === null ||
+    data.outfitPreviewSection === null ||
+    data.imagePreviewSection === null ||
+    data.basis === null ||
+    data.basis === undefined ||
+    data.share === null ||
+    data.share === undefined ||
+    data.nextSteps === null ||
+    data.nextSteps === undefined ||
+    data.content.fortuneDate !== data.requestContext.fortuneDate ||
+    data.imagePreviewSection.cards.length < 2 ||
+    [
+      data.ciJiCard.contentVersion,
+      data.pingCard.contentVersion,
+      data.attentionSection.contentVersion,
+      data.outfitPreviewSection.contentVersion,
+      data.imagePreviewSection.contentVersion,
+      data.basis.contentVersion,
+      data.share.contentVersion,
+      data.nextSteps.contentVersion,
+    ].some((candidate) => candidate !== contentVersion)
+  ) {
+    return null;
+  }
+  return data as CompleteTodayPageData;
+}
+
+function isZonedDateTime(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /T.*(?:Z|[+-]\d{2}:\d{2})$/u.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+function parseServerObservedAt(headers: Headers): number | null {
+  const dateHeader = headers.get("date");
+  const dateMilliseconds = dateHeader === null ? Number.NaN : Date.parse(dateHeader);
+  const ageHeader = headers.get("age");
+  const ageSeconds = ageHeader === null ? 0 : Number(ageHeader);
+  if (
+    !Number.isFinite(dateMilliseconds) ||
+    !Number.isInteger(ageSeconds) ||
+    ageSeconds < 0 ||
+    ageSeconds > 86_400
+  ) {
+    return null;
+  }
+  return dateMilliseconds + ageSeconds * 1_000;
+}
+
+function toTodaySnapshot(
+  body: unknown,
+  responseContentVersion: string | null,
+  headers: Headers,
+): TodaySnapshot | null {
+  const data = parseTodayPageData(body, responseContentVersion);
+  const completeData = data === null ? null : toCompleteTodayPageData(data);
+  if (completeData === null || !isRecord(body) || !isRecord(body.content)) {
+    return null;
+  }
+  const effectiveFrom = body.content.effectiveFrom;
+  const effectiveTo = body.content.effectiveTo;
+  const responseGeneratedAt = isRecord(body.requestContext)
+    ? body.requestContext.responseGeneratedAt
+    : null;
+  const serverObservedAtMs = parseServerObservedAt(headers);
+  if (
+    !isZonedDateTime(effectiveFrom) ||
+    !isZonedDateTime(effectiveTo) ||
+    !isZonedDateTime(responseGeneratedAt) ||
+    serverObservedAtMs === null
+  ) {
+    return null;
+  }
+  const effectiveFromMs = Date.parse(effectiveFrom);
+  const effectiveToMs = Date.parse(effectiveTo);
+  const responseGeneratedAtMs = Date.parse(responseGeneratedAt);
+  if (
+    effectiveFromMs >= effectiveToMs ||
+    serverObservedAtMs < effectiveFromMs ||
+    serverObservedAtMs >= effectiveToMs ||
+    responseGeneratedAtMs < effectiveFromMs ||
+    responseGeneratedAtMs >= effectiveToMs
+  ) {
+    return null;
+  }
+
+  return {
+    contentVersion: completeData.daJiCard.contentVersion,
+    data: completeData,
+    effectiveFrom,
+    effectiveTo,
+    fortuneDate: completeData.content.fortuneDate,
+    responseGeneratedAt,
+    serverObservedAtMs,
+  };
+}
+
+const invalidJson = Symbol("invalid-json");
+
+type TodayHttpResult =
+  | { kind: "network" | "timeout" }
+  | { body: unknown | typeof invalidJson; kind: "response"; response: Response };
+
+async function requestToday({
   apiOrigin = getPublicApiOrigin(),
   requestId,
   timeoutMs = DEFAULT_PUBLIC_REQUEST_TIMEOUT_MS,
-}: LoadTodayOptions = {}): Promise<TodayPageData | null> {
+}: LoadTodayOptions): Promise<TodayHttpResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -1549,63 +1739,90 @@ export async function loadToday({
       signal: controller.signal,
     });
 
-    if (!response.ok) {
-      return null;
+    let body: unknown | typeof invalidJson = invalidJson;
+    try {
+      body = (await response.json()) as unknown;
+    } catch {
+      // Keep the HTTP status available to the caller while marking the payload invalid.
     }
-
-    const body: unknown = await response.json();
-    const dateData = toTodayDateData(body);
-    if (dateData === null || !isRecord(body)) {
-      return null;
-    }
-
-    const dailyContent = parsePublicDailyContent(
-      body.content,
-      response.headers.get("x-content-version"),
-    );
-    if (
-      dailyContent === null ||
-      dailyContent.content.fortuneDate !== dateData.content.fortuneDate
-    ) {
-      return null;
-    }
-
-    const completeHomepageContentVersion =
-      dailyContent.daJiCard !== null &&
-      dailyContent.ciJiCard !== null &&
-      dailyContent.pingCard !== null &&
-      dailyContent.attentionSection !== null &&
-      dailyContent.outfitPreviewSection !== null &&
-      dailyContent.imagePreviewSection !== null
-        ? dailyContent.daJiCard.contentVersion
-        : null;
-    const nextSteps =
-      completeHomepageContentVersion === null ||
-      dailyContent.basis === null ||
-      dailyContent.basis === undefined ||
-      dailyContent.share === null ||
-      dailyContent.share === undefined ||
-      dailyContent.outfitPreviewSection === null
-        ? null
-        : toTodayNextStepsData(
-            dailyContent.basis,
-            dailyContent.share,
-            dailyContent.outfitPreviewSection,
-            dateData.content.fortuneDate,
-            completeHomepageContentVersion,
-          );
-    if (completeHomepageContentVersion !== null && nextSteps === null) {
-      return null;
-    }
-
-    return {
-      ...dailyContent,
-      ...dateData,
-      ...(nextSteps === null ? {} : { nextSteps }),
-    };
+    return { body, kind: "response", response };
   } catch {
-    return null;
+    return { kind: controller.signal.aborted ? "timeout" : "network" };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  const seconds = value === null ? Number.NaN : Number(value);
+  return Number.isInteger(seconds) && seconds >= 1 && seconds <= 86_400 ? seconds : null;
+}
+
+function isJsonResponse(headers: Headers): boolean {
+  return headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
+}
+
+function isContentNotReadyEnvelope(value: unknown, responseRequestId: string | null): boolean {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !isRecord(value.error)) {
+    return false;
+  }
+  const error = value.error;
+  return (
+    Object.keys(error).length === 5 &&
+    error.code === "CONTENT_NOT_READY" &&
+    isNonEmptyString(error.message) &&
+    error.message.length <= 500 &&
+    error.retryable === true &&
+    isNonEmptyString(error.requestId) &&
+    error.requestId.length >= 8 &&
+    error.requestId.length <= 128 &&
+    !/[\r\n]/u.test(error.requestId) &&
+    error.requestId === responseRequestId &&
+    isRecord(error.details)
+  );
+}
+
+export async function loadTodayResult(options: LoadTodayOptions = {}): Promise<LoadTodayResult> {
+  const result = await requestToday(options);
+  if (result.kind !== "response") {
+    return { kind: "refresh_failed", reason: result.kind };
+  }
+  if (!result.response.ok) {
+    if (result.response.status === 503) {
+      return result.body !== invalidJson &&
+        isJsonResponse(result.response.headers) &&
+        isContentNotReadyEnvelope(result.body, result.response.headers.get("x-request-id"))
+        ? {
+            kind: "content_not_ready",
+            retryAfterSeconds: parseRetryAfter(result.response.headers.get("retry-after")),
+          }
+        : { kind: "refresh_failed", reason: "invalid_response" };
+    }
+    return {
+      kind: "refresh_failed",
+      reason: result.response.status === 429 ? "rate_limited" : "http",
+    };
+  }
+  if (result.body === invalidJson) {
+    return { kind: "refresh_failed", reason: "invalid_response" };
+  }
+  if (!isJsonResponse(result.response.headers)) {
+    return { kind: "refresh_failed", reason: "invalid_response" };
+  }
+  const snapshot = toTodaySnapshot(
+    result.body,
+    result.response.headers.get("x-content-version"),
+    result.response.headers,
+  );
+  return snapshot === null
+    ? { kind: "refresh_failed", reason: "invalid_response" }
+    : { kind: "ready", snapshot };
+}
+
+export async function loadToday(options: LoadTodayOptions = {}): Promise<TodayPageData | null> {
+  const result = await requestToday(options);
+  if (result.kind !== "response" || !result.response.ok || result.body === invalidJson) {
+    return null;
+  }
+  return parseTodayPageData(result.body, result.response.headers.get("x-content-version"));
 }

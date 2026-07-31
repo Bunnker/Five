@@ -1,13 +1,17 @@
 import { headers } from "next/headers";
 
-import { TodayPageContent } from "../components/today-page-content";
-import { loadToday } from "../lib/today";
+import { TodayPageState } from "../components/today-page-state";
+import { loadTodayResult } from "../lib/today";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const requestId = (await headers()).get("x-request-id");
-  const today = await loadToday({ requestId });
+  const result = await loadTodayResult({ requestId });
+  const stateKey =
+    result.kind === "ready"
+      ? `ready:${result.snapshot.contentVersion}`
+      : `${result.kind}:${result.kind === "refresh_failed" ? result.reason : "none"}`;
 
-  return <TodayPageContent today={today} />;
+  return <TodayPageState key={stateKey} result={result} />;
 }

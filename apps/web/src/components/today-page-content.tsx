@@ -6,25 +6,13 @@ import { PingColorCard } from "./ping-color-card";
 import { TodayImagePreviewSection } from "./today-image-preview-section";
 import { TodayDateRegion } from "./today-date-region";
 import { FoundationAction } from "./visual-foundation";
-import type { TodayPageData } from "../lib/today";
+import type { CompleteTodayPageData } from "../lib/today";
 
 export interface TodayPageContentProps {
-  today: TodayPageData | null;
+  today: CompleteTodayPageData;
 }
 
 export function TodayPageContent({ today }: TodayPageContentProps) {
-  const nextSteps =
-    today?.basis !== null &&
-    today?.basis !== undefined &&
-    today.nextSteps !== null &&
-    today.nextSteps !== undefined &&
-    today.share !== null &&
-    today.share !== undefined &&
-    today.basis.contentVersion === today.nextSteps.contentVersion &&
-    today.share.contentVersion === today.nextSteps.contentVersion
-      ? today.nextSteps
-      : null;
-
   return (
     <main className="page-shell">
       <div className="today-page today-page--home">
@@ -37,68 +25,35 @@ export function TodayPageContent({ today }: TodayPageContentProps) {
             <p className="today-masthead__description">每日五行搭配参考</p>
           </div>
           <div className="today-masthead__actions">
-            {nextSteps === null ? null : (
-              <a aria-label="分享今天" className="today-share-link" href={nextSteps.shareHref}>
-                <span>分享</span>
-                <span aria-hidden="true">↗</span>
-              </a>
-            )}
+            <a aria-label="分享今天" className="today-share-link" href={today.nextSteps.shareHref}>
+              <span>分享</span>
+              <span aria-hidden="true">↗</span>
+            </a>
           </div>
         </header>
 
-        {today === null ? (
-          <section className="today-unavailable" role="status">
-            <p>今日内容正在校验中</p>
-            <small>请稍后刷新页面。</small>
-          </section>
-        ) : (
-          <>
-            <TodayDateRegion today={today} />
-            {today.daJiCard === null ? null : (
-              <>
-                <DaJiColorCard tier={today.daJiCard} />
-                {today.ciJiCard === null ? null : (
-                  <>
-                    <CiJiColorCard tier={today.ciJiCard} />
-                    {today.pingCard === null ? null : (
-                      <>
-                        <PingColorCard tier={today.pingCard} />
-                        {today.attentionSection === null ? null : (
-                          <AttentionColorSection section={today.attentionSection} />
-                        )}
-                        {today.outfitPreviewSection === null ? null : (
-                          <OutfitPreviewSection section={today.outfitPreviewSection} />
-                        )}
-                        {today.imagePreviewSection === null ? null : (
-                          <TodayImagePreviewSection section={today.imagePreviewSection} />
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-            {nextSteps === null ? null : (
-              <nav className="today-next-steps" aria-label="继续查看今日穿搭">
-                <FoundationAction fullWidth href={nextSteps.colorsHref} indicator="›">
-                  查看今日颜色
-                </FoundationAction>
-                <div className="today-next-steps__secondary">
-                  <a href={nextSteps.outfitsHref}>看看怎么搭</a>
-                  <a href={nextSteps.basisHref}>为什么这样排</a>
-                </div>
-              </nav>
-            )}
-            {today.basis === null || today.basis === undefined ? null : (
-              <footer
-                className="today-reference-statement"
-                data-content-version={today.basis.contentVersion}
-              >
-                <p>{today.basis.disclaimer}</p>
-              </footer>
-            )}
-          </>
-        )}
+        <TodayDateRegion today={today} />
+        <DaJiColorCard tier={today.daJiCard} />
+        <CiJiColorCard tier={today.ciJiCard} />
+        <PingColorCard tier={today.pingCard} />
+        <AttentionColorSection section={today.attentionSection} />
+        <OutfitPreviewSection section={today.outfitPreviewSection} />
+        <TodayImagePreviewSection section={today.imagePreviewSection} />
+        <nav className="today-next-steps" aria-label="继续查看今日穿搭">
+          <FoundationAction fullWidth href={today.nextSteps.colorsHref} indicator="›">
+            查看今日颜色
+          </FoundationAction>
+          <div className="today-next-steps__secondary">
+            <a href={today.nextSteps.outfitsHref}>看看怎么搭</a>
+            <a href={today.nextSteps.basisHref}>为什么这样排</a>
+          </div>
+        </nav>
+        <footer
+          className="today-reference-statement"
+          data-content-version={today.basis.contentVersion}
+        >
+          <p>{today.basis.disclaimer}</p>
+        </footer>
       </div>
     </main>
   );

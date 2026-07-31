@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadToday,
+  loadTodayResult,
   type AttentionSectionData,
   type CiJiCardData,
   type DaJiCardData,
@@ -373,6 +374,19 @@ const apiTodayResponse = {
   requestContext: dateData.requestContext,
 };
 
+const cacheableApiTodayResponse = {
+  ...apiTodayResponse,
+  content: {
+    ...apiTodayResponse.content,
+    effectiveFrom: "2026-07-14T23:00:00+08:00",
+    effectiveTo: "2026-07-15T23:00:00+08:00",
+  },
+  requestContext: {
+    ...apiTodayResponse.requestContext,
+    responseGeneratedAt: "2026-07-15T10:00:00+08:00",
+  },
+};
+
 const daJiCard = {
   algorithmLabel: "大吉",
   colors: [
@@ -661,6 +675,43 @@ function readyResponse(
   });
 }
 
+function cacheableResponse(
+  body: unknown,
+  {
+    age = "5",
+    contentType = "application/json",
+    contentVersionHeader = contentVersion,
+    date = "Wed, 15 Jul 2026 02:00:00 GMT",
+    requestIdHeader = "web-request-123",
+    status = 200,
+  }: {
+    age?: string | null;
+    contentType?: string | null;
+    contentVersionHeader?: string | null;
+    date?: string | null;
+    requestIdHeader?: string | null;
+    status?: number;
+  } = {},
+): Response {
+  const headers = new Headers();
+  if (age !== null) {
+    headers.set("age", age);
+  }
+  if (contentType !== null) {
+    headers.set("content-type", contentType);
+  }
+  if (contentVersionHeader !== null) {
+    headers.set("x-content-version", contentVersionHeader);
+  }
+  if (date !== null) {
+    headers.set("date", date);
+  }
+  if (requestIdHeader !== null) {
+    headers.set("x-request-id", requestIdHeader);
+  }
+  return new Response(JSON.stringify(body), { headers, status });
+}
+
 async function loadFrom(body: unknown, responseContentVersion: string | null = contentVersion) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(readyResponse(body, responseContentVersion)));
 
@@ -674,6 +725,210 @@ describe("loadToday", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("returns one complete version-locked snapshot with authoritative validity metadata", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(cacheableResponse(cacheableApiTodayResponse)));
+
+    await expect(
+      loadTodayResult({ apiOrigin: "http://backend.test:3100", requestId: "web-request-123" }),
+    ).resolves.toMatchObject({
+      kind: "ready",
+      snapshot: {
+        contentVersion,
+        data: pageData,
+        effectiveFrom: "2026-07-14T23:00:00+08:00",
+        effectiveTo: "2026-07-15T23:00:00+08:00",
+        fortuneDate: "2026-07-15",
+        responseGeneratedAt: "2026-07-15T10:00:00+08:00",
+        serverObservedAtMs: Date.parse("Wed, 15 Jul 2026 02:00:00 GMT") + 5_000,
+      },
+    });
+  });
+
+  it.each([
+    ["missing version header", { contentVersionHeader: null }],
+    ["mixed header and body versions", { contentVersionHeader: "fd-20260715-r2" }],
+    ["non-JSON media type", { contentType: "text/plain" }],
+  ])("rejects a %s instead of displaying a partial response", async (_label, responseOptions) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(cacheableResponse(cacheableApiTodayResponse, responseOptions)),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
+  it("rejects a response missing one required homepage section instead of mixing cards", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        cacheableResponse({
+          ...cacheableApiTodayResponse,
+          content: { ...cacheableApiTodayResponse.content, share: undefined },
+        }),
+      ),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
+  it.each([
+    ["missing server observation", { date: null }],
+    ["server time before effectiveFrom", { age: "0", date: "Tue, 14 Jul 2026 14:59:59 GMT" }],
+    ["server time at effectiveTo", { age: "0", date: "Wed, 15 Jul 2026 15:00:00 GMT" }],
+  ])("rejects a complete 200 with %s", async (_label, responseOptions) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(cacheableResponse(cacheableApiTodayResponse, responseOptions)),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
+  it("rejects a complete 200 generated outside its content validity window", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        cacheableResponse({
+          ...cacheableApiTodayResponse,
+          requestContext: {
+            ...cacheableApiTodayResponse.requestContext,
+            responseGeneratedAt: "2026-07-15T23:00:00+08:00",
+          },
+        }),
+      ),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
+  it("classifies only a valid CONTENT_NOT_READY envelope as authoritative no-content", async () => {
+    const body = {
+      error: {
+        code: "CONTENT_NOT_READY",
+        details: {},
+        message: "今日内容尚未发布",
+        requestId: "web-request-503",
+        retryable: true,
+      },
+    };
+    const response = cacheableResponse(body, {
+      age: null,
+      contentVersionHeader: null,
+      date: null,
+      requestIdHeader: "web-request-503",
+      status: 503,
+    });
+    response.headers.set("retry-after", "30");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "content_not_ready",
+      retryAfterSeconds: 30,
+    });
+  });
+
+  it.each([
+    ["wrong media type", { contentType: "text/plain", requestIdHeader: "web-request-503" }],
+    ["missing response request id", { requestIdHeader: null }],
+    ["mismatched response request id", { requestIdHeader: "web-request-other" }],
+  ])("keeps usable cache for a non-authoritative 503 with %s", async (_label, options) => {
+    const body = {
+      error: {
+        code: "CONTENT_NOT_READY",
+        details: {},
+        message: "今日内容尚未发布",
+        requestId: "web-request-503",
+        retryable: true,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        cacheableResponse(body, {
+          age: null,
+          contentVersionHeader: null,
+          date: null,
+          status: 503,
+          ...options,
+        }),
+      ),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
+  it.each([
+    [503, { error: { code: "CONTENT_NOT_READY" } }, "invalid_response"],
+    [429, { error: { code: "RATE_LIMITED" } }, "rate_limited"],
+    [500, { error: { code: "INTERNAL" } }, "http"],
+  ] as const)(
+    "classifies HTTP %i without treating malformed content as cached today",
+    async (status, body, reason) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          cacheableResponse(body, {
+            age: null,
+            contentVersionHeader: null,
+            date: null,
+            status,
+          }),
+        ),
+      );
+
+      await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+        kind: "refresh_failed",
+        reason,
+      });
+    },
+  );
+
+  it("classifies a fetch rejection as a network refresh failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network unavailable")));
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "network",
+    });
+  });
+
+  it("classifies an aborted request as a timeout refresh failure", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+            once: true,
+          });
+        });
+      }),
+    );
+
+    const result = loadTodayResult({
+      apiOrigin: "http://backend.test:3100",
+      timeoutMs: 50,
+    });
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(result).resolves.toEqual({ kind: "refresh_failed", reason: "timeout" });
   });
 
   it("selects every tier by tierCode and preserves the published group and color order", async () => {

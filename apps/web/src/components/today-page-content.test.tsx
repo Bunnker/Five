@@ -250,21 +250,22 @@ const share = {
   summaryText: "今日木日，优先参考红、橙、紫、粉色系。",
 } satisfies NonNullable<TodayPageData["share"]>;
 
+const completeToday = {
+  ...baseToday,
+  attentionSection,
+  basis,
+  ciJiCard,
+  daJiCard,
+  imagePreviewSection,
+  nextSteps,
+  outfitPreviewSection,
+  pingCard,
+  share,
+};
+
 describe("TodayPageContent", () => {
   it("keeps the fixed date, color decisions, formulas and image preview page order", () => {
-    render(
-      <TodayPageContent
-        today={{
-          ...baseToday,
-          attentionSection,
-          ciJiCard,
-          daJiCard,
-          imagePreviewSection,
-          outfitPreviewSection,
-          pingCard,
-        }}
-      />,
-    );
+    render(<TodayPageContent today={completeToday} />);
 
     const text = screen.getByRole("main").textContent ?? "";
     expect(text.indexOf("今日木日")).toBeLessThan(text.indexOf("今日优先"));
@@ -291,105 +292,8 @@ describe("TodayPageContent", () => {
     );
   });
 
-  it("keeps da_ji but does not show an orphan ping card when ci_ji is unavailable", () => {
-    render(
-      <TodayPageContent
-        today={{
-          ...baseToday,
-          attentionSection,
-          ciJiCard: null,
-          daJiCard,
-          pingCard,
-        }}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "稳妥选择" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
-  });
-
-  it("does not show orphan ci_ji or ping cards when da_ji is unavailable", () => {
-    render(
-      <TodayPageContent
-        today={{
-          ...baseToday,
-          attentionSection,
-          ciJiCard,
-          daJiCard: null,
-          pingCard,
-        }}
-      />,
-    );
-
-    expect(screen.queryByRole("heading", { name: "今日优先" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "稳妥选择" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
-  });
-
-  it("keeps da_ji and ci_ji when ping is unavailable", () => {
-    render(
-      <TodayPageContent
-        today={{
-          ...baseToday,
-          attentionSection,
-          ciJiCard,
-          daJiCard,
-          pingCard: null,
-        }}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "稳妥选择" })).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "日常可穿" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
-  });
-
-  it("keeps positive cards, formulas and images when attention is unavailable", () => {
-    render(
-      <TodayPageContent
-        today={{
-          ...baseToday,
-          attentionSection: null,
-          basis,
-          ciJiCard,
-          daJiCard,
-          imagePreviewSection,
-          outfitPreviewSection,
-          pingCard,
-        }}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: "今日优先" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "稳妥选择" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "日常可穿" })).toBeVisible();
-    expect(screen.queryByRole("region", { name: "较差 · 不利" })).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "今日怎么搭" })).toBeVisible();
-    expect(screen.getByRole("region", { name: "今日图片示范" })).toBeVisible();
-    expect(screen.getByText(basis.disclaimer)).toBeVisible();
-  });
-
   it("offers four real next steps and shows the reviewed reference statement after the images", () => {
-    render(
-      <TodayPageContent
-        today={{
-          ...baseToday,
-          attentionSection,
-          basis,
-          ciJiCard,
-          daJiCard,
-          imagePreviewSection,
-          nextSteps,
-          outfitPreviewSection,
-          pingCard,
-          share,
-        }}
-      />,
-    );
+    render(<TodayPageContent today={completeToday} />);
 
     expect(screen.getByRole("link", { name: "分享今天" })).toHaveAttribute(
       "href",
