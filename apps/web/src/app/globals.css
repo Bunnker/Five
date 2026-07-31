@@ -941,6 +941,12 @@ a {
   border-bottom: 0;
 }
 
+.today-image-card__media--fallback,
+.today-image-card--supplemental .today-image-card__media--fallback {
+  min-height: 280px;
+  aspect-ratio: auto;
+}
+
 .today-image-card__media img {
   display: block;
   width: 100%;
@@ -953,12 +959,13 @@ a {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 150px;
-  padding: 18px 12px;
-  background: rgb(82 107 86 / 7%);
+  padding: clamp(10px, 3vw, 18px) clamp(7px, 2.5vw, 12px);
+  background: color-mix(in srgb, var(--accent-pine), var(--paper) 93%);
   color: var(--ink);
   text-align: center;
 }
@@ -968,7 +975,8 @@ a {
   align-items: flex-start;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+  width: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1002,11 +1010,43 @@ a {
   font-weight: 650;
 }
 
-.reviewed-image-fallback > span:last-child {
+.reviewed-image-fallback__note,
+.reviewed-image-fallback__source {
   max-width: 220px;
   color: var(--ink-soft);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.reviewed-image-fallback__meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  max-width: 260px;
+  min-width: 0;
+}
+
+.reviewed-image-fallback__meta > span {
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid rgb(82 107 86 / 17%);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 48%);
+  color: var(--accent-pine);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.reviewed-image-fallback__source {
+  color: var(--accent-pine);
+  font-size: 12px;
 }
 
 .today-image-card__body {
@@ -2553,6 +2593,12 @@ h1 {
   aspect-ratio: 1 / 1;
 }
 
+.outfit-detail__image--fallback,
+.outfit-detail__details .outfit-detail__image--fallback {
+  min-height: 280px;
+  aspect-ratio: auto;
+}
+
 .outfit-detail__image img {
   display: block;
   width: 100%;
@@ -2767,6 +2813,38 @@ h1 {
   .color-grid {
     grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
     gap: 9px 5px;
+  }
+
+  .reviewed-image-fallback {
+    gap: 4px;
+    padding: 8px 6px;
+  }
+
+  .reviewed-image-fallback__colors {
+    gap: 4px;
+  }
+
+  .reviewed-image-fallback__color {
+    min-width: 32px;
+    gap: 2px;
+  }
+
+  .reviewed-image-fallback__swatch {
+    width: 24px;
+    height: 24px;
+  }
+
+  .reviewed-image-fallback__note {
+    line-height: 1.45;
+  }
+
+  .reviewed-image-fallback__meta > span {
+    padding: 2px 5px;
+    border-radius: 6px;
+  }
+
+  .reviewed-image-fallback__source {
+    line-height: 1.45;
   }
 }
 
@@ -3809,6 +3887,13 @@ h1 {
     height: 100%;
     border-right: 1px solid rgb(139 105 61 / 16%);
     border-bottom: 0;
+  }
+
+  .today-page--home .today-image-card .today-image-card__media--fallback,
+  .today-page--home .today-image-card--supplemental .today-image-card__media--fallback {
+    height: auto;
+    min-height: 280px;
+    aspect-ratio: auto;
   }
 
   .today-page--home .attention-balance {

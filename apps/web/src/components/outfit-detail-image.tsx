@@ -27,9 +27,17 @@ export function OutfitDetailImage({
 
   return (
     <figure className="outfit-detail__figure">
-      <div className="outfit-detail__image">
+      <div
+        className={
+          imageFailed
+            ? "outfit-detail__image outfit-detail__image--fallback"
+            : "outfit-detail__image"
+        }
+      >
         {imageFailed ? (
           <ReviewedImageFallback
+            aiDisclosure={image.aiDisclosure}
+            contentVersion={contentVersion}
             items={items}
             note="图片暂时无法显示，已审核的颜色与穿法仍可参考。"
           />

@@ -139,8 +139,14 @@ describe("TodayImagePreviewSection", () => {
     expect(within(mainCard).getByTestId("reviewed-image-fallback-white")).toHaveClass(
       "reviewed-image-fallback__swatch--light",
     );
-    expect(within(mainCard).queryByText("AI 生成穿搭示意图")).not.toBeInTheDocument();
+    const fallbackMetadata = within(fallback).getByRole("group", { name: "图片失败信息" });
+    expect(within(fallbackMetadata).getByText("原图说明 · AI 生成穿搭示意图")).toBeVisible();
+    expect(within(fallbackMetadata).getByText("内容版本 · fd-20260715-r1")).toBeVisible();
+    expect(fallback).toHaveTextContent("当前仅显示已审核配色，未使用替换图片");
     expect(within(alternateCard).getByRole("img")).toBeVisible();
+    expect(
+      within(screen.getByRole("region", { name: "今日图片示范" })).getAllByRole("img"),
+    ).toHaveLength(2);
   });
 
   it("detects an image that failed before the page finished attaching its error handler", () => {

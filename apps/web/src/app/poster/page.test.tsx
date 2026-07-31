@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TodayPageData } from "../../lib/today";
@@ -114,5 +114,18 @@ describe("PosterPage", () => {
     expect(screen.getByRole("status")).toHaveTextContent("这份海报配置已经更新");
     expect(screen.queryByRole("button", { name: "生成日签海报" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
+  });
+
+  it("keeps the locked version, AI disclosure, and copy actions after generation fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network unavailable")));
+    render(await PosterPage({ searchParams: Promise.resolve(validSearchParams) }));
+
+    fireEvent.click(screen.getByRole("button", { name: "生成日签海报" }));
+
+    expect(await screen.findByText(/海报暂时没有生成成功/u)).toBeVisible();
+    expect(screen.getByText(contentVersion)).toBeVisible();
+    expect(screen.getByText(/图片标识：AI 生成穿搭示意图/u)).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制今日文字" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "复制当日链接" })).toBeEnabled();
   });
 });

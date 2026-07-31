@@ -31,13 +31,20 @@ export function useReviewedImageFailure({ assetId, contentVersion, url }: Review
 }
 
 interface ReviewedImageFallbackProps {
+  aiDisclosure: string | null;
+  contentVersion: string;
   items: TodayImagePreviewItemData[];
   note: string;
 }
 
-export function ReviewedImageFallback({ items, note }: ReviewedImageFallbackProps) {
+export function ReviewedImageFallback({
+  aiDisclosure,
+  contentVersion,
+  items,
+  note,
+}: ReviewedImageFallbackProps) {
   return (
-    <div className="reviewed-image-fallback" role="status">
+    <div className="reviewed-image-fallback" data-content-version={contentVersion} role="status">
       <ul className="reviewed-image-fallback__colors" aria-label="审核配色">
         {items.map((item, index) => {
           const color = reviewedColorPalette[item.color.colorCode];
@@ -66,7 +73,14 @@ export function ReviewedImageFallback({ items, note }: ReviewedImageFallbackProp
         })}
       </ul>
       <strong>已切换为配色示意</strong>
-      <span>{note}</span>
+      <span className="reviewed-image-fallback__note">{note}</span>
+      <div aria-label="图片失败信息" className="reviewed-image-fallback__meta" role="group">
+        {aiDisclosure === null ? null : <span>原图说明 · {aiDisclosure}</span>}
+        <span>内容版本 · {contentVersion}</span>
+      </div>
+      <span className="reviewed-image-fallback__source">
+        当前仅显示已审核配色，未使用替换图片。
+      </span>
     </div>
   );
 }

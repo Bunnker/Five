@@ -18,7 +18,12 @@ export function OutfitOverviewImage({ card, contentVersion, eager }: OutfitOverv
 
   if (imageFailed) {
     return (
-      <ReviewedImageFallback items={card.items} note="图片暂时无法显示，颜色与比例仍可参考。" />
+      <ReviewedImageFallback
+        aiDisclosure={card.aiDisclosure}
+        contentVersion={contentVersion}
+        items={card.items}
+        note="图片暂时无法显示，颜色与比例仍可参考。"
+      />
     );
   }
 

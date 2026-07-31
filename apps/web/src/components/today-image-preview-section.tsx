@@ -31,9 +31,20 @@ function TodayImagePreviewCard({ card, contentVersion }: TodayImagePreviewCardPr
       data-content-version={contentVersion}
       data-image-placement={card.placement}
     >
-      <div className="today-image-card__media">
+      <div
+        className={
+          imageFailed
+            ? "today-image-card__media today-image-card__media--fallback"
+            : "today-image-card__media"
+        }
+      >
         {imageFailed ? (
-          <ReviewedImageFallback items={card.items} note="图片暂时无法显示，今日配色仍可参考。" />
+          <ReviewedImageFallback
+            aiDisclosure={card.aiDisclosure}
+            contentVersion={contentVersion}
+            items={card.items}
+            note="图片暂时无法显示，今日配色仍可参考。"
+          />
         ) : (
           <img
             alt={card.altText}

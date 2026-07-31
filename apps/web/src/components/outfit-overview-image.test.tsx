@@ -47,7 +47,10 @@ describe("OutfitOverviewImage", () => {
     expect(screen.getByText("红色")).toBeVisible();
     expect(screen.getByText("绿色")).toBeVisible();
     expect(screen.getByText("白色")).toBeVisible();
-    expect(screen.queryByText("AI 生成穿搭示意图")).not.toBeInTheDocument();
+    const fallbackMetadata = screen.getByRole("group", { name: "图片失败信息" });
+    expect(fallbackMetadata).toHaveTextContent("原图说明 · AI 生成穿搭示意图");
+    expect(fallbackMetadata).toHaveTextContent("内容版本 · fd-20260715-r1");
+    expect(screen.getByRole("status")).toHaveTextContent("当前仅显示已审核配色，未使用替换图片");
   });
 
   it("retries when navigation supplies a different reviewed image", () => {
@@ -85,5 +88,24 @@ describe("OutfitOverviewImage", () => {
 
     expect(screen.getByRole("img")).toHaveAttribute("src", card.url);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("keeps compact version metadata without inventing an AI label for a non-AI image", () => {
+    const contentVersion = "fd-20260715-reviewed-version-with-a-long-opaque-suffix";
+    render(
+      <OutfitOverviewImage
+        card={{ ...card, aiDisclosure: null }}
+        contentVersion={contentVersion}
+        eager
+      />,
+    );
+    fireEvent.error(screen.getByRole("img"));
+
+    const fallback = screen.getByRole("status");
+    const metadata = screen.getByRole("group", { name: "图片失败信息" });
+    expect(fallback).toHaveAttribute("data-content-version", contentVersion);
+    expect(metadata).toHaveTextContent(`内容版本 · ${contentVersion}`);
+    expect(metadata).not.toHaveTextContent("原图说明");
+    expect(fallback).not.toHaveTextContent(/AI/u);
   });
 });
