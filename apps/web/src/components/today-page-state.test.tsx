@@ -18,6 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../lib/today-cache", () => ({
+  TODAY_PENDING_REFRESH_ANCHOR_KEY: "five:today:v1:pending-refresh-anchor",
   clearTodaySnapshotPointer: mocks.clear,
   getTodayCacheClientAnchorMs: mocks.anchor,
   getTodaySnapshotRemainingMs: mocks.remaining,

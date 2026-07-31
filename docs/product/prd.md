@@ -1302,6 +1302,7 @@ P0 只有网页端，不传来源平台或目标平台。如果 `expectedContent
 | 429 | `RATE_LIMITED` | 海报或反馈请求过于频繁 |
 | 503 | `CONTENT_NOT_READY` | 当前命理日尚无已发布内容 |
 | 503 | `POSTER_GENERATION_UNAVAILABLE` | 海报服务不可用，但基础内容仍可展示 |
+| 503 | `FEEDBACK_UNAVAILABLE` | 反馈服务暂时不可用，但公共内容仍可展示 |
 
 ## 17.6 缓存与原子更新
 

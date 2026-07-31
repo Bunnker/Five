@@ -6,7 +6,7 @@ import { URL } from "node:url";
 import pg from "pg";
 
 const { Client } = pg;
-const databaseName = `five_poster_test_${process.pid}_${randomUUID().replaceAll("-", "")}`;
+const databaseName = `five_integration_test_${process.pid}_${randomUUID().replaceAll("-", "")}`;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 let activeChild = null;
 let baseUrlForCleanup = null;
@@ -16,7 +16,7 @@ let setupPromise = Promise.resolve();
 
 function checkedDatabaseUrl(value) {
   if (value === undefined || value.trim().length === 0) {
-    throw new Error("DATABASE_URL is required for the poster PostgreSQL check");
+    throw new Error("DATABASE_URL is required for the PostgreSQL integration check");
   }
   const url = new URL(value);
   if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
@@ -51,7 +51,7 @@ function run(args, environment) {
       }
       rejectRun(
         new Error(
-          `Poster PostgreSQL check command exited with code ${code ?? "none"} and signal ${signal ?? "none"}`,
+          `PostgreSQL integration check command exited with code ${code ?? "none"} and signal ${signal ?? "none"}`,
         ),
       );
     });
@@ -89,7 +89,7 @@ function cleanupDisposableDatabase() {
 
 function assertNotInterrupted() {
   if (receivedSignal !== null) {
-    throw new Error(`Poster PostgreSQL check interrupted by ${receivedSignal}`);
+    throw new Error(`PostgreSQL integration check interrupted by ${receivedSignal}`);
   }
 }
 
@@ -105,7 +105,7 @@ function handleSignal(signal) {
     .then(
       () => process.exit(signalExitCode(signal)),
       () => {
-        process.stderr.write("Poster PostgreSQL check cleanup failed after interruption.\n");
+        process.stderr.write("PostgreSQL integration check cleanup failed after interruption.\n");
         process.exit(1);
       },
     );
@@ -145,12 +145,16 @@ async function main() {
         "vitest",
         "run",
         "src/poster/postgres-poster-job.repository.integration.test.ts",
+        "src/feedback/postgres-feedback-report.repository.integration.test.ts",
       ],
-      { FIVE_POSTER_TEST_DATABASE_URL: testUrl.toString() },
+      {
+        FIVE_FEEDBACK_TEST_DATABASE_URL: testUrl.toString(),
+        FIVE_POSTER_TEST_DATABASE_URL: testUrl.toString(),
+      },
     );
     assertNotInterrupted();
     process.stdout.write(
-      "Poster PostgreSQL integration check passed in an isolated disposable database.\n",
+      "Poster and feedback PostgreSQL integration checks passed in an isolated disposable database.\n",
     );
   } finally {
     await cleanupDisposableDatabase();

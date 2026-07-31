@@ -13,10 +13,24 @@ export interface TodayPageContentProps {
 }
 
 export function TodayPageContent({ today }: TodayPageContentProps) {
+  const helpSearchParams = new URLSearchParams({
+    fortuneDate: today.content.fortuneDate,
+    expectedContentVersion: today.daJiCard.contentVersion,
+    channelId: "organic",
+  });
+
   return (
     <main className="page-shell">
       <div className="today-page today-page--home">
         <header className="today-masthead">
+          <a
+            aria-label="使用说明与反馈"
+            className="today-help-link"
+            href={`/help?${helpSearchParams.toString()}`}
+          >
+            <span aria-hidden="true">?</span>
+            <span>说明</span>
+          </a>
           <div className="today-masthead__identity">
             <p className="today-masthead__brand">
               <span>Five</span>

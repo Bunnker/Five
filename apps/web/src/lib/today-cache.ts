@@ -2,9 +2,10 @@ import type { CompleteTodayPageData, TodaySnapshot } from "./today";
 import { resolveTodayContextBoundary } from "./today-refresh-policy";
 
 const CACHE_SCHEMA_VERSION = 1;
-const CACHE_KEY_PREFIX = "five:today:v1";
+export const TODAY_CACHE_KEY_PREFIX = "five:today:v1";
+export const TODAY_PENDING_REFRESH_ANCHOR_KEY = `${TODAY_CACHE_KEY_PREFIX}:pending-refresh-anchor`;
 
-export const TODAY_CACHE_POINTER_KEY = `${CACHE_KEY_PREFIX}:active`;
+export const TODAY_CACHE_POINTER_KEY = `${TODAY_CACHE_KEY_PREFIX}:active`;
 
 type TodayCacheStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
@@ -237,7 +238,20 @@ export function getTodaySnapshotRemainingMs(
 }
 
 export function todaySnapshotCacheKey(fortuneDate: string, contentVersion: string): string {
-  return `${CACHE_KEY_PREFIX}:${encodeURIComponent(fortuneDate)}:${encodeURIComponent(contentVersion)}`;
+  return `${TODAY_CACHE_KEY_PREFIX}:${encodeURIComponent(fortuneDate)}:${encodeURIComponent(contentVersion)}`;
+}
+
+export function clearTodaySnapshotCache(storage: Storage = window.localStorage): void {
+  const keys: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key?.startsWith(`${TODAY_CACHE_KEY_PREFIX}:`)) {
+      keys.push(key);
+    }
+  }
+  for (const key of keys) {
+    storage.removeItem(key);
+  }
 }
 
 export function writeTodaySnapshotCache(

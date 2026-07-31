@@ -292,12 +292,16 @@ describe("TodayPageContent", () => {
     );
   });
 
-  it("offers four real next steps and shows the reviewed reference statement after the images", () => {
+  it("offers real next steps and shows the reviewed reference statement after the images", () => {
     render(<TodayPageContent today={completeToday} />);
 
     expect(screen.getByRole("link", { name: "分享今天" })).toHaveAttribute(
       "href",
       nextSteps.shareHref,
+    );
+    expect(screen.getByRole("link", { name: "使用说明与反馈" })).toHaveAttribute(
+      "href",
+      "/help?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=organic",
     );
     expect(screen.getByRole("link", { name: "查看今日颜色" })).toHaveAttribute(
       "href",

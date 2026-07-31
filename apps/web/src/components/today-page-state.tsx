@@ -8,6 +8,7 @@ import {
   getTodayCacheClientAnchorMs,
   getTodaySnapshotRemainingMs,
   readTodaySnapshotCache,
+  TODAY_PENDING_REFRESH_ANCHOR_KEY,
   writeTodaySnapshotCache,
 } from "../lib/today-cache";
 import type { TodaySnapshotCacheHit } from "../lib/today-cache";
@@ -20,7 +21,6 @@ export interface TodayPageStateProps {
   result: LoadTodayResult;
 }
 
-const PENDING_REFRESH_ANCHOR_KEY = "five:today:v1:pending-refresh-anchor";
 const REFRESH_WATCHDOG_MILLISECONDS = 10_000;
 
 interface ActiveTodaySnapshot extends TodaySnapshotCacheHit {
@@ -78,7 +78,7 @@ function describeSnapshotUpdate(
 
 function clearPendingRefreshAnchor(): void {
   try {
-    window.sessionStorage.removeItem(PENDING_REFRESH_ANCHOR_KEY);
+    window.sessionStorage.removeItem(TODAY_PENDING_REFRESH_ANCHOR_KEY);
   } catch {
     // The response will use the conservative fallback anchor below.
   }
@@ -86,7 +86,7 @@ function clearPendingRefreshAnchor(): void {
 
 function rememberPendingRefreshAnchor(clientNowMs: number): void {
   try {
-    window.sessionStorage.setItem(PENDING_REFRESH_ANCHOR_KEY, String(clientNowMs));
+    window.sessionStorage.setItem(TODAY_PENDING_REFRESH_ANCHOR_KEY, String(clientNowMs));
   } catch {
     // The response will use the conservative fallback anchor below.
   }
@@ -95,8 +95,8 @@ function rememberPendingRefreshAnchor(clientNowMs: number): void {
 function consumeResponseClientAnchor(clientNowMs: number): number {
   const navigationAnchorMs = getTodayCacheClientAnchorMs();
   try {
-    const pendingValue = window.sessionStorage.getItem(PENDING_REFRESH_ANCHOR_KEY);
-    window.sessionStorage.removeItem(PENDING_REFRESH_ANCHOR_KEY);
+    const pendingValue = window.sessionStorage.getItem(TODAY_PENDING_REFRESH_ANCHOR_KEY);
+    window.sessionStorage.removeItem(TODAY_PENDING_REFRESH_ANCHOR_KEY);
     const pendingAnchorMs = pendingValue === null ? Number.NaN : Number(pendingValue);
     if (Number.isFinite(pendingAnchorMs) && pendingAnchorMs <= clientNowMs) {
       return pendingAnchorMs;

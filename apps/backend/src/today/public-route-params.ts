@@ -13,8 +13,8 @@ export function isFortuneDate(value: string): boolean {
 export function isOpaquePublicValue(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= MAX_OPAQUE_VALUE_LENGTH &&
+    [...value].length >= 1 &&
+    [...value].length <= MAX_OPAQUE_VALUE_LENGTH &&
     value.trim() === value &&
     ![...value].some((character) => {
       const codePoint = character.codePointAt(0);

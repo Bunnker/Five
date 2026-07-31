@@ -377,7 +377,7 @@ export interface components {
          */
         ZonedDateTime: string;
         /**
-         * @description 不透明内容版本；调用方只能比较相等，不得解析。
+         * @description 不透明内容版本；禁止首尾空白及 C0/DEL 控制字符，调用方只能比较相等，不得解析。
          * @example fd-20260715-r3
          */
         ContentVersion: string;
@@ -595,9 +595,11 @@ export interface components {
         CreateFeedbackRequest: {
             /** @enum {string} */
             category: "content_error" | "product_feedback";
+            /** @description 至少包含一个非空白字符；允许制表符和换行，拒绝其他 C0 与全部 C1 控制字符。 */
             message: string;
             fortuneDate: components["schemas"]["FortuneDate"];
             contentVersion: components["schemas"]["ContentVersion"];
+            /** @description 不透明渠道标识；禁止首尾空白及 C0/DEL 控制字符。 */
             channelId: string;
             /** @description 只有用户单独同意后才可填写。 */
             contact: string | null;
@@ -815,7 +817,7 @@ export interface components {
             nextCursor: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "UNAUTHENTICATED" | "FORBIDDEN" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "IDEMPOTENCY_KEY_REUSED" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "POSTER_GENERATION_UNAVAILABLE";
+        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "UNAUTHENTICATED" | "FORBIDDEN" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "IDEMPOTENCY_KEY_REUSED" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "POSTER_GENERATION_UNAVAILABLE" | "FEEDBACK_UNAVAILABLE";
         Error: {
             code: components["schemas"]["ErrorCode"];
             message: string;
@@ -997,6 +999,17 @@ export interface components {
         };
         /** @description 海报暂时不可用，基础每日内容不受影响 */
         PosterUnavailable: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 反馈暂时无法接收，公共内容不受影响 */
+        FeedbackUnavailable: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
                 "Retry-After"?: number;
@@ -1256,6 +1269,7 @@ export interface operations {
             };
             400: components["responses"]["InvalidArgument"];
             429: components["responses"]["RateLimited"];
+            503: components["responses"]["FeedbackUnavailable"];
         };
     };
     createDailyContentDraft: {

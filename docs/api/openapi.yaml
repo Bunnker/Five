@@ -257,6 +257,8 @@ paths:
           $ref: "#/components/responses/InvalidArgument"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/FeedbackUnavailable"
 
   /admin/api/v1/daily-content-drafts:
     post:
@@ -864,7 +866,8 @@ components:
       type: string
       minLength: 1
       maxLength: 128
-      description: 不透明内容版本；调用方只能比较相等，不得解析。
+      pattern: '^(?!\s)(?!.*\s$)[^\u0000-\u001F\u007F]+$'
+      description: 不透明内容版本；禁止首尾空白及 C0/DEL 控制字符，调用方只能比较相等，不得解析。
       example: fd-20260715-r3
     OpaqueId:
       type: string
@@ -1541,6 +1544,8 @@ components:
           type: string
           minLength: 1
           maxLength: 2000
+          pattern: '^(?=[\s\S]*\S)[^\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]*$'
+          description: 至少包含一个非空白字符；允许制表符和换行，拒绝其他 C0 与全部 C1 控制字符。
         fortuneDate:
           $ref: "#/components/schemas/FortuneDate"
         contentVersion:
@@ -1549,11 +1554,15 @@ components:
           type: string
           minLength: 1
           maxLength: 64
+          pattern: '^(?!\s)(?!.*\s$)[^\u0000-\u001F\u007F]+$'
+          description: 不透明渠道标识；禁止首尾空白及 C0/DEL 控制字符。
         contact:
           oneOf:
             - type: string
               minLength: 1
               maxLength: 200
+              pattern: '^(?=[\s\S]*\S)[^\u0000-\u001F\u007F-\u009F]*$'
+              description: 可选联系方式；至少包含一个非空白字符，并拒绝全部 C0/C1 控制字符。
             - type: "null"
           description: 只有用户单独同意后才可填写。
     CreateFeedbackResponse:
@@ -2234,6 +2243,7 @@ components:
         - RATE_LIMITED
         - CONTENT_NOT_READY
         - POSTER_GENERATION_UNAVAILABLE
+        - FEEDBACK_UNAVAILABLE
     Error:
       type: object
       additionalProperties: false
@@ -2429,6 +2439,19 @@ components:
             $ref: "#/components/schemas/ErrorEnvelope"
     PosterUnavailable:
       description: 海报暂时不可用，基础每日内容不受影响
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    FeedbackUnavailable:
+      description: 反馈暂时无法接收，公共内容不受影响
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
