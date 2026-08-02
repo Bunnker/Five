@@ -55,6 +55,23 @@ describe("real application admin HTTP boundary", () => {
     expect(response.json()).toMatchObject({ error: { code: "UNAUTHENTICATED" } });
   });
 
+  it("registers the content workflow behind the same protected admin boundary", async () => {
+    const response = await app.inject({
+      headers: { "x-request-id": "registered-content-boundary" },
+      method: "GET",
+      url: "/admin/api/v1/daily-content-drafts",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.headers).toMatchObject({
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-request-id": "registered-content-boundary",
+    });
+    expect(response.json()).toMatchObject({ error: { code: "UNAUTHENTICATED" } });
+  });
+
   it("fails a real persistent login preflight closed without leaking the connection", async () => {
     const response = await app.inject({
       headers: {

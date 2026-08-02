@@ -342,7 +342,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * 查看仍可继续编辑的草稿
+         * @description 按更新时间倒序返回草稿；可选按命理日筛选，不依赖浏览器本地存储恢复工作。
+         */
+        get: operations["listDailyContentDrafts"];
         put?: never;
         /** 创建某个命理日的草稿 */
         post: operations["createDailyContentDraft"];
@@ -1021,6 +1025,18 @@ export interface components {
             modules: components["schemas"]["DraftModules"];
             createdAt: components["schemas"]["ZonedDateTime"];
             updatedAt: components["schemas"]["ZonedDateTime"];
+        };
+        ContentDraftSummary: {
+            draftId: components["schemas"]["OpaqueId"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            /** @constant */
+            state: "draft";
+            draftRevision: components["schemas"]["DraftRevision"];
+            createdAt: components["schemas"]["ZonedDateTime"];
+            updatedAt: components["schemas"]["ZonedDateTime"];
+        };
+        ContentDraftList: {
+            items: components["schemas"]["ContentDraftSummary"][];
         };
         CreateDraftRequest: {
             fortuneDate: components["schemas"]["FortuneDate"];
@@ -2053,6 +2069,32 @@ export interface operations {
             503: components["responses"]["AdminServiceUnavailable"];
         };
     };
+    listDailyContentDrafts: {
+        parameters: {
+            query?: {
+                fortuneDate?: components["parameters"]["FortuneDateQueryOptional"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回可继续编辑的草稿摘要 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentDraftList"];
+                };
+            };
+            400: components["responses"]["InvalidFortuneDate"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
     createDailyContentDraft: {
         parameters: {
             query?: never;
@@ -2087,6 +2129,7 @@ export interface operations {
             400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
         };
     };
@@ -2159,6 +2202,7 @@ export interface operations {
             400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["InvalidStateTransition"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -2200,8 +2244,10 @@ export interface operations {
                     "application/json": components["schemas"]["SubmitDraftResult"];
                 };
             };
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -2304,8 +2350,10 @@ export interface operations {
                     "application/json": components["schemas"]["AdminContentVersion"];
                 };
             };
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["InvalidStateTransition"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -2340,8 +2388,10 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["InvalidStateTransition"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["ReviewMissing"];
@@ -2557,6 +2607,7 @@ export interface operations {
                     "application/json": components["schemas"]["AuditEventPage"];
                 };
             };
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
         };
     };

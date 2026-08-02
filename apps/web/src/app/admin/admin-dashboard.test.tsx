@@ -46,6 +46,10 @@ describe("AdminDashboard", () => {
       "href",
       "/admin/emergency",
     );
+    expect(screen.getByRole("link", { name: /内容工作台/ })).toHaveAttribute(
+      "href",
+      "/admin/content",
+    );
     fireEvent.click(screen.getByRole("button", { name: "退出当前会话" }));
 
     await waitFor(() =>

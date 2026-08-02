@@ -660,6 +660,31 @@ paths:
           $ref: "#/components/responses/AdminServiceUnavailable"
 
   /admin/api/v1/daily-content-drafts:
+    get:
+      operationId: listDailyContentDrafts
+      tags: [Admin drafts]
+      summary: 查看仍可继续编辑的草稿
+      description: 按更新时间倒序返回草稿；可选按命理日筛选，不依赖浏览器本地存储恢复工作。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/FortuneDateQueryOptional"
+      responses:
+        "200":
+          description: 返回可继续编辑的草稿摘要
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentDraftList"
+        "400":
+          $ref: "#/components/responses/InvalidFortuneDate"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
     post:
       operationId: createDailyContentDraft
       tags: [Admin drafts]
@@ -704,6 +729,8 @@ paths:
           $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/Conflict"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
 
   /admin/api/v1/daily-content-drafts/{draftId}:
     get:
@@ -776,6 +803,8 @@ paths:
           $ref: "#/components/responses/CsrfValidationFailed"
         "409":
           $ref: "#/components/responses/InvalidStateTransition"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "412":
           $ref: "#/components/responses/RevisionMismatch"
         "428":
@@ -814,8 +843,12 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "409":
           $ref: "#/components/responses/Conflict"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "412":
           $ref: "#/components/responses/RevisionMismatch"
         "428":
@@ -924,8 +957,12 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "409":
           $ref: "#/components/responses/InvalidStateTransition"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "412":
           $ref: "#/components/responses/RevisionMismatch"
         "428":
@@ -956,8 +993,12 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "409":
           $ref: "#/components/responses/InvalidStateTransition"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "412":
           $ref: "#/components/responses/RevisionMismatch"
         "422":
@@ -1170,6 +1211,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditEventPage"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
 
@@ -1265,6 +1308,7 @@ components:
         type: string
         minLength: 16
         maxLength: 128
+        pattern: '^[-A-Za-z0-9_:.]{16,128}$'
     XCsrfToken:
       name: X-CSRF-Token
       in: header
@@ -2642,6 +2686,33 @@ components:
           $ref: "#/components/schemas/ZonedDateTime"
         updatedAt:
           $ref: "#/components/schemas/ZonedDateTime"
+    ContentDraftSummary:
+      type: object
+      additionalProperties: false
+      required: [draftId, fortuneDate, state, draftRevision, createdAt, updatedAt]
+      properties:
+        draftId:
+          $ref: "#/components/schemas/OpaqueId"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        state:
+          type: string
+          const: draft
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        createdAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        updatedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+    ContentDraftList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentDraftSummary"
     CreateDraftRequest:
       type: object
       additionalProperties: false

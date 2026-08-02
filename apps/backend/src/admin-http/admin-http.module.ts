@@ -6,12 +6,20 @@ import { adminSecurityCryptoFromEnvironment } from "../admin-auth/admin-auth.con
 import { NodeScryptPasswordHasher, SystemAdminAuthRandom } from "../admin-auth/admin-auth.crypto";
 import { AdminAuthService, EmergencyControlService } from "../admin-auth/admin-auth.service";
 import { PostgresAdminSecurityStore } from "../admin-auth/postgres-admin-security.store";
+import { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
+import { CONTENT_LIFECYCLE_STORE } from "../content-lifecycle/content-lifecycle.store";
+import { PostgresContentLifecycleStore } from "../content-lifecycle/postgres-content-lifecycle.store";
 import { DatabaseModule } from "../database/database.module";
 import { DATABASE_POOL } from "../database/postgres-pool";
 import { SystemClock } from "../request-context/system-clock";
 import { AdminAuthController } from "./admin-auth.controller";
+import { AdminContentController } from "./admin-content.controller";
 import { AdminHttpExceptionFilter } from "./admin-http-exception.filter";
-import { ADMIN_AUTH_SERVICE, EMERGENCY_CONTROL_SERVICE } from "./admin-http.providers";
+import {
+  ADMIN_AUTH_SERVICE,
+  CONTENT_LIFECYCLE_SERVICE,
+  EMERGENCY_CONTROL_SERVICE,
+} from "./admin-http.providers";
 import { AdminSecurityController } from "./admin-security.controller";
 
 const ADMIN_SECURITY_STORE = Symbol("ADMIN_SECURITY_STORE");
@@ -33,8 +41,8 @@ function runtimeAdminSecurityEnvironment(): NodeJS.ProcessEnv {
 }
 
 @Module({
-  controllers: [AdminAuthController, AdminSecurityController],
-  exports: [ADMIN_AUTH_SERVICE, EMERGENCY_CONTROL_SERVICE],
+  controllers: [AdminAuthController, AdminContentController, AdminSecurityController],
+  exports: [ADMIN_AUTH_SERVICE, CONTENT_LIFECYCLE_SERVICE, EMERGENCY_CONTROL_SERVICE],
   imports: [DatabaseModule],
   providers: [
     SystemClock,
@@ -44,6 +52,11 @@ function runtimeAdminSecurityEnvironment(): NodeJS.ProcessEnv {
       inject: [DATABASE_POOL],
       provide: ADMIN_SECURITY_STORE,
       useFactory: (pool: Pool) => new PostgresAdminSecurityStore(pool),
+    },
+    {
+      inject: [DATABASE_POOL],
+      provide: CONTENT_LIFECYCLE_STORE,
+      useFactory: (pool: Pool) => new PostgresContentLifecycleStore(pool),
     },
     {
       provide: ADMIN_SECURITY_CRYPTO,
@@ -90,6 +103,12 @@ function runtimeAdminSecurityEnvironment(): NodeJS.ProcessEnv {
         clock: SystemClock,
         authService: AdminAuthService,
       ) => new EmergencyControlService(store, crypto.secretCipher, random, clock, authService),
+    },
+    {
+      inject: [CONTENT_LIFECYCLE_STORE, SystemClock],
+      provide: CONTENT_LIFECYCLE_SERVICE,
+      useFactory: (store: PostgresContentLifecycleStore, clock: SystemClock) =>
+        new ContentLifecycleService(store, clock),
     },
     { provide: APP_FILTER, useClass: AdminHttpExceptionFilter },
   ],

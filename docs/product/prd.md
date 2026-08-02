@@ -1210,6 +1210,7 @@ P0 只有网页端，不传来源平台或目标平台。如果 `expectedContent
 | `GET` | `/admin/api/v1/emergency-control` | 查看全局公开内容开关与 ETag |
 | `POST` | `/admin/api/v1/emergency-control/stop` | fresh TOTP 与精确短语紧急停止全部公开内容 |
 | `POST` | `/admin/api/v1/emergency-control/resume` | fresh TOTP 与精确短语恢复全部公开内容 |
+| `GET` | `/admin/api/v1/daily-content-drafts?fortuneDate=...` | 从服务端查找仍可继续编辑的草稿 |
 | `POST` | `/admin/api/v1/daily-content-drafts` | 创建某命理日草稿 |
 | `GET` | `/admin/api/v1/daily-content-drafts/{draftId}` | 查看草稿 |
 | `PATCH` | `/admin/api/v1/daily-content-drafts/{draftId}/modules/{moduleCode}` | 按模块编辑草稿 |

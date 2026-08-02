@@ -1,4 +1,13 @@
-import type { components as FiveApiComponents } from "@five/api-contract";
+import type {
+  components as FiveApiComponents,
+  operations as FiveApiOperations,
+} from "@five/api-contract";
+import {
+  DRAFT_MODULE_CODES,
+  DRAFT_MODULE_REQUIRED_KEYS,
+  isDraftModuleCode,
+  isDraftModuleUpdate,
+} from "@five/api-contract/runtime";
 
 export type AdminSession = FiveApiComponents["schemas"]["AdminSession"];
 export type EmergencyControlStatus = FiveApiComponents["schemas"]["EmergencyControlStatus"];
@@ -7,6 +16,18 @@ export type RecoveryChallenge = FiveApiComponents["schemas"]["RecoveryChallenge"
 export type RecoveryCompletion = FiveApiComponents["schemas"]["RecoveryCompletion"];
 export type SecurityEventPage = FiveApiComponents["schemas"]["SecurityEventPage"];
 export type SecurityEvent = SecurityEventPage["items"][number];
+export type AdminContentVersion = FiveApiComponents["schemas"]["AdminContentVersion"];
+export type ContentDraft = FiveApiComponents["schemas"]["ContentDraft"];
+export type ContentDraftList = FiveApiComponents["schemas"]["ContentDraftList"];
+export type ContentVersionSummary = FiveApiComponents["schemas"]["ContentVersionSummary"];
+export type DraftModuleCode = FiveApiComponents["schemas"]["ModuleCode"];
+export type DraftModuleUpdate = FiveApiComponents["schemas"]["DraftModuleUpdate"];
+export type LifecycleActionResult = FiveApiComponents["schemas"]["LifecycleActionResult"];
+export type SubmitDraftResult = FiveApiComponents["schemas"]["SubmitDraftResult"];
+export type UpdatedDraftModule = FiveApiComponents["schemas"]["UpdatedDraftModule"];
+
+export type ContentVersionList =
+  FiveApiOperations["listDailyContentVersions"]["responses"][200]["content"]["application/json"];
 
 type CompleteRecoveryRequest = FiveApiComponents["schemas"]["CompleteRecoveryRequest"];
 type CreateAdminSessionRequest = FiveApiComponents["schemas"]["CreateAdminSessionRequest"];
@@ -16,6 +37,10 @@ type CreateRecoveryChallengeRequest =
   FiveApiComponents["schemas"]["CreateRecoveryChallengeRequest"];
 type EmergencyResumeRequest = FiveApiComponents["schemas"]["EmergencyResumeRequest"];
 type EmergencyStopRequest = FiveApiComponents["schemas"]["EmergencyStopRequest"];
+type AddMasterReviewEvidenceRequest =
+  FiveApiComponents["schemas"]["AddMasterReviewEvidenceRequest"];
+type CreateDraftRequest = FiveApiComponents["schemas"]["CreateDraftRequest"];
+type ReviewDecisionRequest = FiveApiComponents["schemas"]["ReviewDecisionRequest"];
 
 export type AdminApiError = {
   kind: "api-error";
@@ -210,6 +235,282 @@ function isEmergencyControlStatus(value: unknown): value is EmergencyControlStat
   );
 }
 
+const contentStates = new Set([
+  "draft",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "scheduled",
+  "published",
+  "superseded",
+  "withdrawn",
+]);
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 1;
+}
+
+function isFortuneDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  if (match === null) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return month >= 1 && month <= 12 && day >= 1 && day <= (daysInMonth[month - 1] ?? 0);
+}
+
+function isOpaqueId(value: unknown): value is string {
+  return isBoundedString(value, 1, 128);
+}
+
+function isContentVersion(value: unknown): value is string {
+  const hasForbiddenControl =
+    typeof value === "string" &&
+    Array.from(value).some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || codePoint === 0x7f;
+    });
+  return isBoundedString(value, 1, 128) && value.trim() === value && !hasForbiddenControl;
+}
+
+function isContentState(value: unknown): boolean {
+  return typeof value === "string" && contentStates.has(value);
+}
+
+function isDraftModules(value: unknown): value is ContentDraft["modules"] {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "calendar_algorithm",
+      "copy_and_formula",
+      "poster_consistency",
+      "visual_and_rights",
+    ])
+  ) {
+    return false;
+  }
+  return DRAFT_MODULE_CODES.every(
+    (code) => value[code] === null || isDraftModuleUpdate(code, value[code]),
+  );
+}
+
+function isContentDraft(value: unknown): value is ContentDraft {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "createdAt",
+      "draftId",
+      "draftRevision",
+      "fortuneDate",
+      "modules",
+      "state",
+      "updatedAt",
+    ]) &&
+    isOpaqueId(value.draftId) &&
+    isFortuneDate(value.fortuneDate) &&
+    value.state === "draft" &&
+    isPositiveInteger(value.draftRevision) &&
+    isDraftModules(value.modules) &&
+    isZonedDateTime(value.createdAt) &&
+    isZonedDateTime(value.updatedAt)
+  );
+}
+
+function isContentDraftSummary(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "createdAt",
+      "draftId",
+      "draftRevision",
+      "fortuneDate",
+      "state",
+      "updatedAt",
+    ]) &&
+    isOpaqueId(value.draftId) &&
+    isFortuneDate(value.fortuneDate) &&
+    value.state === "draft" &&
+    isPositiveInteger(value.draftRevision) &&
+    isZonedDateTime(value.createdAt) &&
+    isZonedDateTime(value.updatedAt)
+  );
+}
+
+function isContentDraftList(value: unknown): value is ContentDraftList {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["items"]) &&
+    Array.isArray(value.items) &&
+    value.items.every(isContentDraftSummary)
+  );
+}
+
+function isUpdatedDraftModule(value: unknown): value is UpdatedDraftModule {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["draftId", "draftRevision", "module", "moduleCode"]) &&
+    isOpaqueId(value.draftId) &&
+    isPositiveInteger(value.draftRevision) &&
+    isDraftModuleCode(value.moduleCode) &&
+    isDraftModuleUpdate(value.moduleCode, value.module)
+  );
+}
+
+function isSubmitDraftResult(value: unknown): value is SubmitDraftResult {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["contentVersion", "draftId", "lifecycleRevision", "state"]) &&
+    isOpaqueId(value.draftId) &&
+    isContentVersion(value.contentVersion) &&
+    value.state === "in_review" &&
+    isPositiveInteger(value.lifecycleRevision)
+  );
+}
+
+function isContentVersionSummary(value: unknown): value is ContentVersionSummary {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "contentVersion",
+      "createdAt",
+      "effectiveFrom",
+      "effectiveTo",
+      "lifecycleRevision",
+      "state",
+    ]) &&
+    isContentVersion(value.contentVersion) &&
+    isContentState(value.state) &&
+    isPositiveInteger(value.lifecycleRevision) &&
+    isZonedDateTime(value.createdAt) &&
+    (value.effectiveFrom === null || isZonedDateTime(value.effectiveFrom)) &&
+    (value.effectiveTo === null || isZonedDateTime(value.effectiveTo))
+  );
+}
+
+function isContentVersionList(value: unknown): value is ContentVersionList {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["activeContentVersion", "fortuneDate", "items"]) &&
+    isFortuneDate(value.fortuneDate) &&
+    (value.activeContentVersion === null || isContentVersion(value.activeContentVersion)) &&
+    Array.isArray(value.items) &&
+    value.items.every(isContentVersionSummary)
+  );
+}
+
+function isEvidenceReference(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["kind", "reference"]) &&
+    ["attachment", "message_link", "document", "note"].includes(String(value.kind)) &&
+    isBoundedString(value.reference, 1, 500)
+  );
+}
+
+function isMasterReviewEvidence(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "conclusion",
+      "evidenceId",
+      "notes",
+      "references",
+      "reviewedAt",
+      "reviewerDisplayName",
+    ]) &&
+    isOpaqueId(value.evidenceId) &&
+    isBoundedString(value.reviewerDisplayName, 1, 80) &&
+    isZonedDateTime(value.reviewedAt) &&
+    (value.conclusion === "confirmed" || value.conclusion === "changes_requested") &&
+    isBoundedString(value.notes, 0, 2000) &&
+    Array.isArray(value.references) &&
+    value.references.length >= 1 &&
+    value.references.length <= 20 &&
+    value.references.every(isEvidenceReference)
+  );
+}
+
+function isPreflightCheck(value: unknown): boolean {
+  const codes = [
+    "calendar_algorithm",
+    "calendar_golden_data",
+    "master_review_evidence",
+    "copy_and_formula",
+    "required_images",
+    "visual_and_rights",
+    "ai_label",
+    "poster_consistency",
+    "reference_integrity",
+  ];
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["code", "message", "status"]) &&
+    codes.includes(String(value.code)) &&
+    ["pending", "passed", "failed"].includes(String(value.status)) &&
+    isBoundedString(value.message, 0, 300)
+  );
+}
+
+function isAdminContentVersion(value: unknown): value is AdminContentVersion {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "activeContentVersion",
+      "contentVersion",
+      "fortuneDate",
+      "lifecycleRevision",
+      "masterReviewEvidence",
+      "preflightChecks",
+      "snapshot",
+      "state",
+    ]) &&
+    isContentVersion(value.contentVersion) &&
+    isFortuneDate(value.fortuneDate) &&
+    isContentState(value.state) &&
+    isPositiveInteger(value.lifecycleRevision) &&
+    (value.activeContentVersion === null || isContentVersion(value.activeContentVersion)) &&
+    isDraftModules(value.snapshot) &&
+    Array.isArray(value.preflightChecks) &&
+    value.preflightChecks.every(isPreflightCheck) &&
+    Array.isArray(value.masterReviewEvidence) &&
+    value.masterReviewEvidence.every(isMasterReviewEvidence)
+  );
+}
+
+function isLifecycleActionResult(value: unknown): value is LifecycleActionResult {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, [
+      "activeContentVersion",
+      "auditEventId",
+      "contentVersion",
+      "fortuneDate",
+      "lifecycleRevision",
+      "state",
+      "transitions",
+    ]) &&
+    isFortuneDate(value.fortuneDate) &&
+    isContentVersion(value.contentVersion) &&
+    isContentState(value.state) &&
+    isPositiveInteger(value.lifecycleRevision) &&
+    (value.activeContentVersion === null || isContentVersion(value.activeContentVersion)) &&
+    isOpaqueId(value.auditEventId) &&
+    Array.isArray(value.transitions) &&
+    value.transitions.length >= 1 &&
+    value.transitions.every(
+      (transition) =>
+        isRecord(transition) &&
+        hasExactKeys(transition, ["contentVersion", "fromState", "toState"]) &&
+        isContentVersion(transition.contentVersion) &&
+        isContentState(transition.fromState) &&
+        isContentState(transition.toState),
+    )
+  );
+}
+
 function parseRetryAfter(response: Response): number | null {
   const rawValue = response.headers.get("Retry-After");
   if (rawValue === null) return null;
@@ -239,8 +540,20 @@ function hasStrongEmergencyControlEtag(response: Response): boolean {
   return isBoundedString(etag, 1, 128) && /^"emergency-control:(?:0|[1-9]\d*)"$/u.test(etag);
 }
 
+function hasStrongDraftEtag(response: Response): boolean {
+  const etag = response.headers.get("ETag");
+  return isBoundedString(etag, 1, 128) && /^"draft:[1-9]\d*"$/u.test(etag);
+}
+
+function hasStrongLifecycleEtag(response: Response): boolean {
+  const etag = response.headers.get("ETag");
+  return isBoundedString(etag, 1, 128) && /^"lifecycle:[1-9]\d*"$/u.test(etag);
+}
+
 type SuccessHeaderRequirements = {
+  draftEtag?: boolean;
   emergencyControlEtag?: boolean;
+  lifecycleEtag?: boolean;
 };
 
 async function requestJson<T>(
@@ -285,7 +598,10 @@ async function requestJson<T>(
     requestId === null ||
     !hasNoStoreHeader(response) ||
     !hasJsonMediaType(response) ||
-    (headerRequirements.emergencyControlEtag === true && !hasStrongEmergencyControlEtag(response))
+    (headerRequirements.draftEtag === true && !hasStrongDraftEtag(response)) ||
+    (headerRequirements.emergencyControlEtag === true &&
+      !hasStrongEmergencyControlEtag(response)) ||
+    (headerRequirements.lifecycleEtag === true && !hasStrongLifecycleEtag(response))
   ) {
     return {
       error: { kind: "api-error", requestId, retryAfterSeconds: null, status: 502 },
@@ -359,6 +675,7 @@ export function describeAdminApiError(error: AdminApiError, authenticated = fals
   if (error.status === 403) return "安全校验未通过，请刷新页面后重新登录。";
   if (error.status === 409) return "动态码已使用或操作状态已经变化，请刷新后使用新的动态码。";
   if (error.status === 412) return "页面中的状态已过期，请刷新最新状态后再操作。";
+  if (error.status === 422) return "必审检查或大师凭证尚未通过，请按页面提示补全后重试。";
   if (error.status === 428) return "缺少最新状态凭据，请刷新页面后再操作。";
   if (error.status === 429) {
     return error.retryAfterSeconds === null
@@ -371,7 +688,37 @@ export function describeAdminApiError(error: AdminApiError, authenticated = fals
   return "操作没有完成，请稍后重试。";
 }
 
+export function describeAdminContentApiError(error: AdminApiError): string {
+  if (error.status === 404) return "没有找到这份草稿或内容版本，请返回工作台重新查询。";
+  if (error.status === 409) return "内容状态已经变化或存在冲突，请重新读取最新版本后操作。";
+  return describeAdminApiError(error, true);
+}
+
 export const adminApi = {
+  addMasterReviewEvidence(input: {
+    body: AddMasterReviewEvidenceRequest;
+    contentVersion: string;
+    csrfToken: string;
+    etag: string;
+    idempotencyKey: string;
+  }) {
+    return requestJson(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(input.contentVersion)}/master-review-evidence`,
+      {
+        ...jsonBody(input.body),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": input.idempotencyKey,
+          "If-Match": input.etag,
+          "X-CSRF-Token": input.csrfToken,
+        },
+        method: "POST",
+      },
+      200,
+      isAdminContentVersion,
+      { lifecycleEtag: true },
+    );
+  },
   completeRecovery(input: CompleteRecoveryRequest) {
     return requestJson(
       "/admin/api/v1/auth/recovery-completions",
@@ -386,6 +733,19 @@ export const adminApi = {
       { ...jsonBody(input), method: "POST" },
       200,
       isPasswordChallenge,
+    );
+  },
+  createDraft(input: { csrfToken: string; input: CreateDraftRequest }) {
+    return requestJson(
+      "/admin/api/v1/daily-content-drafts",
+      {
+        ...jsonBody(input.input),
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": input.csrfToken },
+        method: "POST",
+      },
+      201,
+      isContentDraft,
+      { draftEtag: true },
     );
   },
   createRecoveryChallenge(input: CreateRecoveryChallengeRequest) {
@@ -413,6 +773,24 @@ export const adminApi = {
       { emergencyControlEtag: true },
     );
   },
+  getContentVersion(contentVersion: string) {
+    return requestJson(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(contentVersion)}`,
+      { method: "GET" },
+      200,
+      isAdminContentVersion,
+      { lifecycleEtag: true },
+    );
+  },
+  getDraft(draftId: string) {
+    return requestJson(
+      `/admin/api/v1/daily-content-drafts/${encodeURIComponent(draftId)}`,
+      { method: "GET" },
+      200,
+      isContentDraft,
+      { draftEtag: true },
+    );
+  },
   getSession() {
     return requestJson("/admin/api/v1/auth/session", { method: "GET" }, 200, isAdminSession);
   },
@@ -424,6 +802,26 @@ export const adminApi = {
       { method: "GET" },
       200,
       isSecurityEventPage,
+    );
+  },
+  listContentVersions(fortuneDate: string) {
+    const search = new URLSearchParams({ fortuneDate });
+    return requestJson(
+      `/admin/api/v1/daily-content-versions?${search.toString()}`,
+      { method: "GET" },
+      200,
+      isContentVersionList,
+    );
+  },
+  listDrafts(fortuneDate: string | null = null) {
+    const search = new URLSearchParams();
+    if (fortuneDate !== null) search.set("fortuneDate", fortuneDate);
+    const query = search.size === 0 ? "" : `?${search.toString()}`;
+    return requestJson(
+      `/admin/api/v1/daily-content-drafts${query}`,
+      { method: "GET" },
+      200,
+      isContentDraftList,
     );
   },
   logout(csrfToken: string) {
@@ -462,7 +860,89 @@ export const adminApi = {
       { emergencyControlEtag: true },
     );
   },
+  submitDraft(input: { csrfToken: string; draftId: string; etag: string; idempotencyKey: string }) {
+    return requestJson(
+      `/admin/api/v1/daily-content-drafts/${encodeURIComponent(input.draftId)}/submit`,
+      {
+        headers: {
+          "Idempotency-Key": input.idempotencyKey,
+          "If-Match": input.etag,
+          "X-CSRF-Token": input.csrfToken,
+        },
+        method: "POST",
+      },
+      201,
+      isSubmitDraftResult,
+      { lifecycleEtag: true },
+    );
+  },
+  updateDraftModule(input: {
+    csrfToken: string;
+    draftId: string;
+    etag: string;
+    module: DraftModuleUpdate;
+    moduleCode: DraftModuleCode;
+  }) {
+    return requestJson(
+      `/admin/api/v1/daily-content-drafts/${encodeURIComponent(input.draftId)}/modules/${input.moduleCode}`,
+      {
+        ...jsonBody(input.module),
+        headers: {
+          "Content-Type": "application/json",
+          "If-Match": input.etag,
+          "X-CSRF-Token": input.csrfToken,
+        },
+        method: "PATCH",
+      },
+      200,
+      isUpdatedDraftModule,
+      { draftEtag: true },
+    );
+  },
+  decideContentReview(input: {
+    body: ReviewDecisionRequest;
+    contentVersion: string;
+    csrfToken: string;
+    etag: string;
+    idempotencyKey: string;
+  }) {
+    return requestJson(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(input.contentVersion)}/review-decision`,
+      {
+        ...jsonBody(input.body),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": input.idempotencyKey,
+          "If-Match": input.etag,
+          "X-CSRF-Token": input.csrfToken,
+        },
+        method: "POST",
+      },
+      200,
+      isLifecycleActionResult,
+      { lifecycleEtag: true },
+    );
+  },
 };
+
+export function parseDraftModuleJson(
+  moduleCode: DraftModuleCode,
+  source: string,
+): { ok: true; value: DraftModuleUpdate } | { message: string; ok: false } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return { message: "内容不是有效 JSON，请检查括号、引号与逗号。", ok: false };
+  }
+  if (!isDraftModuleUpdate(moduleCode, parsed)) {
+    return {
+      message: `模块结构不符合接口契约。顶层字段应为：${DRAFT_MODULE_REQUIRED_KEYS[moduleCode].join("、")}。`,
+      ok: false,
+    };
+  }
+  return { ok: true, value: parsed };
+}
 
 export function createIdempotencyKey(): string {
   if (typeof crypto === "undefined" || typeof crypto.getRandomValues !== "function") {

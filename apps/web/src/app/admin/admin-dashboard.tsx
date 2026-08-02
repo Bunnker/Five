@@ -82,9 +82,17 @@ function SessionDashboard({ session }: { session: AdminSession }) {
         <p className="admin-inline-note">安全令牌只存在当前运行页面的内存中，不在此处显示。</p>
       </section>
 
-      <section className="admin-command-grid" aria-label="安全与控制入口">
-        <Link className="admin-command-card" href="/admin/security">
+      <section className="admin-command-grid" aria-label="后台入口">
+        <Link className="admin-command-card admin-command-card--content" href="/admin/content">
           <span className="admin-command-card__number">01</span>
+          <span>
+            <strong>内容工作台</strong>
+            <small>创建草稿、登记大师核对并查看版本</small>
+          </span>
+          <span aria-hidden="true">↗</span>
+        </Link>
+        <Link className="admin-command-card" href="/admin/security">
+          <span className="admin-command-card__number">02</span>
           <span>
             <strong>安全记录</strong>
             <small>查看登录、恢复、限流与控制动作</small>
@@ -92,7 +100,7 @@ function SessionDashboard({ session }: { session: AdminSession }) {
           <span aria-hidden="true">↗</span>
         </Link>
         <Link className="admin-command-card admin-command-card--danger" href="/admin/emergency">
-          <span className="admin-command-card__number">02</span>
+          <span className="admin-command-card__number">03</span>
           <span>
             <strong>紧急控制</strong>
             <small>停止或恢复全部公开内容</small>

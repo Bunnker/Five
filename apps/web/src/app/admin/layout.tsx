@@ -26,6 +26,7 @@ export default function AdminLayout({ children }: Readonly<{ children: ReactNode
               </Link>
               <nav aria-label="后台导航">
                 <Link href="/admin">控制台</Link>
+                <Link href="/admin/content">内容工作台</Link>
                 <Link href="/admin/security">安全记录</Link>
                 <Link href="/admin/emergency">紧急控制</Link>
               </nav>
