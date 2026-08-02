@@ -33,7 +33,14 @@ describeDatabase("daily image migration rollback", () => {
       log: () => undefined,
       migrationsTable: "pgmigrations",
     } as const;
-    await runner({ ...migrationOptions, count: 1, direction: "down" });
+    const appliedAfterLifecycle = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM pgmigrations WHERE name >= '000006_'",
+    );
+    const rollbackCount = Number(appliedAfterLifecycle.rows[0]?.count ?? "0");
+    expect(rollbackCount).toBeGreaterThanOrEqual(1);
+    // Roll back the image migration and every currently installed successor so
+    // this remains valid as new migrations are appended to the production chain.
+    await runner({ ...migrationOptions, count: rollbackCount, direction: "down" });
 
     const remaining = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count
@@ -53,6 +60,6 @@ describeDatabase("daily image migration rollback", () => {
       ),
     ).rejects.toThrow(/content_lifecycle_idempotency_operation_check/u);
 
-    await runner({ ...migrationOptions, count: 1, direction: "up" });
+    await runner({ ...migrationOptions, count: rollbackCount, direction: "up" });
   });
 });

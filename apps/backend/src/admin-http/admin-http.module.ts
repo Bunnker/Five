@@ -9,6 +9,9 @@ import { PostgresAdminSecurityStore } from "../admin-auth/postgres-admin-securit
 import { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
 import { CONTENT_LIFECYCLE_STORE } from "../content-lifecycle/content-lifecycle.store";
 import { PostgresContentLifecycleStore } from "../content-lifecycle/postgres-content-lifecycle.store";
+import { ContentReleaseService } from "../content-release/content-release.service";
+import { CONTENT_RELEASE_STORE } from "../content-release/content-release.store";
+import { PostgresContentReleaseStore } from "../content-release/postgres-content-release.store";
 import { DailyImageAssetService } from "../daily-images/daily-image-asset.service";
 import { LocalBinaryImageAssetStore } from "../daily-images/local-binary-image-asset.store";
 import { DatabaseModule } from "../database/database.module";
@@ -21,6 +24,7 @@ import { AdminImageController } from "./admin-image.controller";
 import {
   ADMIN_AUTH_SERVICE,
   CONTENT_LIFECYCLE_SERVICE,
+  CONTENT_RELEASE_SERVICE,
   DAILY_IMAGE_ASSET_SERVICE,
   EMERGENCY_CONTROL_SERVICE,
 } from "./admin-http.providers";
@@ -55,6 +59,7 @@ function runtimeAdminSecurityEnvironment(): NodeJS.ProcessEnv {
   exports: [
     ADMIN_AUTH_SERVICE,
     CONTENT_LIFECYCLE_SERVICE,
+    CONTENT_RELEASE_SERVICE,
     DAILY_IMAGE_ASSET_SERVICE,
     EMERGENCY_CONTROL_SERVICE,
   ],
@@ -73,6 +78,11 @@ function runtimeAdminSecurityEnvironment(): NodeJS.ProcessEnv {
       inject: [DATABASE_POOL],
       provide: CONTENT_LIFECYCLE_STORE,
       useFactory: (pool: Pool) => new PostgresContentLifecycleStore(pool),
+    },
+    {
+      inject: [DATABASE_POOL],
+      provide: CONTENT_RELEASE_STORE,
+      useFactory: (pool: Pool) => new PostgresContentReleaseStore(pool),
     },
     {
       provide: ADMIN_SECURITY_CRYPTO,
@@ -125,6 +135,12 @@ function runtimeAdminSecurityEnvironment(): NodeJS.ProcessEnv {
       provide: CONTENT_LIFECYCLE_SERVICE,
       useFactory: (store: PostgresContentLifecycleStore, clock: SystemClock) =>
         new ContentLifecycleService(store, clock),
+    },
+    {
+      inject: [CONTENT_RELEASE_STORE, SystemClock],
+      provide: CONTENT_RELEASE_SERVICE,
+      useFactory: (store: PostgresContentReleaseStore, clock: SystemClock) =>
+        new ContentReleaseService(store, clock),
     },
     {
       inject: [CONTENT_LIFECYCLE_STORE, BINARY_IMAGE_ASSET_STORE, SystemClock],

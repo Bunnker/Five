@@ -11,7 +11,11 @@ import { codePointLength, hasExactlyKeys } from "./admin-http";
 
 type AddMasterReviewEvidenceRequest = components["schemas"]["AddMasterReviewEvidenceRequest"];
 type CreateDraftRequest = components["schemas"]["CreateDraftRequest"];
+type ExpectedActiveVersionRequest = components["schemas"]["ExpectedActiveVersionRequest"];
+type RollbackRequest = components["schemas"]["RollbackRequest"];
 type ReviewDecisionRequest = components["schemas"]["ReviewDecisionRequest"];
+type ScheduleRequest = components["schemas"]["ScheduleRequest"];
+type WithdrawRequest = components["schemas"]["WithdrawRequest"];
 
 function isBoundedText(value: unknown, minimum: number, maximum: number): value is string {
   return (
@@ -82,6 +86,51 @@ export function isReviewDecisionRequest(value: unknown): value is ReviewDecision
   return (
     value.decision === "approved" &&
     (value.reason === null || isNonBlankBoundedText(value.reason, 2_000))
+  );
+}
+
+function isExpectedActiveContentVersion(value: unknown): value is string | null {
+  return value === null || isOpaqueAdminId(value);
+}
+
+export function isExpectedActiveVersionRequest(
+  value: unknown,
+): value is ExpectedActiveVersionRequest {
+  return (
+    hasExactlyKeys(value, ["expectedActiveContentVersion", "reason"]) &&
+    isExpectedActiveContentVersion(value.expectedActiveContentVersion) &&
+    isNonBlankBoundedText(value.reason, 2_000)
+  );
+}
+
+export function isScheduleRequest(value: unknown): value is ScheduleRequest {
+  return (
+    hasExactlyKeys(value, ["effectiveFrom", "expectedActiveContentVersion", "reason"]) &&
+    isStrictRfc3339DateTime(value.effectiveFrom) &&
+    isExpectedActiveContentVersion(value.expectedActiveContentVersion) &&
+    isNonBlankBoundedText(value.reason, 2_000)
+  );
+}
+
+export function isWithdrawRequest(value: unknown): value is WithdrawRequest {
+  return (
+    hasExactlyKeys(value, [
+      "expectedActiveContentVersion",
+      "reason",
+      "replacementContentVersion",
+    ]) &&
+    isExpectedActiveContentVersion(value.expectedActiveContentVersion) &&
+    isNonBlankBoundedText(value.reason, 2_000) &&
+    (value.replacementContentVersion === null || isOpaqueAdminId(value.replacementContentVersion))
+  );
+}
+
+export function isRollbackRequest(value: unknown): value is RollbackRequest {
+  return (
+    hasExactlyKeys(value, ["expectedActiveContentVersion", "reason", "targetContentVersion"]) &&
+    isExpectedActiveContentVersion(value.expectedActiveContentVersion) &&
+    isNonBlankBoundedText(value.reason, 2_000) &&
+    isOpaqueAdminId(value.targetContentVersion)
   );
 }
 

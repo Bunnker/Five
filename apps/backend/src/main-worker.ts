@@ -4,6 +4,9 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 
 import { DATABASE_PROBE, type DatabaseProbe } from "./database/database-probe";
+import { PublicCachePurgeWorker } from "./content-release/public-cache-purge.worker";
+import { ContentReleaseWorker } from "./content-release/content-release.worker";
+import { ImageCachePurgeWorker } from "./daily-images/image-cache-purge.worker";
 import { PosterWorker } from "./poster/poster-worker";
 import { WorkerModule } from "./worker/worker.module";
 
@@ -15,15 +18,31 @@ function readInterval(value: string | undefined): number {
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.createApplicationContext(WorkerModule);
   const database = app.get<DatabaseProbe>(DATABASE_PROBE);
+  const contentReleaseWorker = app.get(ContentReleaseWorker);
+  const publicCachePurgeWorker = app.get(PublicCachePurgeWorker);
+  const imageCachePurgeWorker = app.get(ImageCachePurgeWorker);
   const posterWorker = app.get(PosterWorker);
 
   await database.check();
-  const initialPosterResult = await posterWorker.runOne();
+  const [
+    initialReleaseResult,
+    initialCachePurgeResult,
+    initialImageCachePurgeResult,
+    initialPosterResult,
+  ] = await Promise.all([
+    contentReleaseWorker.runOne(),
+    publicCachePurgeWorker.runOne(),
+    imageCachePurgeWorker.runOne(),
+    posterWorker.runOne(),
+  ]);
   Logger.log(
     JSON.stringify({
       database: "reachable",
       service: "five-worker",
       status: "ready",
+      contentReleaseWorker: initialReleaseResult,
+      publicCachePurgeWorker: initialCachePurgeResult,
+      imageCachePurgeWorker: initialImageCachePurgeResult,
       posterWorker: initialPosterResult,
     }),
     "Worker",
@@ -40,9 +59,18 @@ async function bootstrap(): Promise<void> {
       return;
     }
     cycleRunning = true;
-    void Promise.all([database.check(), posterWorker.runOne()])
-      .then(([, posterResult]) =>
-        Logger.log(`PostgreSQL is reachable; poster worker: ${posterResult}`, "Worker"),
+    void Promise.all([
+      database.check(),
+      contentReleaseWorker.runOne(),
+      publicCachePurgeWorker.runOne(),
+      imageCachePurgeWorker.runOne(),
+      posterWorker.runOne(),
+    ])
+      .then(([, releaseResult, cachePurgeResult, imageCachePurgeResult, posterResult]) =>
+        Logger.log(
+          `PostgreSQL is reachable; content release worker: ${releaseResult}; public cache purge worker: ${cachePurgeResult}; image cache purge worker: ${imageCachePurgeResult}; poster worker: ${posterResult}`,
+          "Worker",
+        ),
       )
       .catch((error: unknown) => Logger.error(error, "Worker cycle failed", "Worker"))
       .finally(() => {

@@ -3071,8 +3071,10 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
@@ -3108,8 +3110,10 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             428: components["responses"]["PreconditionRequired"];
@@ -3144,8 +3148,10 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
@@ -3181,8 +3187,10 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
@@ -3218,8 +3226,10 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["LifecycleActionSucceeded"];
+            400: components["responses"]["InvalidArgument"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];

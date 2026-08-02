@@ -10,6 +10,7 @@ import {
   isDraftImageAssetResult,
   isDraftModuleCode,
   isDraftModuleUpdate,
+  isErrorCode,
   isImageAssetWithdrawalResult,
 } from "@five/api-contract/runtime";
 
@@ -37,6 +38,7 @@ export type ImageAssetReviewRequest = FiveApiComponents["schemas"]["ImageAssetRe
 export type ImageAssetUploadMetadata = FiveApiComponents["schemas"]["ImageAssetUploadMetadata"];
 export type ImageAssetWithdrawalResult = FiveApiComponents["schemas"]["ImageAssetWithdrawalResult"];
 export type WithdrawImageAssetRequest = FiveApiComponents["schemas"]["WithdrawImageAssetRequest"];
+export type AdminErrorCode = FiveApiComponents["schemas"]["ErrorCode"];
 
 export type ContentVersionList =
   FiveApiOperations["listDailyContentVersions"]["responses"][200]["content"]["application/json"];
@@ -52,12 +54,19 @@ type EmergencyStopRequest = FiveApiComponents["schemas"]["EmergencyStopRequest"]
 type AddMasterReviewEvidenceRequest =
   FiveApiComponents["schemas"]["AddMasterReviewEvidenceRequest"];
 type CreateDraftRequest = FiveApiComponents["schemas"]["CreateDraftRequest"];
+type ExpectedActiveVersionRequest = FiveApiComponents["schemas"]["ExpectedActiveVersionRequest"];
 type ReviewDecisionRequest = FiveApiComponents["schemas"]["ReviewDecisionRequest"];
+type RollbackRequest = FiveApiComponents["schemas"]["RollbackRequest"];
+type ScheduleRequest = FiveApiComponents["schemas"]["ScheduleRequest"];
+type WithdrawRequest = FiveApiComponents["schemas"]["WithdrawRequest"];
 
 export type AdminApiError = {
+  code?: AdminErrorCode;
+  details?: Record<string, unknown>;
   kind: "api-error";
   requestId: string | null;
   retryAfterSeconds: number | null;
+  retryable?: boolean;
   status: number;
 };
 
@@ -568,6 +577,27 @@ type SuccessHeaderRequirements = {
   lifecycleEtag?: boolean;
 };
 
+async function readContractError(
+  response: Response,
+  requestId: string | null,
+): Promise<Pick<AdminApiError, "code" | "details" | "retryable"> | null> {
+  if (requestId === null || !hasNoStoreHeader(response) || !hasJsonMediaType(response)) return null;
+  const body: unknown = await response.json().catch(() => null);
+  if (!isRecord(body) || !hasExactKeys(body, ["error"]) || !isRecord(body.error)) return null;
+  const error = body.error;
+  if (
+    !hasExactKeys(error, ["code", "details", "message", "requestId", "retryable"]) ||
+    !isErrorCode(error.code) ||
+    !isRecord(error.details) ||
+    !isBoundedString(error.message, 1, 500) ||
+    error.requestId !== requestId ||
+    typeof error.retryable !== "boolean"
+  ) {
+    return null;
+  }
+  return { code: error.code, details: error.details, retryable: error.retryable };
+}
+
 async function requestJson<T>(
   path: string,
   init: RequestInit,
@@ -595,8 +625,10 @@ async function requestJson<T>(
 
   const requestId = readValidRequestId(response);
   if (response.status !== expectedStatus) {
+    const contractError = await readContractError(response, requestId);
     return {
       error: {
+        ...(contractError ?? {}),
         kind: "api-error",
         requestId,
         retryAfterSeconds: parseRetryAfter(response),
@@ -701,6 +733,30 @@ export function describeAdminApiError(error: AdminApiError, authenticated = fals
 }
 
 export function describeAdminContentApiError(error: AdminApiError): string {
+  if (error.code === "ACTIVE_CONTENT_VERSION_CHANGED") {
+    return "当前在线版本已经变化，请重新读取同日版本后再操作。";
+  }
+  if (error.code === "IDEMPOTENCY_KEY_REUSED") {
+    return "安全操作编号已用于另一项内容，请重新读取状态后开始新操作。";
+  }
+  if (error.code === "INVALID_STATE_TRANSITION") {
+    return "当前内容状态不允许这项操作，请重新读取最新状态。";
+  }
+  if (error.code === "VERSION_WITHDRAWN") {
+    return "已下线版本不能直接发布或恢复，请复制为新草稿重新核对。";
+  }
+  if (error.code === "REVISION_MISMATCH") {
+    return "页面中的生命周期修订已过期，请重新读取后再操作。";
+  }
+  if (error.code === "PUBLISH_PRECHECK_FAILED") {
+    return "发布预检未通过，请按上方检查清单处理失败项后重试。";
+  }
+  if (error.code === "SCHEDULE_TIME_INVALID") {
+    return "服务端返回的生效时间已失效或不符合内容有效区间，请重新读取。";
+  }
+  if (error.code === "PRECONDITION_REQUIRED") {
+    return "缺少最新生命周期凭据，请重新读取这份版本。";
+  }
   if (error.status === 404) return "没有找到这份草稿或内容版本，请返回工作台重新查询。";
   if (error.status === 409) return "内容状态已经变化或存在冲突，请重新读取最新版本后操作。";
   return describeAdminApiError(error, true);
@@ -711,6 +767,33 @@ export function describeAdminImageApiError(error: AdminApiError): string {
   if (error.status === 415) return "图片格式不支持，请改用 AVIF、WebP、JPEG 或 PNG。";
   if (error.status === 422) return "图片元数据、权利状态或人工检查尚未满足要求。";
   return describeAdminContentApiError(error);
+}
+
+type LifecycleActionInput<TBody> = {
+  body: TBody;
+  contentVersion: string;
+  csrfToken: string;
+  etag: string;
+  idempotencyKey: string;
+};
+
+function requestLifecycleAction<TBody>(path: string, input: LifecycleActionInput<TBody>) {
+  return requestJson(
+    path,
+    {
+      ...jsonBody(input.body),
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": input.idempotencyKey,
+        "If-Match": input.etag,
+        "X-CSRF-Token": input.csrfToken,
+      },
+      method: "POST",
+    },
+    200,
+    isLifecycleActionResult,
+    { lifecycleEtag: true },
+  );
 }
 
 export const adminApi = {
@@ -736,6 +819,12 @@ export const adminApi = {
       200,
       isAdminContentVersion,
       { lifecycleEtag: true },
+    );
+  },
+  cancelContentSchedule(input: LifecycleActionInput<ExpectedActiveVersionRequest>) {
+    return requestLifecycleAction(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(input.contentVersion)}/cancel-schedule`,
+      input,
     );
   },
   completeRecovery(input: CompleteRecoveryRequest) {
@@ -873,6 +962,12 @@ export const adminApi = {
       method: "POST",
     });
   },
+  publishContentVersion(input: LifecycleActionInput<ExpectedActiveVersionRequest>) {
+    return requestLifecycleAction(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(input.contentVersion)}/publish`,
+      input,
+    );
+  },
   setEmergencyStatus(input: {
     body: EmergencyResumeRequest | EmergencyStopRequest;
     csrfToken: string;
@@ -920,6 +1015,18 @@ export const adminApi = {
       200,
       isDraftImageAssetResult,
       { draftEtag: true },
+    );
+  },
+  rollbackContentDay(input: LifecycleActionInput<RollbackRequest> & { fortuneDate: string }) {
+    return requestLifecycleAction(
+      `/admin/api/v1/daily-content-days/${encodeURIComponent(input.fortuneDate)}/rollback`,
+      input,
+    );
+  },
+  scheduleContentVersion(input: LifecycleActionInput<ScheduleRequest>) {
+    return requestLifecycleAction(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(input.contentVersion)}/schedule`,
+      input,
     );
   },
   submitDraft(input: { csrfToken: string; draftId: string; etag: string; idempotencyKey: string }) {
@@ -1007,6 +1114,12 @@ export const adminApi = {
       200,
       isImageAssetWithdrawalResult,
       { lifecycleEtag: true },
+    );
+  },
+  withdrawContentVersion(input: LifecycleActionInput<WithdrawRequest>) {
+    return requestLifecycleAction(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(input.contentVersion)}/withdraw`,
+      input,
     );
   },
   decideContentReview(input: {

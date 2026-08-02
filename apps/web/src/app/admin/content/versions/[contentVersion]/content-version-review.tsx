@@ -14,6 +14,7 @@ import { formatAdminDateTimeWithYear, shanghaiLocalDateTimeToIso } from "../../.
 import { AdminSessionGate } from "../../../admin-session-gate";
 import { useAdminSession } from "../../../admin-session-context";
 import { AdminDailyImageSetPanel } from "./admin-daily-image-set";
+import { ContentLifecycleActions } from "./content-lifecycle-actions";
 
 type UiState =
   | { kind: "idle" }
@@ -83,25 +84,26 @@ function ContentVersionReviewContent({
   const pendingEvidenceKeyRef = useRef<string | null>(null);
   const pendingDecisionKeyRef = useRef<string | null>(null);
 
-  const loadVersion = useCallback(async () => {
+  const loadVersion = useCallback(async (): Promise<boolean> => {
     setLoadState({ kind: "loading" });
     const result = await adminApi.getContentVersion(contentVersion);
     if (!result.ok) {
       if (result.error.status === 401) {
         clearSession();
-        return;
+        return false;
       }
       setLoadState({ kind: "error", message: describeAdminContentApiError(result.error) });
-      return;
+      return false;
     }
     const latestEtag = result.response.headers.get("ETag");
     if (latestEtag === null) {
       setLoadState({ kind: "error", message: "后台没有返回生命周期修订凭据，已阻止核对操作。" });
-      return;
+      return false;
     }
     setVersion(result.data);
     setEtag(latestEtag);
     setLoadState({ kind: "idle" });
+    return true;
   }, [clearSession, contentVersion]);
 
   useEffect(() => {
@@ -117,6 +119,30 @@ function ContentVersionReviewContent({
       void loadVersion();
     },
     [loadVersion],
+  );
+
+  const synchronizeContentLifecycle = useCallback(
+    (input: {
+      etag: string;
+      result: {
+        activeContentVersion: string | null;
+        lifecycleRevision: number;
+        state: AdminContentVersion["state"];
+      };
+    }) => {
+      setEtag(input.etag);
+      setVersion((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              activeContentVersion: input.result.activeContentVersion,
+              lifecycleRevision: input.result.lifecycleRevision,
+              state: input.result.state,
+            },
+      );
+    },
+    [],
   );
 
   async function addEvidence(event: FormEvent<HTMLFormElement>) {
@@ -551,6 +577,17 @@ function ContentVersionReviewContent({
         ) : null}
       </section>
 
+      {["approved", "scheduled", "published", "superseded", "withdrawn"].includes(version.state) ? (
+        <ContentLifecycleActions
+          csrfToken={session.csrfToken}
+          etag={etag}
+          onLifecycleChange={synchronizeContentLifecycle}
+          onUnauthorized={clearSession}
+          onVersionRefresh={loadVersion}
+          version={version}
+        />
+      ) : null}
+
       {version.state === "in_review" ? (
         <section className="admin-review-decision" aria-labelledby="decision-title">
           <div>
@@ -608,12 +645,14 @@ function ContentVersionReviewContent({
         </p>
       ) : null}
 
-      {version.state === "changes_requested" ? (
+      {version.state === "changes_requested" || version.state === "withdrawn" ? (
         <section className="admin-copy-draft" aria-labelledby="copy-draft-title">
           <div>
             <p className="admin-kicker">COPY, NEVER OVERWRITE</p>
-            <h2 id="copy-draft-title">复制后修改</h2>
-            <p>当前版本继续作为审计快照保留；新草稿拥有独立编号与修订历史。</p>
+            <h2 id="copy-draft-title">
+              {version.state === "withdrawn" ? "复制后重新核对" : "复制后修改"}
+            </h2>
+            <p>当前版本继续作为审计快照保留；新草稿拥有独立编号，必须重新完成核对与发布门槛。</p>
           </div>
           <button
             className="admin-button admin-button--primary"

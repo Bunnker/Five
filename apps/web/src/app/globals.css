@@ -4528,6 +4528,167 @@ h1 {
   line-height: 1.55;
 }
 
+.admin-lifecycle-panel {
+  overflow: hidden;
+  border-top: 4px solid var(--admin-pine);
+}
+
+.admin-lifecycle-actions {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.admin-lifecycle-actions > .admin-inline-note,
+.admin-lifecycle-actions > .admin-message {
+  margin: 0;
+}
+
+.admin-lifecycle-action-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-lifecycle-action-card {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--admin-line);
+  border-top: 3px solid var(--admin-sand);
+  background: rgb(255 253 248 / 68%);
+}
+
+.admin-lifecycle-action-card--primary {
+  border-top-color: var(--admin-pine);
+  background: rgb(35 72 62 / 6%);
+}
+
+.admin-lifecycle-action-card--danger {
+  border-top-color: var(--admin-danger);
+  background: rgb(158 51 43 / 5%);
+}
+
+.admin-lifecycle-action-card--restore {
+  border-top-color: var(--admin-safe);
+  background: rgb(63 117 88 / 6%);
+}
+
+.admin-lifecycle-action-card h3,
+.admin-lifecycle-action-card p,
+.admin-lifecycle-terminal p,
+.admin-lifecycle-result ul {
+  margin: 0;
+}
+
+.admin-lifecycle-action-card h3 {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.admin-lifecycle-action-card > p {
+  color: var(--admin-muted);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.admin-lifecycle-action-card > label {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  color: var(--admin-ink);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.admin-lifecycle-action-card input,
+.admin-lifecycle-action-card select,
+.admin-lifecycle-action-card textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 11px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 0;
+  background: rgb(255 253 248 / 86%);
+  color: var(--admin-ink);
+  font: inherit;
+  font-size: 16px;
+}
+
+.admin-lifecycle-action-card textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.admin-lifecycle-action-card small {
+  color: var(--admin-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.admin-lifecycle-action-card > .admin-button {
+  width: 100%;
+}
+
+.admin-lifecycle-effective-time {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--admin-safe);
+  background: rgb(63 117 88 / 7%);
+}
+
+.admin-lifecycle-effective-time strong {
+  color: var(--admin-pine);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.admin-lifecycle-terminal,
+.admin-lifecycle-result {
+  min-width: 0;
+  padding: 15px 16px;
+  border: 1px solid var(--admin-line);
+  border-left: 4px solid var(--admin-sand);
+  background: rgb(185 154 104 / 8%);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.admin-lifecycle-terminal p {
+  margin-top: 4px;
+  color: var(--admin-muted);
+}
+
+.admin-lifecycle-result {
+  display: grid;
+  gap: 7px;
+  border-left-color: var(--admin-safe);
+  background: rgb(63 117 88 / 7%);
+}
+
+.admin-lifecycle-result code {
+  color: var(--admin-pine);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.admin-lifecycle-result ul {
+  display: grid;
+  gap: 4px;
+  padding-left: 18px;
+}
+
 .admin-inline-form input:focus-visible,
 .admin-form select:focus-visible,
 .admin-module-jump a:focus-visible,
@@ -4540,6 +4701,9 @@ h1 {
 .admin-image-review-checks label:focus-within,
 .admin-image-withdrawal textarea:focus-visible,
 .admin-image-withdrawal-history summary:focus-visible,
+.admin-lifecycle-action-card input:focus-visible,
+.admin-lifecycle-action-card select:focus-visible,
+.admin-lifecycle-action-card textarea:focus-visible,
 .admin-draft-queue a:focus-visible,
 .admin-version-list a:focus-visible {
   outline: 3px solid rgb(185 154 104 / 56%);
@@ -4583,6 +4747,7 @@ h1 {
   .admin-content-intake-grid,
   .admin-snapshot-grid,
   .admin-review-decision,
+  .admin-lifecycle-action-grid,
   .admin-image-slots__grid,
   .admin-image-slot-grid,
   .admin-image-asset-ledger__list,
@@ -4650,6 +4815,10 @@ h1 {
   .admin-auth-card .admin-form > .admin-button,
   .admin-recovery-codes > .admin-button {
     width: 100%;
+  }
+
+  .admin-lifecycle-action-card {
+    padding: 14px 12px;
   }
 
   .admin-image-workbench {

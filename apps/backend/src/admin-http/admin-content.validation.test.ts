@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   isCreateDraftRequest,
   isDraftModuleUpdate,
+  isExpectedActiveVersionRequest,
   isIdempotencyKey,
   isMasterReviewEvidenceRequest,
+  isRollbackRequest,
   isReviewDecisionRequest,
+  isScheduleRequest,
+  isWithdrawRequest,
   parseStrongRevisionEtag,
 } from "./admin-content.validation";
 
@@ -128,6 +132,57 @@ describe("admin content HTTP validation", () => {
       isReviewDecisionRequest({ decision: "changes_requested", reason: "五档顺序需重核" }),
     ).toBe(true);
     expect(isReviewDecisionRequest({ decision: "changes_requested", reason: "  " })).toBe(false);
+  });
+
+  it("validates lifecycle action bodies without accepting forged fields", () => {
+    expect(
+      isExpectedActiveVersionRequest({
+        expectedActiveContentVersion: "content-current",
+        reason: "立即发布已核对版本。",
+      }),
+    ).toBe(true);
+    expect(
+      isExpectedActiveVersionRequest({
+        expectedActiveContentVersion: null,
+        reason: "  ",
+      }),
+    ).toBe(false);
+    expect(
+      isScheduleRequest({
+        effectiveFrom: "2026-08-01T23:00:00+08:00",
+        expectedActiveContentVersion: null,
+        reason: "按内容生效时间自动发布。",
+      }),
+    ).toBe(true);
+    expect(
+      isScheduleRequest({
+        effectiveFrom: "2026-08-01T23:00:00",
+        expectedActiveContentVersion: null,
+        reason: "缺少时区。",
+      }),
+    ).toBe(false);
+    expect(
+      isWithdrawRequest({
+        expectedActiveContentVersion: "content-current",
+        reason: "发现权利风险，立即下线。",
+        replacementContentVersion: "content-safe",
+      }),
+    ).toBe(true);
+    expect(
+      isRollbackRequest({
+        expectedActiveContentVersion: "content-current",
+        reason: "恢复同日已发布的安全版本。",
+        targetContentVersion: "content-safe",
+      }),
+    ).toBe(true);
+    expect(
+      isRollbackRequest({
+        expectedActiveContentVersion: "content-current",
+        reason: "恢复同日已发布的安全版本。",
+        targetContentVersion: "content-safe",
+        fortuneDate: "2026-08-02",
+      }),
+    ).toBe(false);
   });
 
   it("accepts only strong resource-specific ETags and bounded idempotency keys", () => {

@@ -144,6 +144,22 @@ async function main() {
         "exec",
         "vitest",
         "run",
+        "--no-file-parallelism",
+        "src/content-release/postgres-content-release-migration.integration.test.ts",
+        "src/content-release/postgres-content-release.store.integration.test.ts",
+        "src/content-release/content-release-public-flow.integration.test.ts",
+      ],
+      {
+        FIVE_CONTENT_RELEASE_TEST_DATABASE_URL: testUrl.toString(),
+      },
+    );
+    await run(
+      [
+        "--filter",
+        "@five/backend",
+        "exec",
+        "vitest",
+        "run",
         "src/poster/postgres-poster-job.repository.integration.test.ts",
         "src/feedback/postgres-feedback-report.repository.integration.test.ts",
         "src/admin-auth/postgres-admin-security.store.integration.test.ts",
@@ -172,7 +188,7 @@ async function main() {
     );
     assertNotInterrupted();
     process.stdout.write(
-      "Poster, feedback, admin-security, content-lifecycle, and daily-image PostgreSQL integration checks passed in an isolated disposable database.\n",
+      "Poster, feedback, admin-security, content-lifecycle, daily-image, and content-release PostgreSQL integration checks passed in an isolated disposable database.\n",
     );
   } finally {
     await cleanupDisposableDatabase();

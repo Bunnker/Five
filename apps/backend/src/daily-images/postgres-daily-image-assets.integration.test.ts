@@ -249,6 +249,54 @@ describeDatabase("Postgres daily image assets", () => {
     );
     expect(persistedRows.rows[0]).toEqual({ audits: "1", purges: "1", withdrawals: "1" });
 
+    const claimedPurge = await store.claimNextImageCachePurgeIntent({
+      attemptToken: opaque("attempt-pg-image-first"),
+      claimedAt: "2026-08-02T05:05:00.000Z",
+      leaseExpiresAt: "2026-08-02T05:10:00.000Z",
+      workerId: "image-cache-worker-pg-a",
+    });
+    expect(claimedPurge).toMatchObject({
+      assetId: assetIds[0],
+      attempts: 1,
+      contentVersion: submitted.result.contentVersion,
+      status: "processing",
+    });
+    if (claimedPurge === null) return;
+    await expect(
+      store.recordImageCachePurgeFailure({
+        attemptToken: claimedPurge.attemptToken!,
+        error: "provider unavailable",
+        failedAt: "2026-08-02T05:05:01.000Z",
+        purgeIntentId: claimedPurge.purgeIntentId,
+        retryAt: "2026-08-02T05:05:31.000Z",
+        workerId: "image-cache-worker-pg-a",
+      }),
+    ).resolves.toMatchObject({ lastError: "provider unavailable", status: "pending" });
+    const retriedPurge = await store.claimNextImageCachePurgeIntent({
+      attemptToken: opaque("attempt-pg-image-second"),
+      claimedAt: "2026-08-02T05:05:31.000Z",
+      leaseExpiresAt: "2026-08-02T05:10:31.000Z",
+      workerId: "image-cache-worker-pg-b",
+    });
+    expect(retriedPurge).toMatchObject({ attempts: 2, status: "processing" });
+    if (retriedPurge === null) return;
+    await expect(
+      store.completeImageCachePurgeIntent({
+        attemptToken: claimedPurge.attemptToken!,
+        completedAt: "2026-08-02T05:05:32.000Z",
+        purgeIntentId: claimedPurge.purgeIntentId,
+        workerId: "image-cache-worker-pg-a",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      store.completeImageCachePurgeIntent({
+        attemptToken: retriedPurge.attemptToken!,
+        completedAt: "2026-08-02T05:05:32.000Z",
+        purgeIntentId: retriedPurge.purgeIntentId,
+        workerId: "image-cache-worker-pg-b",
+      }),
+    ).resolves.toMatchObject({ status: "completed" });
+
     const globalProjectionDraft = await lifecycle.createDraft({
       actorId: "operator-integration",
       copyFromContentVersion: null,

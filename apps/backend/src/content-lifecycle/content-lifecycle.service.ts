@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import { isDeliverableAdminImageAsset } from "@five/api-contract/runtime";
 
+import { CalendarRuleEngine } from "../calendar/calendar-rule-engine";
 import { evaluateContentPreflight } from "./content-preflight";
 import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
 import {
@@ -43,6 +44,7 @@ const SYSTEM_IDENTIFIERS: ContentLifecycleIdentifiers = {
   nextDraftId: () => `draft-${randomUUID()}`,
   nextEvidenceId: () => `evidence-${randomUUID()}`,
 };
+const CALENDAR = new CalendarRuleEngine();
 
 const EMPTY_MODULES: DraftModules = {
   calendar_algorithm: null,
@@ -411,12 +413,13 @@ export class ContentLifecycleService {
       const lifecycleRevision = projection.revision + 1;
       const contentVersion = this.identifiers.nextContentVersion();
       const now = this.clock.now().toISOString();
+      const releaseWindow = CALENDAR.evaluate(stored.draft.fortuneDate);
       const version: StoredContentVersion = {
         contentVersion,
         createdAt: now,
         draftId: stored.draft.draftId,
-        effectiveFrom: null,
-        effectiveTo: null,
+        effectiveFrom: releaseWindow.effectiveFrom,
+        effectiveTo: releaseWindow.effectiveTo,
         fortuneDate: stored.draft.fortuneDate,
         preflightChecks: evaluateContentPreflight(
           stored.draft.modules,

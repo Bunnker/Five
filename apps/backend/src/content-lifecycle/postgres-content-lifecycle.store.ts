@@ -25,8 +25,10 @@ import type {
   StoredCachePurgeIntent,
   StoredDailyImageSet,
   StoredDraftImageAsset,
+  StoredImageCachePurgeIntent,
   StoredImageAssetWithdrawalEvent,
 } from "../daily-images/daily-image-asset.store";
+import type { ImageCachePurgeStore } from "../daily-images/image-cache-purge.store";
 import { projectDailyImageSet } from "../daily-images/image-delivery-projection";
 
 interface DraftRow {
@@ -117,6 +119,24 @@ interface ImageAssetWithdrawalRow {
   withdrawn_at: Date | string;
 }
 
+interface ImageCachePurgeIntentRow {
+  asset_id: string;
+  attempt_token: string | null;
+  attempts: number | string;
+  available_at: Date | string;
+  claimed_at: Date | string | null;
+  content_version: string;
+  created_at: Date | string;
+  fortune_date: string;
+  last_error: string | null;
+  lease_expires_at: Date | string | null;
+  processed_at: Date | string | null;
+  purge_intent_id: string;
+  request_id: string;
+  status: StoredImageCachePurgeIntent["status"];
+  worker_id: string | null;
+}
+
 const DRAFT_COLUMNS = `
   draft_id,
   fortune_date::text,
@@ -177,12 +197,50 @@ const IMAGE_WITHDRAWAL_COLUMNS = `
   audit_event_id
 `;
 
+const IMAGE_CACHE_PURGE_INTENT_COLUMNS = `
+  purge_intent_id,
+  content_version,
+  fortune_date::text,
+  asset_id,
+  request_id,
+  created_at,
+  status,
+  attempts,
+  available_at,
+  claimed_at,
+  lease_expires_at,
+  worker_id,
+  attempt_token,
+  last_error,
+  processed_at
+`;
+
 function asIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 function nullableIso(value: Date | string | null): string | null {
   return value === null ? null : asIso(value);
+}
+
+function mapImageCachePurgeIntent(row: ImageCachePurgeIntentRow): StoredImageCachePurgeIntent {
+  return {
+    assetId: row.asset_id,
+    attemptToken: row.attempt_token,
+    attempts: Number(row.attempts),
+    availableAt: asIso(row.available_at),
+    claimedAt: nullableIso(row.claimed_at),
+    contentVersion: row.content_version,
+    createdAt: asIso(row.created_at),
+    fortuneDate: row.fortune_date,
+    lastError: row.last_error,
+    leaseExpiresAt: nullableIso(row.lease_expires_at),
+    processedAt: nullableIso(row.processed_at),
+    purgeIntentId: row.purge_intent_id,
+    requestId: row.request_id,
+    status: row.status,
+    workerId: row.worker_id,
+  };
 }
 
 function mapDraft(row: DraftRow): StoredDraft {
@@ -462,8 +520,9 @@ class PostgresContentLifecycleTransaction implements ContentLifecycleTransaction
   async insertCachePurgeIntent(intent: StoredCachePurgeIntent): Promise<void> {
     await this.client.query(
       `INSERT INTO image_cache_purge_intents (
-         purge_intent_id, content_version, fortune_date, asset_id, request_id, created_at
-       ) VALUES ($1, $2, $3::date, $4, $5, $6::timestamptz)`,
+         purge_intent_id, content_version, fortune_date, asset_id, request_id, created_at,
+         status, attempts, available_at
+       ) VALUES ($1, $2, $3::date, $4, $5, $6::timestamptz, 'pending', 0, $6::timestamptz)`,
       [
         intent.purgeIntentId,
         intent.contentVersion,
@@ -740,8 +799,109 @@ class PostgresContentLifecycleTransaction implements ContentLifecycleTransaction
   }
 }
 
-export class PostgresContentLifecycleStore implements ContentLifecycleStore {
+export class PostgresContentLifecycleStore implements ContentLifecycleStore, ImageCachePurgeStore {
   constructor(private readonly pool: Pool) {}
+
+  async claimNextImageCachePurgeIntent(input: {
+    readonly attemptToken: string;
+    readonly claimedAt: string;
+    readonly leaseExpiresAt: string;
+    readonly workerId: string;
+  }): Promise<StoredImageCachePurgeIntent | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<ImageCachePurgeIntentRow>(
+        `WITH candidate AS (
+           SELECT purge_intent_id AS candidate_purge_intent_id
+             FROM image_cache_purge_intents
+            WHERE (
+              status = 'pending' AND available_at <= $1::timestamptz
+            ) OR (
+              status = 'processing' AND lease_expires_at <= $1::timestamptz
+            )
+            ORDER BY
+              CASE WHEN status = 'processing' THEN lease_expires_at ELSE available_at END,
+              created_at,
+              purge_intent_id
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+         )
+         UPDATE image_cache_purge_intents AS intent
+            SET status = 'processing',
+                attempts = intent.attempts + 1,
+                claimed_at = $1::timestamptz,
+                lease_expires_at = $2::timestamptz,
+                worker_id = $3,
+                attempt_token = $4
+           FROM candidate
+          WHERE intent.purge_intent_id = candidate.candidate_purge_intent_id
+        RETURNING ${IMAGE_CACHE_PURGE_INTENT_COLUMNS}`,
+        [input.claimedAt, input.leaseExpiresAt, input.workerId, input.attemptToken],
+      );
+      await client.query("COMMIT");
+      const row = result.rows[0];
+      return row === undefined ? null : mapImageCachePurgeIntent(row);
+    } catch (error) {
+      await rollback(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async completeImageCachePurgeIntent(input: {
+    readonly attemptToken: string;
+    readonly completedAt: string;
+    readonly purgeIntentId: string;
+    readonly workerId: string;
+  }): Promise<StoredImageCachePurgeIntent | null> {
+    const result = await this.pool.query<ImageCachePurgeIntentRow>(
+      `UPDATE image_cache_purge_intents
+          SET status = 'completed',
+              claimed_at = NULL,
+              lease_expires_at = NULL,
+              worker_id = NULL,
+              attempt_token = NULL,
+              processed_at = $1::timestamptz
+        WHERE purge_intent_id = $2
+          AND status = 'processing'
+          AND worker_id = $3
+          AND attempt_token = $4
+      RETURNING ${IMAGE_CACHE_PURGE_INTENT_COLUMNS}`,
+      [input.completedAt, input.purgeIntentId, input.workerId, input.attemptToken],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : mapImageCachePurgeIntent(row);
+  }
+
+  async recordImageCachePurgeFailure(input: {
+    readonly attemptToken: string;
+    readonly error: string;
+    readonly failedAt: string;
+    readonly purgeIntentId: string;
+    readonly retryAt: string;
+    readonly workerId: string;
+  }): Promise<StoredImageCachePurgeIntent | null> {
+    const result = await this.pool.query<ImageCachePurgeIntentRow>(
+      `UPDATE image_cache_purge_intents
+          SET status = 'pending',
+              available_at = $1::timestamptz,
+              claimed_at = NULL,
+              lease_expires_at = NULL,
+              worker_id = NULL,
+              attempt_token = NULL,
+              last_error = $2
+        WHERE purge_intent_id = $3
+          AND status = 'processing'
+          AND worker_id = $4
+          AND attempt_token = $5
+      RETURNING ${IMAGE_CACHE_PURGE_INTENT_COLUMNS}`,
+      [input.retryAt, input.error, input.purgeIntentId, input.workerId, input.attemptToken],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : mapImageCachePurgeIntent(row);
+  }
 
   private async repeatableRead<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();

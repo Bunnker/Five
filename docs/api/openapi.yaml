@@ -1338,10 +1338,14 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/LifecycleActionSucceeded"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -1372,10 +1376,14 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/LifecycleActionSucceeded"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -1404,10 +1412,14 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/LifecycleActionSucceeded"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -1438,10 +1450,14 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/LifecycleActionSucceeded"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":
@@ -1472,10 +1488,14 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/LifecycleActionSucceeded"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "412":

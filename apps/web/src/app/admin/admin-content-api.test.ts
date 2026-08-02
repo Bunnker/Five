@@ -5,6 +5,22 @@ import { createAdminJsonResponse } from "./admin-test-responses";
 
 const csrfToken = "csrf-token-that-is-longer-than-thirty-two-characters";
 
+const lifecycleResult = {
+  activeContentVersion: "fd-20260801-r0",
+  auditEventId: "audit-lifecycle-001",
+  contentVersion: "fd-20260801-r1",
+  fortuneDate: "2026-08-01",
+  lifecycleRevision: 7,
+  state: "scheduled" as const,
+  transitions: [
+    {
+      contentVersion: "fd-20260801-r1",
+      fromState: "approved" as const,
+      toState: "scheduled" as const,
+    },
+  ],
+};
+
 const imageAsset = {
   aiLabelStatus: "complete" as const,
   altText: "墨绿外套日常穿搭",
@@ -93,6 +109,298 @@ describe("adminApi content workflow", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.status).toBe(502);
+  });
+
+  it("preserves a validated lifecycle error code, retryability, and details", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        createAdminJsonResponse(
+          {
+            error: {
+              code: "ACTIVE_CONTENT_VERSION_CHANGED",
+              details: {
+                currentActiveContentVersion: "fd-20260801-r2",
+                expectedActiveContentVersion: "fd-20260801-r1",
+              },
+              message: "当前在线版本已经变化，请重新读取。",
+              requestId: "request-active-version-change-0001",
+              retryable: true,
+            },
+          },
+          {
+            headers: { "X-Request-Id": "request-active-version-change-0001" },
+            status: 409,
+          },
+        ),
+      ),
+    );
+
+    const result = await adminApi.getContentVersion("fd-20260801-r1");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual({
+        code: "ACTIVE_CONTENT_VERSION_CHANGED",
+        details: {
+          currentActiveContentVersion: "fd-20260801-r2",
+          expectedActiveContentVersion: "fd-20260801-r1",
+        },
+        kind: "api-error",
+        requestId: "request-active-version-change-0001",
+        retryAfterSeconds: null,
+        retryable: true,
+        status: 409,
+      });
+    }
+  });
+
+  it("schedules a version with the server active version and all lifecycle guards", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        createAdminJsonResponse(lifecycleResult, { headers: { ETag: '"lifecycle:7"' } }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adminApi.scheduleContentVersion({
+      body: {
+        effectiveFrom: "2026-07-31T23:00:00+08:00",
+        expectedActiveContentVersion: "fd-20260801-r0",
+        reason: "按已确认的生效时间上线",
+      },
+      contentVersion: "fd-20260801-r1",
+      csrfToken,
+      etag: '"lifecycle:6"',
+      idempotencyKey: "idem-schedule-000000000000001",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/api/v1/daily-content-versions/fd-20260801-r1/schedule",
+      expect.objectContaining({
+        body: JSON.stringify({
+          effectiveFrom: "2026-07-31T23:00:00+08:00",
+          expectedActiveContentVersion: "fd-20260801-r0",
+          reason: "按已确认的生效时间上线",
+        }),
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: expect.objectContaining({
+          "Idempotency-Key": "idem-schedule-000000000000001",
+          "If-Match": '"lifecycle:6"',
+          "X-CSRF-Token": csrfToken,
+        }),
+        method: "POST",
+      }),
+    );
+  });
+
+  it("cancels a schedule through its contract path with the frozen intent", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createAdminJsonResponse(
+        {
+          ...lifecycleResult,
+          state: "approved",
+          transitions: [
+            {
+              contentVersion: "fd-20260801-r1",
+              fromState: "scheduled",
+              toState: "approved",
+            },
+          ],
+        },
+        { headers: { ETag: '"lifecycle:7"' } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.cancelContentSchedule({
+      body: {
+        expectedActiveContentVersion: "fd-20260801-r0",
+        reason: "上线时间需要重新确认",
+      },
+      contentVersion: "fd-20260801-r1",
+      csrfToken,
+      etag: '"lifecycle:6"',
+      idempotencyKey: "idem-cancel-00000000000000001",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/api/v1/daily-content-versions/fd-20260801-r1/cancel-schedule",
+      expect.objectContaining({
+        body: JSON.stringify({
+          expectedActiveContentVersion: "fd-20260801-r0",
+          reason: "上线时间需要重新确认",
+        }),
+        headers: expect.objectContaining({
+          "Idempotency-Key": "idem-cancel-00000000000000001",
+          "If-Match": '"lifecycle:6"',
+          "X-CSRF-Token": csrfToken,
+        }),
+        method: "POST",
+      }),
+    );
+  });
+
+  it("publishes immediately with active-version, ETag, CSRF, and idempotency guards", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createAdminJsonResponse(
+        {
+          ...lifecycleResult,
+          activeContentVersion: "fd-20260801-r1",
+          state: "published",
+          transitions: [
+            {
+              contentVersion: "fd-20260801-r1",
+              fromState: "approved",
+              toState: "published",
+            },
+          ],
+        },
+        { headers: { ETag: '"lifecycle:7"' } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.publishContentVersion({
+      body: {
+        expectedActiveContentVersion: "fd-20260801-r0",
+        reason: "全部检查通过，立即上线",
+      },
+      contentVersion: "fd-20260801-r1",
+      csrfToken,
+      etag: '"lifecycle:6"',
+      idempotencyKey: "idem-publish-0000000000000001",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/api/v1/daily-content-versions/fd-20260801-r1/publish",
+      expect.objectContaining({
+        body: JSON.stringify({
+          expectedActiveContentVersion: "fd-20260801-r0",
+          reason: "全部检查通过，立即上线",
+        }),
+        headers: expect.objectContaining({
+          "Idempotency-Key": "idem-publish-0000000000000001",
+          "If-Match": '"lifecycle:6"',
+          "X-CSRF-Token": csrfToken,
+        }),
+        method: "POST",
+      }),
+    );
+  });
+
+  it("withdraws the active version with an explicit safe replacement", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createAdminJsonResponse(
+        {
+          ...lifecycleResult,
+          activeContentVersion: "fd-20260801-r0",
+          state: "withdrawn",
+          transitions: [
+            {
+              contentVersion: "fd-20260801-r1",
+              fromState: "published",
+              toState: "withdrawn",
+            },
+            {
+              contentVersion: "fd-20260801-r0",
+              fromState: "superseded",
+              toState: "published",
+            },
+          ],
+        },
+        { headers: { ETag: '"lifecycle:7"' } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.withdrawContentVersion({
+      body: {
+        expectedActiveContentVersion: "fd-20260801-r1",
+        reason: "正文出现需要立即修正的问题",
+        replacementContentVersion: "fd-20260801-r0",
+      },
+      contentVersion: "fd-20260801-r1",
+      csrfToken,
+      etag: '"lifecycle:6"',
+      idempotencyKey: "idem-withdraw-version-0000000001",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/api/v1/daily-content-versions/fd-20260801-r1/withdraw",
+      expect.objectContaining({
+        body: JSON.stringify({
+          expectedActiveContentVersion: "fd-20260801-r1",
+          reason: "正文出现需要立即修正的问题",
+          replacementContentVersion: "fd-20260801-r0",
+        }),
+        headers: expect.objectContaining({
+          "Idempotency-Key": "idem-withdraw-version-0000000001",
+          "If-Match": '"lifecycle:6"',
+          "X-CSRF-Token": csrfToken,
+        }),
+        method: "POST",
+      }),
+    );
+  });
+
+  it("rolls one fortune day back to a server-listed historical version", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createAdminJsonResponse(
+        {
+          ...lifecycleResult,
+          activeContentVersion: "fd-20260801-r0",
+          contentVersion: "fd-20260801-r0",
+          state: "published",
+          transitions: [
+            {
+              contentVersion: "fd-20260801-r1",
+              fromState: "published",
+              toState: "superseded",
+            },
+            {
+              contentVersion: "fd-20260801-r0",
+              fromState: "superseded",
+              toState: "published",
+            },
+          ],
+        },
+        { headers: { ETag: '"lifecycle:7"' } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adminApi.rollbackContentDay({
+      body: {
+        expectedActiveContentVersion: "fd-20260801-r1",
+        reason: "当前版本体验异常，恢复已验证版本",
+        targetContentVersion: "fd-20260801-r0",
+      },
+      contentVersion: "fd-20260801-r0",
+      csrfToken,
+      etag: '"lifecycle:6"',
+      fortuneDate: "2026-08-01",
+      idempotencyKey: "idem-rollback-0000000000000001",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/api/v1/daily-content-days/2026-08-01/rollback",
+      expect.objectContaining({
+        body: JSON.stringify({
+          expectedActiveContentVersion: "fd-20260801-r1",
+          reason: "当前版本体验异常，恢复已验证版本",
+          targetContentVersion: "fd-20260801-r0",
+        }),
+        headers: expect.objectContaining({
+          "Idempotency-Key": "idem-rollback-0000000000000001",
+          "If-Match": '"lifecycle:6"',
+          "X-CSRF-Token": csrfToken,
+        }),
+        method: "POST",
+      }),
+    );
   });
 
   it("lists server-side drafts with an optional fortune-date filter", async () => {

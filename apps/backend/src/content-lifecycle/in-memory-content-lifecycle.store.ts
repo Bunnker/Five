@@ -17,12 +17,13 @@ import type {
   StoredMasterReviewEvidence,
 } from "./content-lifecycle.store";
 import type {
-  StoredCachePurgeIntent,
   StoredDailyImageSet,
   StoredDraftImageAsset,
+  StoredImageCachePurgeIntent,
   StoredImageAssetWithdrawalEvent,
 } from "../daily-images/daily-image-asset.store";
 import { projectDailyImageSet } from "../daily-images/image-delivery-projection";
+import type { ImageCachePurgeStore } from "../daily-images/image-cache-purge.store";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -36,9 +37,9 @@ function idempotencyId(
   return `${operation}\u0000${resourceId}\u0000${idempotencyKey}`;
 }
 
-export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
+export class InMemoryContentLifecycleStore implements ContentLifecycleStore, ImageCachePurgeStore {
   private audits: StoredAuditEvent[] = [];
-  private cachePurgeIntents: StoredCachePurgeIntent[] = [];
+  private cachePurgeIntents: StoredImageCachePurgeIntent[] = [];
   private dailyImageSets = new Map<string, StoredDailyImageSet>();
   private drafts = new Map<string, StoredDraft>();
   private draftImageAssets = new Map<string, StoredDraftImageAsset>();
@@ -71,8 +72,118 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
     });
   }
 
-  readCachePurgeIntentsForTest(): StoredCachePurgeIntent[] {
+  readCachePurgeIntentsForTest(): StoredImageCachePurgeIntent[] {
     return clone(this.cachePurgeIntents);
+  }
+
+  async claimNextImageCachePurgeIntent(input: {
+    readonly attemptToken: string;
+    readonly claimedAt: string;
+    readonly leaseExpiresAt: string;
+    readonly workerId: string;
+  }): Promise<StoredImageCachePurgeIntent | null> {
+    return this.transaction(async () => {
+      const claimedAt = new Date(input.claimedAt).getTime();
+      const intent = this.cachePurgeIntents
+        .filter(
+          (candidate) =>
+            (candidate.status === "pending" &&
+              new Date(candidate.availableAt).getTime() <= claimedAt) ||
+            (candidate.status === "processing" &&
+              candidate.leaseExpiresAt !== null &&
+              new Date(candidate.leaseExpiresAt).getTime() <= claimedAt),
+        )
+        .sort(
+          (left, right) =>
+            new Date(
+              left.status === "processing" ? left.leaseExpiresAt! : left.availableAt,
+            ).getTime() -
+              new Date(
+                right.status === "processing" ? right.leaseExpiresAt! : right.availableAt,
+              ).getTime() ||
+            new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
+            left.purgeIntentId.localeCompare(right.purgeIntentId),
+        )[0];
+      if (intent === undefined) return null;
+      const claimed: StoredImageCachePurgeIntent = {
+        ...intent,
+        attemptToken: input.attemptToken,
+        attempts: intent.attempts + 1,
+        claimedAt: input.claimedAt,
+        leaseExpiresAt: input.leaseExpiresAt,
+        status: "processing",
+        workerId: input.workerId,
+      };
+      this.replaceImageCachePurgeIntent(claimed);
+      return clone(claimed);
+    });
+  }
+
+  async completeImageCachePurgeIntent(input: {
+    readonly attemptToken: string;
+    readonly completedAt: string;
+    readonly purgeIntentId: string;
+    readonly workerId: string;
+  }): Promise<StoredImageCachePurgeIntent | null> {
+    return this.transaction(async () => {
+      const intent = this.cachePurgeIntents.find(
+        (candidate) => candidate.purgeIntentId === input.purgeIntentId,
+      );
+      if (
+        intent === undefined ||
+        intent.status !== "processing" ||
+        intent.workerId !== input.workerId ||
+        intent.attemptToken !== input.attemptToken
+      ) {
+        return null;
+      }
+      const completed: StoredImageCachePurgeIntent = {
+        ...intent,
+        attemptToken: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+        processedAt: input.completedAt,
+        status: "completed",
+        workerId: null,
+      };
+      this.replaceImageCachePurgeIntent(completed);
+      return clone(completed);
+    });
+  }
+
+  async recordImageCachePurgeFailure(input: {
+    readonly attemptToken: string;
+    readonly error: string;
+    readonly failedAt: string;
+    readonly purgeIntentId: string;
+    readonly retryAt: string;
+    readonly workerId: string;
+  }): Promise<StoredImageCachePurgeIntent | null> {
+    return this.transaction(async () => {
+      const intent = this.cachePurgeIntents.find(
+        (candidate) => candidate.purgeIntentId === input.purgeIntentId,
+      );
+      if (
+        intent === undefined ||
+        intent.status !== "processing" ||
+        intent.workerId !== input.workerId ||
+        intent.attemptToken !== input.attemptToken
+      ) {
+        return null;
+      }
+      const pending: StoredImageCachePurgeIntent = {
+        ...intent,
+        attemptToken: null,
+        availableAt: input.retryAt,
+        claimedAt: null,
+        lastError: input.error,
+        leaseExpiresAt: null,
+        status: "pending",
+        workerId: null,
+      };
+      this.replaceImageCachePurgeIntent(pending);
+      return clone(pending);
+    });
   }
 
   async findDraft(draftId: string): Promise<ContentDraft | null> {
@@ -295,7 +406,20 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
         this.audits.push(clone(event));
       },
       insertCachePurgeIntent: async (intent) => {
-        this.cachePurgeIntents.push(clone(intent));
+        this.cachePurgeIntents.push(
+          clone({
+            ...intent,
+            attemptToken: null,
+            attempts: 0,
+            availableAt: intent.createdAt,
+            claimedAt: null,
+            lastError: null,
+            leaseExpiresAt: null,
+            processedAt: null,
+            status: "pending",
+            workerId: null,
+          }),
+        );
       },
       insertDailyImageSet: async (imageSet) => {
         if (this.dailyImageSets.has(imageSet.contentVersion)) {
@@ -387,5 +511,13 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
       .filter(({ event }) => assetIds.has(event.assetId))
       .map(({ event }) => event);
     return projectDailyImageSet(imageSet, globalEvents);
+  }
+
+  private replaceImageCachePurgeIntent(intent: StoredImageCachePurgeIntent): void {
+    const index = this.cachePurgeIntents.findIndex(
+      (candidate) => candidate.purgeIntentId === intent.purgeIntentId,
+    );
+    if (index === -1) throw new Error("image cache purge intent disappeared");
+    this.cachePurgeIntents[index] = clone(intent);
   }
 }

@@ -31,3 +31,17 @@ export interface StoredCachePurgeIntent {
   readonly purgeIntentId: string;
   readonly requestId: string;
 }
+
+export type ImageCachePurgeIntentStatus = "completed" | "pending" | "processing";
+
+export interface StoredImageCachePurgeIntent extends StoredCachePurgeIntent {
+  readonly attemptToken: string | null;
+  readonly attempts: number;
+  readonly availableAt: string;
+  readonly claimedAt: string | null;
+  readonly lastError: string | null;
+  readonly leaseExpiresAt: string | null;
+  readonly processedAt: string | null;
+  readonly status: ImageCachePurgeIntentStatus;
+  readonly workerId: string | null;
+}

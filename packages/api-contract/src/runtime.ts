@@ -9,7 +9,54 @@ export type DraftImageAssetList = components["schemas"]["DraftImageAssetList"];
 export type AdminDailyImageSet = components["schemas"]["AdminDailyImageSet"];
 export type WithdrawImageAssetRequest = components["schemas"]["WithdrawImageAssetRequest"];
 export type ImageAssetWithdrawalResult = components["schemas"]["ImageAssetWithdrawalResult"];
+export type ErrorCode = components["schemas"]["ErrorCode"];
 type AdminImageAsset = components["schemas"]["AdminImageAsset"];
+
+const ERROR_CODE_RECORD = {
+  ACTIVE_CONTENT_VERSION_CHANGED: true,
+  ADMIN_SERVICE_UNAVAILABLE: true,
+  AUTHENTICATION_FAILED: true,
+  AUTH_CHALLENGE_EXPIRED: true,
+  CONTENT_NOT_FOUND: true,
+  CONTENT_NOT_READY: true,
+  CONTENT_VERSION_CHANGED: true,
+  CSRF_VALIDATION_FAILED: true,
+  EMERGENCY_CONTROL_CONFLICT: true,
+  FEEDBACK_UNAVAILABLE: true,
+  FORBIDDEN: true,
+  HISTORICAL_CONTENT_EXPIRED: true,
+  IDEMPOTENCY_KEY_REUSED: true,
+  IMAGE_FILE_INVALID: true,
+  IMAGE_FILE_TOO_LARGE: true,
+  IMAGE_MEDIA_TYPE_UNSUPPORTED: true,
+  IMAGE_REVIEW_INCOMPLETE: true,
+  IMAGE_SET_INVALID: true,
+  IMAGE_WITHDRAWAL_BLOCKED: true,
+  INVALID_ARGUMENT: true,
+  INVALID_FORTUNE_DATE: true,
+  INVALID_STATE_TRANSITION: true,
+  LOOK_NOT_FOUND: true,
+  MASTER_REVIEW_EVIDENCE_MISSING: true,
+  POSTER_GENERATION_UNAVAILABLE: true,
+  PRECONDITION_REQUIRED: true,
+  PUBLIC_ACCESS_STOPPED: true,
+  PUBLISH_PRECHECK_FAILED: true,
+  RATE_LIMITED: true,
+  RECOVERY_CHALLENGE_EXPIRED: true,
+  REQUIRED_REVIEW_MISSING: true,
+  RESOURCE_NOT_FOUND: true,
+  REVISION_MISMATCH: true,
+  SCHEDULE_TIME_INVALID: true,
+  TOTP_REPLAYED: true,
+  UNAUTHENTICATED: true,
+  VERSION_WITHDRAWN: true,
+} as const satisfies Record<ErrorCode, true>;
+
+const ERROR_CODE_SET: ReadonlySet<string> = new Set(Object.keys(ERROR_CODE_RECORD));
+
+export function isErrorCode(value: unknown): value is ErrorCode {
+  return typeof value === "string" && ERROR_CODE_SET.has(value);
+}
 
 export const DRAFT_MODULE_CODES = [
   "calendar_algorithm",

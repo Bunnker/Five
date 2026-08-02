@@ -14,19 +14,27 @@ import {
 } from "@nestjs/common";
 
 import type { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
+import type {
+  ContentReleaseActionResult,
+  ContentReleaseService,
+} from "../content-release/content-release.service";
 import { isFortuneDate } from "../today/public-route-params";
 import {
   isCreateDraftRequest,
   isDraftModuleUpdate,
+  isExpectedActiveVersionRequest,
   isIdempotencyKey,
   isMasterReviewEvidenceRequest,
   isModuleCode,
   isOpaqueAdminId,
+  isRollbackRequest,
   isReviewDecisionRequest,
+  isScheduleRequest,
+  isWithdrawRequest,
   parseStrongRevisionEtag,
 } from "./admin-content.validation";
 import { adminErrorEnvelope, type AdminHttpReply } from "./admin-http";
-import { CONTENT_LIFECYCLE_SERVICE } from "./admin-http.providers";
+import { CONTENT_LIFECYCLE_SERVICE, CONTENT_RELEASE_SERVICE } from "./admin-http.providers";
 import type { AdminProtectionRequest } from "./admin-request-protection";
 
 type ContentDraftList = components["schemas"]["ContentDraftList"];
@@ -98,11 +106,117 @@ function revisionMismatch(
   );
 }
 
+type LifecycleWriteContext =
+  | { readonly idempotencyKey: string; readonly kind: "valid"; readonly revision: number }
+  | { readonly error: ErrorEnvelope; readonly kind: "invalid" };
+
+function lifecycleWriteContext(
+  request: AdminProtectionRequest,
+  reply: AdminHttpReply,
+): LifecycleWriteContext {
+  const ifMatch = request.headers["if-match"];
+  if (ifMatch === undefined) {
+    reply.status(428);
+    return {
+      error: adminErrorEnvelope(
+        "PRECONDITION_REQUIRED",
+        "缺少当前生命周期修订号，请刷新后重试。",
+        requestId(request),
+      ),
+      kind: "invalid",
+    };
+  }
+  const revision = parseStrongRevisionEtag(ifMatch, "lifecycle");
+  const idempotencyKey = request.headers["idempotency-key"];
+  if (revision === null || !isIdempotencyKey(idempotencyKey)) {
+    reply.status(400);
+    return {
+      error: adminErrorEnvelope(
+        "INVALID_ARGUMENT",
+        "生命周期修订号或幂等键格式无效，请刷新后重试。",
+        requestId(request),
+      ),
+      kind: "invalid",
+    };
+  }
+  return { idempotencyKey, kind: "valid", revision };
+}
+
+function releaseResponse(
+  result: ContentReleaseActionResult,
+  request: AdminProtectionRequest,
+  reply: AdminHttpReply,
+): LifecycleActionResult | ErrorEnvelope {
+  if (result.kind === "applied" || result.kind === "existing") {
+    reply.header("ETag", `"lifecycle:${result.action.lifecycleRevision}"`);
+    return result.action;
+  }
+  if (result.kind === "not_found") {
+    return failure(request, reply, 404, "RESOURCE_NOT_FOUND", "内容版本或命理日不存在。");
+  }
+  if (result.kind === "revision_mismatch") {
+    return revisionMismatch(request, reply, "lifecycle", result.currentRevision);
+  }
+  if (result.kind === "active_version_changed") {
+    return failure(
+      request,
+      reply,
+      409,
+      "ACTIVE_CONTENT_VERSION_CHANGED",
+      "当前活跃版本已变化，请刷新后重试。",
+      { currentActiveContentVersion: result.currentActiveContentVersion },
+    );
+  }
+  if (result.kind === "idempotency_conflict") {
+    return idempotencyConflict(request, reply);
+  }
+  if (result.kind === "version_withdrawn") {
+    return failure(
+      request,
+      reply,
+      409,
+      "VERSION_WITHDRAWN",
+      "已下线版本不能直接重新发布或恢复，请复制为新草稿重新核对。",
+    );
+  }
+  if (result.kind === "invalid_state") {
+    return failure(
+      request,
+      reply,
+      409,
+      "INVALID_STATE_TRANSITION",
+      "当前内容状态不允许执行这项操作。",
+    );
+  }
+  if (result.kind === "schedule_time_invalid") {
+    return failure(
+      request,
+      reply,
+      422,
+      "SCHEDULE_TIME_INVALID",
+      "排期时间必须等于内容的固定生效时间，且未来内容不得提前公开。",
+    );
+  }
+  if (result.kind === "preflight_failed") {
+    return failure(
+      request,
+      reply,
+      422,
+      "PUBLISH_PRECHECK_FAILED",
+      "当前发布预检未全部通过，请处理后重试。",
+      { preflightChecks: result.preflightChecks },
+    );
+  }
+  return failure(request, reply, 400, "INVALID_ARGUMENT", "生命周期操作参数无效。");
+}
+
 @Controller("admin/api/v1")
 export class AdminContentController {
   constructor(
     @Inject(CONTENT_LIFECYCLE_SERVICE)
     private readonly lifecycleService: ContentLifecycleService,
+    @Inject(CONTENT_RELEASE_SERVICE)
+    private readonly releaseService: ContentReleaseService,
   ) {}
 
   @Get("daily-content-drafts")
@@ -557,6 +671,139 @@ export class AdminContentController {
       "核对结论无法保存，请刷新后重试。",
       requestId(request),
     );
+  }
+
+  @Post("daily-content-versions/:contentVersion/schedule")
+  @HttpCode(200)
+  async scheduleVersion(
+    @Param("contentVersion") contentVersion: string,
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<LifecycleActionResult | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    const context = lifecycleWriteContext(request, reply);
+    if (context.kind === "invalid") return context.error;
+    if (!isOpaqueAdminId(contentVersion) || !isScheduleRequest(body)) {
+      return failure(request, reply, 400, "INVALID_ARGUMENT", "排期参数格式无效。");
+    }
+    const result = await this.releaseService.schedule({
+      actorId: request.adminPrincipal.accountId,
+      contentVersion,
+      effectiveFrom: body.effectiveFrom,
+      expectedActiveContentVersion: body.expectedActiveContentVersion,
+      expectedLifecycleRevision: context.revision,
+      idempotencyKey: context.idempotencyKey,
+      reason: body.reason,
+      requestId: requestId(request),
+    });
+    return releaseResponse(result, request, reply);
+  }
+
+  @Post("daily-content-versions/:contentVersion/cancel-schedule")
+  @HttpCode(200)
+  async cancelSchedule(
+    @Param("contentVersion") contentVersion: string,
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<LifecycleActionResult | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    const context = lifecycleWriteContext(request, reply);
+    if (context.kind === "invalid") return context.error;
+    if (!isOpaqueAdminId(contentVersion) || !isExpectedActiveVersionRequest(body)) {
+      return failure(request, reply, 400, "INVALID_ARGUMENT", "取消排期参数格式无效。");
+    }
+    const result = await this.releaseService.cancelSchedule({
+      actorId: request.adminPrincipal.accountId,
+      contentVersion,
+      expectedActiveContentVersion: body.expectedActiveContentVersion,
+      expectedLifecycleRevision: context.revision,
+      idempotencyKey: context.idempotencyKey,
+      reason: body.reason,
+      requestId: requestId(request),
+    });
+    return releaseResponse(result, request, reply);
+  }
+
+  @Post("daily-content-versions/:contentVersion/publish")
+  @HttpCode(200)
+  async publishVersion(
+    @Param("contentVersion") contentVersion: string,
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<LifecycleActionResult | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    const context = lifecycleWriteContext(request, reply);
+    if (context.kind === "invalid") return context.error;
+    if (!isOpaqueAdminId(contentVersion) || !isExpectedActiveVersionRequest(body)) {
+      return failure(request, reply, 400, "INVALID_ARGUMENT", "立即发布参数格式无效。");
+    }
+    const result = await this.releaseService.publish({
+      actorId: request.adminPrincipal.accountId,
+      contentVersion,
+      expectedActiveContentVersion: body.expectedActiveContentVersion,
+      expectedLifecycleRevision: context.revision,
+      idempotencyKey: context.idempotencyKey,
+      reason: body.reason,
+      requestId: requestId(request),
+    });
+    return releaseResponse(result, request, reply);
+  }
+
+  @Post("daily-content-versions/:contentVersion/withdraw")
+  @HttpCode(200)
+  async withdrawVersion(
+    @Param("contentVersion") contentVersion: string,
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<LifecycleActionResult | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    const context = lifecycleWriteContext(request, reply);
+    if (context.kind === "invalid") return context.error;
+    if (!isOpaqueAdminId(contentVersion) || !isWithdrawRequest(body)) {
+      return failure(request, reply, 400, "INVALID_ARGUMENT", "下线参数格式无效。");
+    }
+    const result = await this.releaseService.withdraw({
+      actorId: request.adminPrincipal.accountId,
+      contentVersion,
+      expectedActiveContentVersion: body.expectedActiveContentVersion,
+      expectedLifecycleRevision: context.revision,
+      idempotencyKey: context.idempotencyKey,
+      reason: body.reason,
+      replacementContentVersion: body.replacementContentVersion,
+      requestId: requestId(request),
+    });
+    return releaseResponse(result, request, reply);
+  }
+
+  @Post("daily-content-days/:fortuneDate/rollback")
+  @HttpCode(200)
+  async rollbackDay(
+    @Param("fortuneDate") fortuneDate: string,
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<LifecycleActionResult | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    const context = lifecycleWriteContext(request, reply);
+    if (context.kind === "invalid") return context.error;
+    if (!isFortuneDate(fortuneDate) || !isRollbackRequest(body)) {
+      return failure(request, reply, 400, "INVALID_ARGUMENT", "恢复参数格式无效。");
+    }
+    const result = await this.releaseService.rollback({
+      actorId: request.adminPrincipal.accountId,
+      expectedActiveContentVersion: body.expectedActiveContentVersion,
+      expectedLifecycleRevision: context.revision,
+      fortuneDate,
+      idempotencyKey: context.idempotencyKey,
+      reason: body.reason,
+      requestId: requestId(request),
+      targetContentVersion: body.targetContentVersion,
+    });
+    return releaseResponse(result, request, reply);
   }
 
   @Get("audit-events")

@@ -576,6 +576,15 @@ describe("ContentLifecycleService", () => {
       snapshot: created.draft.modules,
       state: "in_review",
     });
+    await expect(service.listVersions("2026-08-01")).resolves.toMatchObject({
+      items: [
+        {
+          contentVersion: "content-opaque-1",
+          effectiveFrom: "2026-07-31T23:00:00+08:00",
+          effectiveTo: "2026-08-01T23:00:00+08:00",
+        },
+      ],
+    });
   });
 
   it("freezes a triple primary look and a mono optional look through the lifecycle seam", async () => {

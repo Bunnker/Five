@@ -405,6 +405,22 @@ describe("ContentVersionReview", () => {
           },
           { headers: { ETag: '"lifecycle:2"' } },
         ),
+      )
+      .mockResolvedValueOnce(
+        createAdminJsonResponse({
+          activeContentVersion: null,
+          fortuneDate: version.fortuneDate,
+          items: [
+            {
+              contentVersion: version.contentVersion,
+              createdAt: "2026-07-31T12:00:00+08:00",
+              effectiveFrom: "2026-07-31T23:00:00+08:00",
+              effectiveTo: "2026-08-01T23:00:00+08:00",
+              lifecycleRevision: 2,
+              state: "approved",
+            },
+          ],
+        }),
       );
 
     render(
@@ -521,24 +537,64 @@ describe("ContentVersionReview", () => {
       .mockResolvedValueOnce(
         createAdminJsonResponse(publishedVersion, { headers: { ETag: '"lifecycle:1"' } }),
       )
-      .mockResolvedValueOnce(
-        createAdminJsonResponse(initialImageSet, { headers: { ETag: '"lifecycle:1"' } }),
-      )
-      .mockResolvedValueOnce(
-        createAdminJsonResponse(
-          {
-            assetId: "asset-primary",
-            auditEventId: withdrawalEvent.auditEventId,
-            dailyImageSet: withdrawnImageSet,
-            deliveryAction: "fallback_activated",
-            lifecycleRevision: 2,
-          },
-          { headers: { ETag: '"lifecycle:2"' } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        createAdminJsonResponse(refreshedVersion, { headers: { ETag: '"lifecycle:2"' } }),
-      );
+      .mockImplementation((input, init) => {
+        if (
+          input === "/admin/api/v1/daily-content-versions/fd-20260801-r1/daily-image-set" &&
+          init?.method === "GET"
+        ) {
+          return Promise.resolve(
+            createAdminJsonResponse(initialImageSet, { headers: { ETag: '"lifecycle:1"' } }),
+          );
+        }
+        if (
+          input === "/admin/api/v1/daily-content-versions?fortuneDate=2026-08-01" &&
+          init?.method === "GET"
+        ) {
+          return Promise.resolve(
+            createAdminJsonResponse({
+              activeContentVersion: publishedVersion.contentVersion,
+              fortuneDate: publishedVersion.fortuneDate,
+              items: [
+                {
+                  contentVersion: publishedVersion.contentVersion,
+                  createdAt: "2026-07-31T12:00:00+08:00",
+                  effectiveFrom: "2026-07-31T23:00:00+08:00",
+                  effectiveTo: "2026-08-01T23:00:00+08:00",
+                  lifecycleRevision: 1,
+                  state: "published",
+                },
+              ],
+            }),
+          );
+        }
+        if (
+          input ===
+            "/admin/api/v1/daily-content-versions/fd-20260801-r1/image-assets/asset-primary/withdraw" &&
+          init?.method === "POST"
+        ) {
+          return Promise.resolve(
+            createAdminJsonResponse(
+              {
+                assetId: "asset-primary",
+                auditEventId: withdrawalEvent.auditEventId,
+                dailyImageSet: withdrawnImageSet,
+                deliveryAction: "fallback_activated",
+                lifecycleRevision: 2,
+              },
+              { headers: { ETag: '"lifecycle:2"' } },
+            ),
+          );
+        }
+        if (
+          input === "/admin/api/v1/daily-content-versions/fd-20260801-r1" &&
+          init?.method === "GET"
+        ) {
+          return Promise.resolve(
+            createAdminJsonResponse(refreshedVersion, { headers: { ETag: '"lifecycle:2"' } }),
+          );
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      });
 
     render(
       <AdminSessionProvider>
@@ -553,11 +609,91 @@ describe("ContentVersionReview", () => {
     fireEvent.click(screen.getByRole("button", { name: "下线素材 asset-primary" }));
 
     expect(await screen.findByText("单图下线后必备图片检查已刷新")).toBeInTheDocument();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
     const versionReads = fetchMock.mock.calls.filter(
       ([input, init]) =>
         input === "/admin/api/v1/daily-content-versions/fd-20260801-r1" && init?.method === "GET",
     );
     expect(versionReads).toHaveLength(2);
+  });
+
+  it("mounts the state-driven lifecycle controls for an approved version", async () => {
+    const approvedVersion = {
+      ...version,
+      preflightChecks: [{ code: "required_images", message: "两张必备图片通过", status: "passed" }],
+      state: "approved" as const,
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(createAdminJsonResponse(session))
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(approvedVersion, { headers: { ETag: '"lifecycle:1"' } }),
+      )
+      .mockResolvedValueOnce(
+        createAdminJsonResponse({
+          activeContentVersion: null,
+          fortuneDate: approvedVersion.fortuneDate,
+          items: [
+            {
+              contentVersion: approvedVersion.contentVersion,
+              createdAt: "2026-07-31T12:00:00+08:00",
+              effectiveFrom: "2026-07-31T23:00:00+08:00",
+              effectiveTo: "2026-08-01T23:00:00+08:00",
+              lifecycleRevision: 1,
+              state: "approved",
+            },
+          ],
+        }),
+      );
+
+    render(
+      <AdminSessionProvider>
+        <ContentVersionReview contentVersion={approvedVersion.contentVersion} />
+      </AdminSessionProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "上线控制" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "安排定时上线" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "立即发布" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  });
+
+  it("offers copy-to-draft for a withdrawn immutable version without direct republish", async () => {
+    const withdrawnVersion = {
+      ...version,
+      activeContentVersion: null,
+      state: "withdrawn" as const,
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(createAdminJsonResponse(session))
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(withdrawnVersion, { headers: { ETag: '"lifecycle:7"' } }),
+      )
+      .mockResolvedValueOnce(
+        createAdminJsonResponse({
+          activeContentVersion: null,
+          fortuneDate: withdrawnVersion.fortuneDate,
+          items: [
+            {
+              contentVersion: withdrawnVersion.contentVersion,
+              createdAt: "2026-07-31T12:00:00+08:00",
+              effectiveFrom: "2026-07-31T23:00:00+08:00",
+              effectiveTo: "2026-08-01T23:00:00+08:00",
+              lifecycleRevision: 7,
+              state: "withdrawn",
+            },
+          ],
+        }),
+      );
+
+    render(
+      <AdminSessionProvider>
+        <ContentVersionReview contentVersion={withdrawnVersion.contentVersion} />
+      </AdminSessionProvider>,
+    );
+
+    expect(await screen.findByText("已下线版本不能直接恢复或重新发布。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制为新草稿" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "立即发布" })).not.toBeInTheDocument();
   });
 });

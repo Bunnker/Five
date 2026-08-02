@@ -7,9 +7,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import type { AdminAuthService, SessionPrincipal } from "../admin-auth/admin-auth.service";
 import type { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
+import type { ContentReleaseService } from "../content-release/content-release.service";
 import { AdminContentController } from "./admin-content.controller";
 import { AdminHttpExceptionFilter } from "./admin-http-exception.filter";
-import { ADMIN_AUTH_SERVICE, CONTENT_LIFECYCLE_SERVICE } from "./admin-http.providers";
+import {
+  ADMIN_AUTH_SERVICE,
+  CONTENT_LIFECYCLE_SERVICE,
+  CONTENT_RELEASE_SERVICE,
+} from "./admin-http.providers";
 import { installAdminRequestProtection } from "./admin-request-protection";
 
 const principal: SessionPrincipal = {
@@ -41,6 +46,14 @@ const lifecycleService = {
   submitDraft: vi.fn(),
   updateDraftModule: vi.fn(),
 } as unknown as ContentLifecycleService;
+
+const releaseService = {
+  cancelSchedule: vi.fn(),
+  publish: vi.fn(),
+  rollback: vi.fn(),
+  schedule: vi.fn(),
+  withdraw: vi.fn(),
+} as unknown as ContentReleaseService;
 
 const draft = {
   createdAt: "2026-08-01T08:00:00.000Z",
@@ -74,6 +87,22 @@ const adminVersion = {
   state: "in_review" as const,
 };
 
+const releaseAction = {
+  activeContentVersion: "content-opaque-1",
+  auditEventId: "audit-release-1",
+  contentVersion: "content-opaque-1",
+  fortuneDate: "2026-08-02",
+  lifecycleRevision: 5,
+  state: "published" as const,
+  transitions: [
+    {
+      contentVersion: "content-opaque-1",
+      fromState: "approved" as const,
+      toState: "published" as const,
+    },
+  ],
+};
+
 const protectedWriteHeaders = {
   cookie: `five_admin_session=${"s".repeat(43)}`,
   origin: "http://127.0.0.1:3000",
@@ -85,6 +114,7 @@ const protectedWriteHeaders = {
   providers: [
     { provide: ADMIN_AUTH_SERVICE, useValue: authService },
     { provide: CONTENT_LIFECYCLE_SERVICE, useValue: lifecycleService },
+    { provide: CONTENT_RELEASE_SERVICE, useValue: releaseService },
     { provide: APP_FILTER, useClass: AdminHttpExceptionFilter },
   ],
 })
@@ -636,6 +666,187 @@ describe("admin content HTTP", () => {
       cursor: "cursor-current",
       fortuneDate: "2026-08-02",
       limit: 25,
+    });
+  });
+
+  it("schedules an approved version under lifecycle and active-version preconditions", async () => {
+    vi.mocked(releaseService.schedule).mockResolvedValue({
+      action: { ...releaseAction, activeContentVersion: null, state: "scheduled" },
+      kind: "applied",
+    });
+    const response = await app.inject({
+      headers: {
+        ...protectedWriteHeaders,
+        "idempotency-key": "schedule-http-key-01",
+        "if-match": '"lifecycle:4"',
+        "x-request-id": "schedule-http-request",
+      },
+      method: "POST",
+      payload: {
+        effectiveFrom: "2026-08-01T23:00:00+08:00",
+        expectedActiveContentVersion: null,
+        reason: "按冻结生效时间上线。",
+      },
+      url: "/admin/api/v1/daily-content-versions/content-opaque-1/schedule",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers.etag).toBe('"lifecycle:5"');
+    expect(releaseService.schedule).toHaveBeenCalledWith({
+      actorId: "admin-1",
+      contentVersion: "content-opaque-1",
+      effectiveFrom: "2026-08-01T23:00:00+08:00",
+      expectedActiveContentVersion: null,
+      expectedLifecycleRevision: 4,
+      idempotencyKey: "schedule-http-key-01",
+      reason: "按冻结生效时间上线。",
+      requestId: "schedule-http-request",
+    });
+  });
+
+  it("maps an invalid fixed schedule time to the frozen OpenAPI 422 response", async () => {
+    vi.mocked(releaseService.schedule).mockResolvedValue({ kind: "schedule_time_invalid" });
+    const response = await app.inject({
+      headers: {
+        ...protectedWriteHeaders,
+        "idempotency-key": "schedule-invalid-http-key-01",
+        "if-match": '"lifecycle:4"',
+        "x-request-id": "schedule-invalid-http-request",
+      },
+      method: "POST",
+      payload: {
+        effectiveFrom: "2026-08-01T22:59:00+08:00",
+        expectedActiveContentVersion: null,
+        reason: "验证冻结排期错误映射。",
+      },
+      url: "/admin/api/v1/daily-content-versions/content-opaque-1/schedule",
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "SCHEDULE_TIME_INVALID",
+        requestId: "schedule-invalid-http-request",
+      },
+    });
+  });
+
+  it.each([
+    [
+      "cancel-schedule",
+      "cancelSchedule",
+      { expectedActiveContentVersion: null, reason: "取消排期。" },
+    ],
+    ["publish", "publish", { expectedActiveContentVersion: null, reason: "立即发布。" }],
+    [
+      "withdraw",
+      "withdraw",
+      {
+        expectedActiveContentVersion: "content-opaque-1",
+        reason: "发现风险，立即下线。",
+        replacementContentVersion: null,
+      },
+    ],
+  ] as const)("routes %s through the release service", async (path, method, payload) => {
+    vi.mocked(releaseService[method]).mockResolvedValue({ action: releaseAction, kind: "applied" });
+    const response = await app.inject({
+      headers: {
+        ...protectedWriteHeaders,
+        "idempotency-key": `release-${path}-key-01`,
+        "if-match": '"lifecycle:4"',
+        "x-request-id": `release-${path}-request`,
+      },
+      method: "POST",
+      payload,
+      url: `/admin/api/v1/daily-content-versions/content-opaque-1/${path}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers.etag).toBe('"lifecycle:5"');
+    expect(releaseService[method]).toHaveBeenCalledWith({
+      actorId: "admin-1",
+      contentVersion: "content-opaque-1",
+      expectedLifecycleRevision: 4,
+      idempotencyKey: `release-${path}-key-01`,
+      requestId: `release-${path}-request`,
+      ...payload,
+    });
+  });
+
+  it("rolls back a day to an explicitly selected same-day version", async () => {
+    vi.mocked(releaseService.rollback).mockResolvedValue({
+      action: releaseAction,
+      kind: "applied",
+    });
+    const response = await app.inject({
+      headers: {
+        ...protectedWriteHeaders,
+        "idempotency-key": "rollback-http-key-01",
+        "if-match": '"lifecycle:4"',
+        "x-request-id": "rollback-http-request",
+      },
+      method: "POST",
+      payload: {
+        expectedActiveContentVersion: "content-current",
+        reason: "恢复同日安全旧版本。",
+        targetContentVersion: "content-opaque-1",
+      },
+      url: "/admin/api/v1/daily-content-days/2026-08-02/rollback",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(releaseService.rollback).toHaveBeenCalledWith({
+      actorId: "admin-1",
+      expectedActiveContentVersion: "content-current",
+      expectedLifecycleRevision: 4,
+      fortuneDate: "2026-08-02",
+      idempotencyKey: "rollback-http-key-01",
+      reason: "恢复同日安全旧版本。",
+      requestId: "rollback-http-request",
+      targetContentVersion: "content-opaque-1",
+    });
+  });
+
+  it("maps release conflicts and preflight failures to stable product errors", async () => {
+    vi.mocked(releaseService.publish)
+      .mockResolvedValueOnce({
+        currentActiveContentVersion: "content-newer",
+        kind: "active_version_changed",
+      })
+      .mockResolvedValueOnce({
+        kind: "preflight_failed",
+        preflightChecks: [
+          { code: "required_images", message: "图片当前不可交付。", status: "failed" },
+        ],
+      });
+    const request = (idempotencyKey: string, id: string) =>
+      app.inject({
+        headers: {
+          ...protectedWriteHeaders,
+          "idempotency-key": idempotencyKey,
+          "if-match": '"lifecycle:4"',
+          "x-request-id": id,
+        },
+        method: "POST" as const,
+        payload: { expectedActiveContentVersion: null, reason: "立即发布。" },
+        url: "/admin/api/v1/daily-content-versions/content-opaque-1/publish",
+      });
+
+    const conflict = await request("publish-conflict-0001", "publish-conflict-request");
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      error: {
+        code: "ACTIVE_CONTENT_VERSION_CHANGED",
+        details: { currentActiveContentVersion: "content-newer" },
+      },
+    });
+    const preflight = await request("publish-preflight-0001", "publish-preflight-request");
+    expect(preflight.statusCode).toBe(422);
+    expect(preflight.json()).toMatchObject({
+      error: {
+        code: "PUBLISH_PRECHECK_FAILED",
+        details: { preflightChecks: [{ code: "required_images", status: "failed" }] },
+      },
     });
   });
 
