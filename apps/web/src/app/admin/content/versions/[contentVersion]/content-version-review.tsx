@@ -13,6 +13,7 @@ import {
 import { formatAdminDateTimeWithYear, shanghaiLocalDateTimeToIso } from "../../../admin-date-time";
 import { AdminSessionGate } from "../../../admin-session-gate";
 import { useAdminSession } from "../../../admin-session-context";
+import { AdminDailyImageSetPanel } from "./admin-daily-image-set";
 
 type UiState =
   | { kind: "idle" }
@@ -106,6 +107,17 @@ function ContentVersionReviewContent({
   useEffect(() => {
     void loadVersion();
   }, [loadVersion]);
+
+  const synchronizeImageLifecycle = useCallback(
+    (input: { etag: string; lifecycleRevision: number }) => {
+      setEtag(input.etag);
+      setVersion((current) =>
+        current === null ? current : { ...current, lifecycleRevision: input.lifecycleRevision },
+      );
+      void loadVersion();
+    },
+    [loadVersion],
+  );
 
   async function addEvidence(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -361,9 +373,19 @@ function ContentVersionReviewContent({
         </div>
       </section>
 
+      <AdminDailyImageSetPanel
+        activeContentVersion={version.activeContentVersion}
+        contentVersion={version.contentVersion}
+        csrfToken={session.csrfToken}
+        enabled={version.snapshot.visual_and_rights !== null}
+        onLifecycleChange={synchronizeImageLifecycle}
+        onUnauthorized={clearSession}
+        versionState={version.state}
+      />
+
       <section className="admin-content-panel" aria-labelledby="preflight-title">
         <div className="admin-section-heading">
-          <p className="admin-kicker">02 · PREFLIGHT</p>
+          <p className="admin-kicker">03 · PREFLIGHT</p>
           <h2 id="preflight-title">必审检查</h2>
         </div>
         {version.preflightChecks.length === 0 ? (
@@ -395,7 +417,7 @@ function ContentVersionReviewContent({
 
       <section className="admin-content-panel" aria-labelledby="evidence-title">
         <div className="admin-section-heading">
-          <p className="admin-kicker">03 · MASTER EVIDENCE</p>
+          <p className="admin-kicker">04 · MASTER EVIDENCE</p>
           <h2 id="evidence-title">大师外部核对凭证</h2>
         </div>
         {version.masterReviewEvidence.length === 0 ? (
@@ -532,7 +554,7 @@ function ContentVersionReviewContent({
       {version.state === "in_review" ? (
         <section className="admin-review-decision" aria-labelledby="decision-title">
           <div>
-            <p className="admin-kicker">04 · DECISION</p>
+            <p className="admin-kicker">05 · DECISION</p>
             <h2 id="decision-title">批准或退回</h2>
             <p>服务端会重新运行全部必审检查；批准缺少凭证时会稳定拒绝。</p>
           </div>

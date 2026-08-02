@@ -8,6 +8,7 @@ import type { AdminAuthService } from "../admin-auth/admin-auth.service";
 import { AppModule } from "../app.module";
 import { ADMIN_AUTH_SERVICE } from "./admin-http.providers";
 import { installAdminRequestProtection } from "./admin-request-protection";
+import { installAdminImageMultipart } from "./admin-image-multipart";
 
 describe("real application admin HTTP boundary", () => {
   let app: NestFastifyApplication;
@@ -21,6 +22,7 @@ describe("real application admin HTTP boundary", () => {
       new FastifyAdapter({ logger: false, trustProxy: "loopback" }),
       { logger: false },
     );
+    await installAdminImageMultipart(app.getHttpAdapter().getInstance());
     installAdminRequestProtection(
       app.getHttpAdapter().getInstance(),
       app.get<AdminAuthService>(ADMIN_AUTH_SERVICE),

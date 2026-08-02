@@ -5,8 +5,12 @@ import type {
 import {
   DRAFT_MODULE_CODES,
   DRAFT_MODULE_REQUIRED_KEYS,
+  isAdminDailyImageSet,
+  isDraftImageAssetList,
+  isDraftImageAssetResult,
   isDraftModuleCode,
   isDraftModuleUpdate,
+  isImageAssetWithdrawalResult,
 } from "@five/api-contract/runtime";
 
 export type AdminSession = FiveApiComponents["schemas"]["AdminSession"];
@@ -25,6 +29,14 @@ export type DraftModuleUpdate = FiveApiComponents["schemas"]["DraftModuleUpdate"
 export type LifecycleActionResult = FiveApiComponents["schemas"]["LifecycleActionResult"];
 export type SubmitDraftResult = FiveApiComponents["schemas"]["SubmitDraftResult"];
 export type UpdatedDraftModule = FiveApiComponents["schemas"]["UpdatedDraftModule"];
+export type AdminDailyImageSet = FiveApiComponents["schemas"]["AdminDailyImageSet"];
+export type AdminImageAsset = FiveApiComponents["schemas"]["AdminImageAsset"];
+export type DraftImageAssetList = FiveApiComponents["schemas"]["DraftImageAssetList"];
+export type DraftImageAssetResult = FiveApiComponents["schemas"]["DraftImageAssetResult"];
+export type ImageAssetReviewRequest = FiveApiComponents["schemas"]["ImageAssetReviewRequest"];
+export type ImageAssetUploadMetadata = FiveApiComponents["schemas"]["ImageAssetUploadMetadata"];
+export type ImageAssetWithdrawalResult = FiveApiComponents["schemas"]["ImageAssetWithdrawalResult"];
+export type WithdrawImageAssetRequest = FiveApiComponents["schemas"]["WithdrawImageAssetRequest"];
 
 export type ContentVersionList =
   FiveApiOperations["listDailyContentVersions"]["responses"][200]["content"]["application/json"];
@@ -694,6 +706,13 @@ export function describeAdminContentApiError(error: AdminApiError): string {
   return describeAdminApiError(error, true);
 }
 
+export function describeAdminImageApiError(error: AdminApiError): string {
+  if (error.status === 413) return "图片文件过大，请压缩到上传限制以内后重试。";
+  if (error.status === 415) return "图片格式不支持，请改用 AVIF、WebP、JPEG 或 PNG。";
+  if (error.status === 422) return "图片元数据、权利状态或人工检查尚未满足要求。";
+  return describeAdminContentApiError(error);
+}
+
 export const adminApi = {
   addMasterReviewEvidence(input: {
     body: AddMasterReviewEvidenceRequest;
@@ -782,6 +801,15 @@ export const adminApi = {
       { lifecycleEtag: true },
     );
   },
+  getDailyImageSet(contentVersion: string) {
+    return requestJson(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(contentVersion)}/daily-image-set`,
+      { method: "GET" },
+      200,
+      isAdminDailyImageSet,
+      { lifecycleEtag: true },
+    );
+  },
   getDraft(draftId: string) {
     return requestJson(
       `/admin/api/v1/daily-content-drafts/${encodeURIComponent(draftId)}`,
@@ -811,6 +839,15 @@ export const adminApi = {
       { method: "GET" },
       200,
       isContentVersionList,
+    );
+  },
+  listDraftImages(draftId: string) {
+    return requestJson(
+      `/admin/api/v1/daily-content-drafts/${encodeURIComponent(draftId)}/image-assets`,
+      { method: "GET" },
+      200,
+      isDraftImageAssetList,
+      { draftEtag: true },
     );
   },
   listDrafts(fortuneDate: string | null = null) {
@@ -860,6 +897,31 @@ export const adminApi = {
       { emergencyControlEtag: true },
     );
   },
+  reviewDraftImage(input: {
+    assetId: string;
+    body: ImageAssetReviewRequest;
+    csrfToken: string;
+    draftId: string;
+    etag: string;
+    idempotencyKey: string;
+  }) {
+    return requestJson(
+      `/admin/api/v1/daily-content-drafts/${encodeURIComponent(input.draftId)}/image-assets/${encodeURIComponent(input.assetId)}/review`,
+      {
+        ...jsonBody(input.body),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": input.idempotencyKey,
+          "If-Match": input.etag,
+          "X-CSRF-Token": input.csrfToken,
+        },
+        method: "POST",
+      },
+      200,
+      isDraftImageAssetResult,
+      { draftEtag: true },
+    );
+  },
   submitDraft(input: { csrfToken: string; draftId: string; etag: string; idempotencyKey: string }) {
     return requestJson(
       `/admin/api/v1/daily-content-drafts/${encodeURIComponent(input.draftId)}/submit`,
@@ -897,6 +959,54 @@ export const adminApi = {
       200,
       isUpdatedDraftModule,
       { draftEtag: true },
+    );
+  },
+  uploadDraftImage(input: {
+    csrfToken: string;
+    draftId: string;
+    etag: string;
+    formData: FormData;
+    idempotencyKey: string;
+  }) {
+    return requestJson(
+      `/admin/api/v1/daily-content-drafts/${encodeURIComponent(input.draftId)}/image-assets`,
+      {
+        body: input.formData,
+        headers: {
+          "Idempotency-Key": input.idempotencyKey,
+          "If-Match": input.etag,
+          "X-CSRF-Token": input.csrfToken,
+        },
+        method: "POST",
+      },
+      201,
+      isDraftImageAssetResult,
+      { draftEtag: true },
+    );
+  },
+  withdrawImage(input: {
+    assetId: string;
+    body: WithdrawImageAssetRequest;
+    contentVersion: string;
+    csrfToken: string;
+    etag: string;
+    idempotencyKey: string;
+  }) {
+    return requestJson(
+      `/admin/api/v1/daily-content-versions/${encodeURIComponent(input.contentVersion)}/image-assets/${encodeURIComponent(input.assetId)}/withdraw`,
+      {
+        ...jsonBody(input.body),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": input.idempotencyKey,
+          "If-Match": input.etag,
+          "X-CSRF-Token": input.csrfToken,
+        },
+        method: "POST",
+      },
+      200,
+      isImageAssetWithdrawalResult,
+      { lifecycleEtag: true },
     );
   },
   decideContentReview(input: {

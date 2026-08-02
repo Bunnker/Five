@@ -394,6 +394,72 @@ export interface paths {
         patch: operations["updateDailyContentDraftModule"];
         trace?: never;
     };
+    "/admin/api/v1/daily-content-drafts/{draftId}/image-assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取草稿下已上传的图片候选与后台预览地址 */
+        get: operations["listDailyContentDraftImageAssets"];
+        put?: never;
+        /**
+         * 上传一张绑定草稿与命理日的图片
+         * @description 文件与 JSON 元数据使用两个 multipart part；metadata 必须是没有 filename 的普通表单字段，
+         *     字段值是符合 ImageAssetUploadMetadata 的 UTF-8 JSON 文本。服务端计算文件校验值、尺寸和格式；
+         *     用户访问时不会触发生图。网络重试必须复用同一个 `Idempotency-Key`。
+         */
+        post: operations["uploadDailyContentDraftImageAsset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/daily-content-drafts/{draftId}/image-assets/{assetId}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 逐图登记结构化人工检查
+         * @description 批准时六项检查必须全部通过，权利状态必须已清理，AI 素材还必须完成适用标识。
+         *     审核记录追加保存审核编号、维护者账号和服务端时间。复制自冻结版本且
+         *     `reviewLocked` 为 true 的素材不能在当前草稿重新审核；需要调整时必须上传新素材。
+         */
+        post: operations["reviewDailyContentDraftImageAsset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/image-assets/{assetId}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 在后台预览尚未公开或已经冻结的图片文件
+         * @description 仅供已认证维护者检查手机与微信显示效果；响应不进入公共缓存，也不能替代公开图片 URL。
+         *     文件是否允许公开仍由内容状态与当前图片交付投影决定。
+         */
+        get: operations["previewAdminImageAsset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/api/v1/daily-content-drafts/{draftId}/submit": {
         parameters: {
             query?: never;
@@ -439,6 +505,48 @@ export interface paths {
         get: operations["getDailyContentVersion"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/daily-content-versions/{contentVersion}/daily-image-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查看不可变图片引用与当前追加式交付投影
+         * @description 2+1 只统计封面槽位，细节图和降级素材另算。响应只在已认证后台返回内部来源、
+         *     权利和人工检查记录，不得复用为公共响应。
+         */
+        get: operations["getDailyContentVersionImageSet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/daily-content-versions/{contentVersion}/image-assets/{assetId}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 追加单图下线事件并更新图片交付投影
+         * @description 不修改不可变内容快照。必备封面切换到同一快照内审核通过的降级素材；可选封面
+         *     或问题细节图从公开交付中省略。重复请求返回第一次写入的同一结果。
+         */
+        post: operations["withdrawDailyContentVersionImageAsset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -959,6 +1067,55 @@ export interface components {
         ImageReviewStatus: "pending" | "approved" | "rejected" | "withdrawn";
         /** @enum {string} */
         AiLabelStatus: "not_applicable" | "pending" | "complete" | "failed";
+        /**
+         * @description 供应商无关的图片生成或上传方式，不保存具体中转品牌。
+         * @enum {string}
+         */
+        ImageGenerationMethod: "codex" | "relay" | "external_tool" | "licensed_upload" | "owned_upload" | "fallback_template";
+        /**
+         * @description 来源类型与生成方式必须配对：AI 素材只使用 codex、relay 或 external_tool，并提供完整生成追溯；
+         *     授权或自有上传只使用 licensed_upload 或 owned_upload；审核降级模板只使用 fallback_template。
+         */
+        ImageSourceAndGenerationMetadata: {
+            /** @constant */
+            sourceType: "ai_generated";
+            /** @enum {string} */
+            generationMethod: "codex" | "relay" | "external_tool";
+            declaredModel: string;
+            promptVersion: string;
+            generatedAt: components["schemas"]["ZonedDateTime"];
+            reproductionReference: string;
+        } | {
+            /** @constant */
+            sourceType: "licensed";
+            /** @enum {string} */
+            generationMethod: "licensed_upload" | "owned_upload";
+        } | {
+            /** @constant */
+            sourceType: "fallback_template";
+            /** @constant */
+            generationMethod: "fallback_template";
+        };
+        /** @enum {string} */
+        ImageManualCheckStatus: "passed" | "failed";
+        ImageManualReview: {
+            reviewId: components["schemas"]["OpaqueId"];
+            reviewerAccountId: components["schemas"]["OpaqueId"];
+            reviewedAt: components["schemas"]["ZonedDateTime"];
+            notes: string;
+            colorAndCopyConsistency: components["schemas"]["ImageManualCheckStatus"];
+            garmentAndPersonIntegrity: components["schemas"]["ImageManualCheckStatus"];
+            rightsAndIdentityRisk: components["schemas"]["ImageManualCheckStatus"];
+            scenarioAndImitability: components["schemas"]["ImageManualCheckStatus"];
+            mobileAndWechatPreview: components["schemas"]["ImageManualCheckStatus"];
+            aiLabelCompliance: components["schemas"]["ImageManualCheckStatus"];
+        };
+        /**
+         * @description `sourceType=ai_generated` 或 `generationMethod` 为 `codex`、`relay`、`external_tool` 时，
+         *     `declaredModel`、`promptVersion`、`generatedAt` 与 `reproductionReference` 必须非空。
+         *     `reviewStatus=approved` 时 `manualReview` 必须存在且六项检查全部为 `passed`；只有
+         *     `fileUrl` 非空的已批准素材才可进入当前交付投影。
+         */
         AdminImageAsset: {
             assetId: components["schemas"]["OpaqueId"];
             /** @description 上传完成前可为空；公开响应只返回已经审核通过的不可变 URL。 */
@@ -971,17 +1128,66 @@ export interface components {
             sha256: string;
             /** @enum {string} */
             sourceType: "licensed" | "ai_generated" | "fallback_template";
+            generationMethod: components["schemas"]["ImageGenerationMethod"];
             declaredModel: string | null;
             promptVersion: string | null;
             generatedAt: components["schemas"]["ZonedDateTime"] | null;
+            /** @description AI 素材的随机种子、任务编号或等价重现引用；非 AI 素材可以为空。 */
+            reproductionReference: string | null;
+            /** @description 来源文件、许可材料或生成输入的受控引用，不返回到公共接口。 */
+            sourceMaterialReferences: string[];
+            manualReview: components["schemas"]["ImageManualReview"] | null;
             reviewStatus: components["schemas"]["ImageReviewStatus"];
             rightsStatus: components["schemas"]["ImageRightsStatus"];
             aiLabelStatus: components["schemas"]["AiLabelStatus"];
             rightsRecordIds: components["schemas"]["OpaqueId"][];
+        } & components["schemas"]["ImageSourceAndGenerationMetadata"];
+        /** @description AI 素材必须提供声明模型、提示词版本、生成时间和重现引用；非 AI 素材的这些字段可以为空。 */
+        ImageAssetUploadMetadata: {
+            altText: string;
+            /** @enum {string} */
+            sourceType: "licensed" | "ai_generated" | "fallback_template";
+            generationMethod: components["schemas"]["ImageGenerationMethod"];
+            declaredModel: string | null;
+            promptVersion: string | null;
+            generatedAt: components["schemas"]["ZonedDateTime"] | null;
+            reproductionReference: string | null;
+            sourceMaterialReferences: string[];
+            rightsRecordIds: components["schemas"]["OpaqueId"][];
+            aiLabelStatus: components["schemas"]["AiLabelStatus"];
+        } & components["schemas"]["ImageSourceAndGenerationMetadata"];
+        ImageAssetUploadMultipartRequest: {
+            /** Format: binary */
+            file: string;
+            /** @description 在线路中序列化为没有 filename 的普通 multipart 字段；字段值为 UTF-8 JSON 文本。 */
+            metadata: components["schemas"]["ImageAssetUploadMetadata"];
+        };
+        /**
+         * @description `decision=approved` 时六项检查必须全部为 `passed`，`rightsStatus` 必须为 `cleared`，
+         *     AI 素材的 `aiLabelStatus` 必须为 `complete`；非 AI 素材必须为 `not_applicable`。
+         */
+        ImageAssetReviewRequest: {
+            /** @enum {string} */
+            decision: "approved" | "rejected";
+            notes: string;
+            rightsStatus: components["schemas"]["ImageRightsStatus"];
+            aiLabelStatus: components["schemas"]["AiLabelStatus"];
+            colorAndCopyConsistency: components["schemas"]["ImageManualCheckStatus"];
+            garmentAndPersonIntegrity: components["schemas"]["ImageManualCheckStatus"];
+            rightsAndIdentityRisk: components["schemas"]["ImageManualCheckStatus"];
+            scenarioAndImitability: components["schemas"]["ImageManualCheckStatus"];
+            mobileAndWechatPreview: components["schemas"]["ImageManualCheckStatus"];
+            aiLabelCompliance: components["schemas"]["ImageManualCheckStatus"];
         };
         LookDraft: {
             lookId: components["schemas"]["OpaqueId"];
             formulaId: components["schemas"]["OpaqueId"];
+            /**
+             * @description 每日 2+1 只统计封面槽位；细节图和降级素材不计入。
+             * @enum {string}
+             */
+            imageSlot: "required_primary" | "required_alternative" | "optional";
+            /** @description 兼容字段；两个 required 槽位必须为 true，optional 必须为 false。 */
             requiredForPublish: boolean;
             sortOrder: number;
             title: string;
@@ -989,9 +1195,26 @@ export interface components {
             audience: components["schemas"]["Audience"];
             coverAssetId: components["schemas"]["OpaqueId"];
             detailAssetIds: components["schemas"]["OpaqueId"][];
+            /**
+             * @description 同一快照内已经审核通过的降级素材。两个必备槽位必须提供与 coverAssetId 不同、存在于 assets、
+             *     权利和 AI 标识就绪的素材；optional 槽位允许为空，非空时仍需满足相同安全条件。
+             */
+            fallbackAssetId: components["schemas"]["OpaqueId"] | null;
             items: components["schemas"]["GarmentItem"][];
             alternatives: components["schemas"]["LookAlternative"][];
-        };
+        } & ({
+            /** @enum {string} */
+            imageSlot: "required_primary" | "required_alternative";
+            /** @constant */
+            requiredForPublish: true;
+            fallbackAssetId: components["schemas"]["OpaqueId"];
+        } | {
+            /** @constant */
+            imageSlot: "optional";
+            /** @constant */
+            requiredForPublish: false;
+            fallbackAssetId: components["schemas"]["OpaqueId"] | null;
+        });
         RightsRecord: {
             rightsRecordId: components["schemas"]["OpaqueId"];
             /** @enum {string} */
@@ -1000,10 +1223,124 @@ export interface components {
             recordedAt: components["schemas"]["ZonedDateTime"];
         };
         VisualAndRightsModule: {
+            /** @description 恰有两个必备槽位和最多一个可选槽位；lookId、sortOrder 与 coverAssetId 分别唯一。 */
             looks: components["schemas"]["LookDraft"][];
             assets: components["schemas"]["AdminImageAsset"][];
             rightsRecords: components["schemas"]["RightsRecord"][];
             assetManifestVersion: string;
+        };
+        DraftImageAssetResult: {
+            draftId: components["schemas"]["OpaqueId"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            asset: components["schemas"]["AdminImageAsset"];
+            previewUrl: components["schemas"]["AdminImagePreviewUrl"];
+            /** @description 为 true 时素材来自已冻结快照，不允许在当前草稿内重新审核；如需调整必须上传新素材。 */
+            reviewLocked: boolean;
+        };
+        /**
+         * Format: uri-reference
+         * @description 精确指向后台素材预览接口的同源相对地址；需要后台会话，不得写入公共内容快照。
+         */
+        AdminImagePreviewUrl: string;
+        DraftImageCandidate: {
+            asset: components["schemas"]["AdminImageAsset"];
+            previewUrl: components["schemas"]["AdminImagePreviewUrl"];
+            /** @description 为 true 时素材来自已冻结快照，不允许在当前草稿内重新审核；如需调整必须上传新素材。 */
+            reviewLocked: boolean;
+        };
+        DraftImageAssetList: {
+            draftId: components["schemas"]["OpaqueId"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            items: components["schemas"]["DraftImageCandidate"][];
+        };
+        /** @enum {string} */
+        ImageAssetDeliveryStatus: "active" | "fallback" | "omitted" | "unavailable";
+        /**
+         * @description 所有 cover、detail、fallback 与 served 引用都必须存在于同一 AdminDailyImageSet.assets，且 ID 唯一。
+         *     active 时 coverAssetId 可交付且未下线，servedCoverAssetId 等于它；fallback 时原封面初始不可交付
+         *     或后来下线，servedCoverAssetId 等于可交付且未下线的 fallbackAssetId；仅原封面初始不可交付或后来
+         *     下线的 optional 可 omitted。非活跃版本的必备原图和降级图均已全局下线时可 unavailable，
+         *     servedCoverAssetId 必须为空；活跃版本不得进入该状态。servedDetailAssetIds 必须恰好等于
+         *     detailAssetIds 中可交付且未下线的集合。
+         */
+        ImageSetSlotDelivery: {
+            /** @enum {string} */
+            imageSlot: "required_primary" | "required_alternative" | "optional";
+            lookId: components["schemas"]["OpaqueId"];
+            coverAssetId: components["schemas"]["OpaqueId"];
+            detailAssetIds: components["schemas"]["OpaqueId"][];
+            fallbackAssetId: components["schemas"]["OpaqueId"] | null;
+            /** @description 必备槽位为原封面或同快照降级素材；可选槽位下线时为空。 */
+            servedCoverAssetId: components["schemas"]["OpaqueId"] | null;
+            servedDetailAssetIds: components["schemas"]["OpaqueId"][];
+            deliveryStatus: components["schemas"]["ImageAssetDeliveryStatus"];
+        } & (({
+            /** @enum {string} */
+            imageSlot: "required_primary" | "required_alternative";
+            fallbackAssetId: components["schemas"]["OpaqueId"];
+        } | {
+            /** @constant */
+            imageSlot: "optional";
+            fallbackAssetId: components["schemas"]["OpaqueId"] | null;
+        }) & ({
+            /** @constant */
+            deliveryStatus: "active";
+            servedCoverAssetId: components["schemas"]["OpaqueId"];
+        } | {
+            /** @constant */
+            deliveryStatus: "fallback";
+            fallbackAssetId: components["schemas"]["OpaqueId"];
+            servedCoverAssetId: components["schemas"]["OpaqueId"];
+        } | {
+            /** @constant */
+            imageSlot: "optional";
+            /** @constant */
+            deliveryStatus: "omitted";
+            servedCoverAssetId: null;
+        } | {
+            /** @enum {string} */
+            imageSlot: "required_primary" | "required_alternative";
+            /** @constant */
+            deliveryStatus: "unavailable";
+            servedCoverAssetId: null;
+        }));
+        ImageAssetWithdrawalEvent: {
+            withdrawalEventId: components["schemas"]["OpaqueId"];
+            assetId: components["schemas"]["OpaqueId"];
+            reason: string;
+            withdrawnAt: components["schemas"]["ZonedDateTime"];
+            auditEventId: components["schemas"]["OpaqueId"];
+        };
+        AdminDailyImageSet: {
+            fortuneDate: components["schemas"]["FortuneDate"];
+            contentVersion: components["schemas"]["ContentVersion"];
+            lifecycleRevision: components["schemas"]["LifecycleRevision"];
+            /** @description 恰有一个 required_primary、一个 required_alternative，optional 最多一个；只计封面槽位，lookId 与 coverAssetId 分别唯一。 */
+            slots: components["schemas"]["ImageSetSlotDelivery"][];
+            /** @description assetId 必须唯一，并覆盖槽位、交付投影与下线事件的所有素材引用。 */
+            assets: components["schemas"]["AdminImageAsset"][];
+            /**
+             * @description 当前 assets 涉及的全局下线事实；旧版本读取时也必须应用其他版本已确认的同一素材下线。
+             *     每个 assetId 只返回最早的有效事件，withdrawalEventId、auditEventId 与 assetId 各自唯一，
+             *     且事件 assetId 必须属于同一 assets。
+             */
+            withdrawalEvents: components["schemas"]["ImageAssetWithdrawalEvent"][];
+        };
+        WithdrawImageAssetRequest: {
+            expectedActiveContentVersion: components["schemas"]["NullableContentVersion"];
+            /** @description 必须包含至少一个非空白字符。 */
+            reason: string;
+        };
+        /** @description assetId 与 auditEventId 必须共同匹配 dailyImageSet 中本次已追加的下线事件。 */
+        ImageAssetWithdrawalResult: {
+            assetId: components["schemas"]["OpaqueId"];
+            /** @enum {string} */
+            deliveryAction: "fallback_activated" | "optional_omitted" | "detail_omitted" | "no_public_change";
+            lifecycleRevision: components["schemas"]["LifecycleRevision"];
+            auditEventId: components["schemas"]["OpaqueId"];
+            dailyImageSet: components["schemas"]["AdminDailyImageSet"];
         };
         PosterConsistencyModule: {
             posterTemplateVersion: string;
@@ -1156,7 +1493,7 @@ export interface components {
             nextCursor: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "AUTHENTICATION_FAILED" | "AUTH_CHALLENGE_EXPIRED" | "RECOVERY_CHALLENGE_EXPIRED" | "UNAUTHENTICATED" | "FORBIDDEN" | "CSRF_VALIDATION_FAILED" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "IDEMPOTENCY_KEY_REUSED" | "TOTP_REPLAYED" | "EMERGENCY_CONTROL_CONFLICT" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "PUBLIC_ACCESS_STOPPED" | "POSTER_GENERATION_UNAVAILABLE" | "FEEDBACK_UNAVAILABLE" | "ADMIN_SERVICE_UNAVAILABLE";
+        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "AUTHENTICATION_FAILED" | "AUTH_CHALLENGE_EXPIRED" | "RECOVERY_CHALLENGE_EXPIRED" | "UNAUTHENTICATED" | "FORBIDDEN" | "CSRF_VALIDATION_FAILED" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "IDEMPOTENCY_KEY_REUSED" | "TOTP_REPLAYED" | "EMERGENCY_CONTROL_CONFLICT" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "IMAGE_FILE_INVALID" | "IMAGE_FILE_TOO_LARGE" | "IMAGE_MEDIA_TYPE_UNSUPPORTED" | "IMAGE_REVIEW_INCOMPLETE" | "IMAGE_SET_INVALID" | "IMAGE_WITHDRAWAL_BLOCKED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "PUBLIC_ACCESS_STOPPED" | "POSTER_GENERATION_UNAVAILABLE" | "FEEDBACK_UNAVAILABLE" | "ADMIN_SERVICE_UNAVAILABLE";
         Error: {
             code: components["schemas"]["ErrorCode"];
             message: string;
@@ -1175,6 +1512,72 @@ export interface components {
         InvalidArgument: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description multipart 结构、图片文件或 JSON 元数据无效（`IMAGE_FILE_INVALID` 或 `INVALID_ARGUMENT`） */
+        ImageUploadInvalid: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 图片超过部署配置的上传上限（`IMAGE_FILE_TOO_LARGE`） */
+        ImageFileTooLarge: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 文件格式不是允许的静态图片（`IMAGE_MEDIA_TYPE_UNSUPPORTED`） */
+        ImageMediaTypeUnsupported: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 人工检查、权利记录、AI 标识或生成追溯信息不完整（`IMAGE_REVIEW_INCOMPLETE`） */
+        ImageReviewIncomplete: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 草稿视觉模块引用的图片集合不再与服务端候选、审核结果或全局下线事实一致（`IMAGE_SET_INVALID`） */
+        ImageSetInvalid: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description 必备封面的快照降级素材后来也已下线或失去安全交付资格（`IMAGE_WITHDRAWAL_BLOCKED`） */
+        ImageWithdrawalBlocked: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
                 [name: string]: unknown;
             };
             content: {
@@ -1481,6 +1884,7 @@ export interface components {
         LookId: components["schemas"]["OpaqueId"];
         JobId: components["schemas"]["OpaqueId"];
         DraftId: components["schemas"]["OpaqueId"];
+        AssetId: components["schemas"]["OpaqueId"];
         ContentVersionPath: components["schemas"]["ContentVersion"];
         ModuleCode: components["schemas"]["ModuleCode"];
         ExpectedContentVersionOptional: components["schemas"]["ContentVersion"];
@@ -2205,7 +2609,168 @@ export interface operations {
             404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["InvalidStateTransition"];
             412: components["responses"]["RevisionMismatch"];
+            422: components["responses"]["ImageSetInvalid"];
             428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    listDailyContentDraftImageAssets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draftId: components["parameters"]["DraftId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回该草稿当前的图片候选 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DraftETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftImageAssetList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["ResourceNotFound"];
+        };
+    };
+    uploadDailyContentDraftImageAsset: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                draftId: components["parameters"]["DraftId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["ImageAssetUploadMultipartRequest"];
+            };
+        };
+        responses: {
+            /** @description 图片已上传并增加草稿修订号 */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DraftETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftImageAssetResult"];
+                };
+            };
+            400: components["responses"]["ImageUploadInvalid"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            413: components["responses"]["ImageFileTooLarge"];
+            415: components["responses"]["ImageMediaTypeUnsupported"];
+            422: components["responses"]["ImageReviewIncomplete"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    reviewDailyContentDraftImageAsset: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                draftId: components["parameters"]["DraftId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageAssetReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description 人工检查已保存并增加草稿修订号 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DraftETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftImageAssetResult"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            422: components["responses"]["ImageReviewIncomplete"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    previewAdminImageAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回原始上传文件 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    "X-Content-Type-Options"?: "nosniff";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/avif": string;
+                    "image/webp": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["ResourceNotFound"];
         };
     };
     submitDailyContentDraft: {
@@ -2250,6 +2815,7 @@ export interface operations {
             404: components["responses"]["ResourceNotFound"];
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
+            422: components["responses"]["ImageSetInvalid"];
             428: components["responses"]["PreconditionRequired"];
         };
     };
@@ -2308,6 +2874,84 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["ResourceNotFound"];
+        };
+    };
+    getDailyContentVersionImageSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contentVersion: components["parameters"]["ContentVersionPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回该内容版本的每日图片组 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["LifecycleETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDailyImageSet"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["ResourceNotFound"];
+        };
+    };
+    withdrawDailyContentVersionImageAsset: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                contentVersion: components["parameters"]["ContentVersionPath"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WithdrawImageAssetRequest"];
+            };
+        };
+        responses: {
+            /** @description 单图下线事件、审计和新交付投影已原子保存 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["LifecycleETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageAssetWithdrawalResult"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            422: components["responses"]["ImageWithdrawalBlocked"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     addMasterReviewEvidence: {

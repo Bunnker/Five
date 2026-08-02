@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { isAdminDailyImageSet } from "@five/api-contract/runtime";
 
 import { ContentLifecycleService } from "./content-lifecycle.service";
 import { evaluateContentPreflight } from "./content-preflight";
-import type { DraftModules, StoredMasterReviewEvidence } from "./content-lifecycle.store";
+import type {
+  ContentLifecycleTransaction,
+  DraftModules,
+  StoredMasterReviewEvidence,
+} from "./content-lifecycle.store";
 import { InMemoryContentLifecycleStore } from "./in-memory-content-lifecycle.store";
+import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
 
 function completeModules(): DraftModules {
   const scenario = { code: "daily", label: "日常" };
@@ -170,23 +176,44 @@ function completeModules(): DraftModules {
     slots: formulaSlots[index]!,
     title: `公式 ${suffix}`,
   }));
-  const assets: NonNullable<DraftModules["visual_and_rights"]>["assets"] = [1, 2].map((number) => ({
-    aiLabelStatus: "not_applicable",
-    altText: `搭配图 ${number}`,
-    assetId: `asset-${number}`,
-    declaredModel: null,
-    fileUrl: `https://cdn.example.com/content/asset-${number}.webp`,
-    generatedAt: null,
-    height: 1200,
-    mediaType: "image/webp",
-    promptVersion: null,
-    reviewStatus: "approved",
-    rightsRecordIds: [`rights-${number}`],
-    rightsStatus: "cleared",
-    sha256: String(number).repeat(64),
-    sourceType: "licensed",
-    width: 900,
-  }));
+  const assets: NonNullable<DraftModules["visual_and_rights"]>["assets"] = [1, 2, 3, 4].map(
+    (number) => ({
+      aiLabelStatus: "not_applicable",
+      altText: number <= 2 ? `搭配图 ${number}` : `降级图 ${number - 2}`,
+      assetId: `asset-${number}`,
+      declaredModel: null,
+      fileUrl: `https://cdn.example.com/content/asset-${number}.webp`,
+      ...(number <= 2
+        ? { generationMethod: "licensed_upload" as const, sourceType: "licensed" as const }
+        : {
+            generationMethod: "fallback_template" as const,
+            sourceType: "fallback_template" as const,
+          }),
+      generatedAt: null,
+      height: 1200,
+      manualReview: {
+        aiLabelCompliance: "passed",
+        colorAndCopyConsistency: "passed",
+        garmentAndPersonIntegrity: "passed",
+        mobileAndWechatPreview: "passed",
+        notes: "六项检查通过。",
+        reviewId: `image-review-${number}`,
+        reviewedAt: "2026-07-31T23:00:00+08:00",
+        reviewerAccountId: "operator-1",
+        rightsAndIdentityRisk: "passed",
+        scenarioAndImitability: "passed",
+      },
+      mediaType: "image/webp",
+      promptVersion: null,
+      reproductionReference: null,
+      reviewStatus: "approved",
+      rightsRecordIds: [`rights-${number}`],
+      rightsStatus: "cleared",
+      sha256: String(number).repeat(64),
+      sourceMaterialReferences: [`source-record-${number}`],
+      width: 900,
+    }),
+  );
   return {
     calendar_algorithm: {
       algorithmVersion: "gbt-33661-2017-anchor-1949-10-01-jiazi",
@@ -236,7 +263,9 @@ function completeModules(): DraftModules {
         audience,
         coverAssetId: `asset-${number}`,
         detailAssetIds: [],
+        fallbackAssetId: `asset-${number + 2}`,
         formulaId: number === 1 ? "formula-one" : "formula-two",
+        imageSlot: number === 1 ? ("required_primary" as const) : ("required_alternative" as const),
         items:
           number === 1
             ? [
@@ -267,7 +296,7 @@ function completeModules(): DraftModules {
         sortOrder: number,
         title: `搭配 ${number}`,
       })),
-      rightsRecords: [1, 2].map((number) => ({
+      rightsRecords: [1, 2, 3, 4].map((number) => ({
         kind: "license",
         recordedAt: "2026-07-31T23:00:00+08:00",
         reference: `license-record-${number}`,
@@ -294,6 +323,105 @@ function deterministicService(
       nextEvidenceId: () => `evidence-${++evidenceNumber}`,
     },
   );
+}
+
+function seedTrustedImageCandidates(
+  store: InMemoryContentLifecycleStore,
+  draftId: string,
+  fortuneDate: string,
+  visual: NonNullable<DraftModules["visual_and_rights"]>,
+): void {
+  store.seedDraftImageAssetsForTest(
+    visual.assets.map((asset) => ({
+      asset,
+      draftId,
+      fortuneDate,
+      reviewLocked: false,
+      storageKey: `${asset.sha256.slice(0, 2)}/${asset.sha256}.webp`,
+      uploadedAt: "2026-07-31T15:00:00.000Z",
+    })),
+  );
+}
+
+function frozenImageSet(
+  snapshot: DraftModules,
+  contentVersion = "content-image-safety",
+): StoredDailyImageSet {
+  const visual = snapshot.visual_and_rights;
+  if (visual === null) throw new Error("fixture missing visual module");
+  return {
+    assets: structuredClone(visual.assets),
+    contentVersion,
+    fortuneDate: "2026-08-02",
+    lifecycleRevision: 1,
+    slots: visual.looks.map((look) => {
+      if (look.imageSlot === "optional") {
+        return {
+          coverAssetId: look.coverAssetId,
+          deliveryStatus: "active" as const,
+          detailAssetIds: structuredClone(look.detailAssetIds),
+          fallbackAssetId: look.fallbackAssetId,
+          imageSlot: "optional" as const,
+          lookId: look.lookId,
+          servedCoverAssetId: look.coverAssetId,
+          servedDetailAssetIds: structuredClone(look.detailAssetIds),
+        };
+      }
+      if (look.fallbackAssetId === null) throw new Error("required fixture fallback missing");
+      return {
+        coverAssetId: look.coverAssetId,
+        deliveryStatus: "active" as const,
+        detailAssetIds: structuredClone(look.detailAssetIds),
+        fallbackAssetId: look.fallbackAssetId,
+        imageSlot: look.imageSlot,
+        lookId: look.lookId,
+        servedCoverAssetId: look.coverAssetId,
+        servedDetailAssetIds: structuredClone(look.detailAssetIds),
+      };
+    }),
+    withdrawalEvents: [],
+  };
+}
+
+class WithdrawalAtProjectionLockStore extends InMemoryContentLifecycleStore {
+  private pendingWithdrawal: {
+    readonly assetId: string;
+    readonly contentVersion: string;
+  } | null = null;
+
+  armWithdrawal(contentVersion: string, assetId: string): void {
+    this.pendingWithdrawal = { assetId, contentVersion };
+  }
+
+  override transaction<T>(
+    work: (transaction: ContentLifecycleTransaction) => Promise<T>,
+  ): Promise<T> {
+    return super.transaction((transaction) =>
+      work({
+        ...transaction,
+        getOrCreateProjectionForUpdate: async (fortuneDate) => {
+          let projection = await transaction.getOrCreateProjectionForUpdate(fortuneDate);
+          const withdrawal = this.pendingWithdrawal;
+          if (withdrawal !== null) {
+            this.pendingWithdrawal = null;
+            await transaction.insertImageAssetWithdrawalEvent({
+              contentVersion: withdrawal.contentVersion,
+              event: {
+                assetId: withdrawal.assetId,
+                auditEventId: "audit-submit-lock-race",
+                reason: "提交等待日期锁时素材已完成全局下线。",
+                withdrawalEventId: "withdraw-submit-lock-race",
+                withdrawnAt: "2026-08-02T05:00:00.000Z",
+              },
+            });
+            projection = { ...projection, revision: projection.revision + 1 };
+            await transaction.updateProjection(projection);
+          }
+          return projection;
+        },
+      }),
+    );
+  }
 }
 
 describe("ContentLifecycleService", () => {
@@ -450,8 +578,136 @@ describe("ContentLifecycleService", () => {
     });
   });
 
+  it("freezes a triple primary look and a mono optional look through the lifecycle seam", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-contract-valid-looks",
+    });
+    if (created.kind !== "created") throw new Error("draft fixture was not created");
+    const modules = completeModules();
+    const copy = modules.copy_and_formula;
+    const visual = modules.visual_and_rights;
+    if (copy === null || visual === null) throw new Error("complete fixture modules missing");
+    const mono = copy.outfitFormulas.find((formula) => formula.kind === "mono");
+    const triple = copy.outfitFormulas.find((formula) => formula.kind === "triple");
+    if (mono === undefined || triple === undefined) throw new Error("formula fixture missing");
+
+    mono.lookIds = ["look-optional-scene"];
+    triple.lookIds = ["look-1"];
+    triple.scenario = { code: "commute", label: "通勤" };
+    visual.looks[0] = {
+      ...visual.looks[0]!,
+      formulaId: triple.formulaId,
+      items: [
+        {
+          category: "top",
+          categoryLabel: "上衣",
+          colorCode: "black",
+          description: "黑色上衣",
+        },
+        {
+          category: "bottom",
+          categoryLabel: "下装",
+          colorCode: "white",
+          description: "白色下装",
+        },
+        {
+          category: "accessory",
+          categoryLabel: "配饰",
+          colorCode: "red",
+          description: "红色配饰",
+        },
+      ],
+      scenario: { code: "commute", label: "通勤" },
+    };
+    const optionalAsset = {
+      ...visual.assets[0]!,
+      assetId: "asset-optional-scene",
+      fileUrl: "https://cdn.example.com/content/asset-optional-scene.webp",
+      rightsRecordIds: ["rights-optional-scene"],
+      sha256: "5".repeat(64),
+      sourceMaterialReferences: ["source-record-optional-scene"],
+    };
+    visual.assets.push(optionalAsset);
+    visual.rightsRecords.push({
+      kind: "license",
+      recordedAt: "2026-07-31T23:00:00+08:00",
+      reference: "license-record-optional-scene",
+      rightsRecordId: "rights-optional-scene",
+    });
+    visual.looks.push({
+      alternatives: [],
+      audience: { code: "all", label: "通用" },
+      coverAssetId: optionalAsset.assetId,
+      detailAssetIds: [],
+      fallbackAssetId: null,
+      formulaId: mono.formulaId,
+      imageSlot: "optional",
+      items: [
+        {
+          category: "top",
+          categoryLabel: "上衣",
+          colorCode: "black",
+          description: "黑色同色系日常穿搭",
+        },
+      ],
+      lookId: "look-optional-scene",
+      requiredForPublish: false,
+      scenario: { code: "daily", label: "日常" },
+      sortOrder: 3,
+      title: "日常场景补充方案",
+    });
+    seedTrustedImageCandidates(store, created.draft.draftId, created.draft.fortuneDate, visual);
+
+    let revision = created.draft.draftRevision;
+    for (const moduleCode of [
+      "calendar_algorithm",
+      "copy_and_formula",
+      "visual_and_rights",
+      "poster_consistency",
+    ] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: modules[moduleCode]!,
+        moduleCode,
+        requestId: `request-save-contract-valid-${moduleCode}`,
+      });
+      if (updated.kind !== "updated") throw new Error(`${moduleCode} fixture was not saved`);
+      revision = updated.result.draftRevision;
+    }
+    const submitted = await service.submitDraft({
+      actorId: "operator-1",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: revision,
+      idempotencyKey: "submit-contract-valid-looks-0001",
+      requestId: "request-submit-contract-valid-looks",
+    });
+    if (submitted.kind !== "submitted") throw new Error("fixture was not submitted");
+
+    const version = await service.getVersion(submitted.result.contentVersion);
+    expect(version?.preflightChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "required_images", status: "passed" }),
+        expect.objectContaining({ code: "reference_integrity", status: "passed" }),
+      ]),
+    );
+    await expect(store.readDailyImageSet(submitted.result.contentVersion)).resolves.toMatchObject({
+      slots: expect.arrayContaining([
+        expect.objectContaining({ imageSlot: "required_primary", lookId: "look-1" }),
+        expect.objectContaining({ imageSlot: "optional", lookId: "look-optional-scene" }),
+      ]),
+    });
+  });
+
   it("requires all nine checks and complete confirmed master evidence before approval", async () => {
-    const service = deterministicService();
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
     const created = await service.createDraft({
       actorId: "operator-1",
       copyFromContentVersion: null,
@@ -460,6 +716,14 @@ describe("ContentLifecycleService", () => {
     });
     expect(created.kind).toBe("created");
     if (created.kind !== "created") return;
+    const complete = completeModules();
+    if (complete.visual_and_rights === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(
+      store,
+      created.draft.draftId,
+      created.draft.fortuneDate,
+      complete.visual_and_rights,
+    );
     let revision = 1;
     for (const moduleCode of [
       "calendar_algorithm",
@@ -471,7 +735,7 @@ describe("ContentLifecycleService", () => {
         actorId: "operator-1",
         draftId: created.draft.draftId,
         expectedDraftRevision: revision,
-        module: completeModules()[moduleCode]!,
+        module: complete[moduleCode]!,
         moduleCode,
         requestId: `request-update-${moduleCode}`,
       });
@@ -487,6 +751,26 @@ describe("ContentLifecycleService", () => {
     });
     expect(submitted.kind).toBe("submitted");
     if (submitted.kind !== "submitted") return;
+    const frozenImageSet = await store.readDailyImageSet(submitted.result.contentVersion);
+    expect(frozenImageSet).toMatchObject({
+      contentVersion: submitted.result.contentVersion,
+      fortuneDate: "2026-08-02",
+      lifecycleRevision: 1,
+      slots: [
+        expect.objectContaining({
+          deliveryStatus: "active",
+          imageSlot: "required_primary",
+          servedCoverAssetId: "asset-1",
+        }),
+        expect.objectContaining({
+          deliveryStatus: "active",
+          imageSlot: "required_alternative",
+          servedCoverAssetId: "asset-2",
+        }),
+      ],
+      withdrawalEvents: [],
+    });
+    expect(isAdminDailyImageSet(frozenImageSet)).toBe(true);
 
     const missingMaster = await service.decideReview({
       actorId: "operator-1",
@@ -650,6 +934,467 @@ describe("ContentLifecycleService", () => {
     ).resolves.toEqual({ kind: "invalid_cursor" });
   });
 
+  it("blocks approval when the current image-set projection has withdrawn a required fallback", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-current-image-preflight",
+    });
+    if (created.kind !== "created") return;
+    const complete = completeModules();
+    if (complete.visual_and_rights === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(
+      store,
+      created.draft.draftId,
+      created.draft.fortuneDate,
+      complete.visual_and_rights,
+    );
+    let revision = 1;
+    for (const moduleCode of [
+      "calendar_algorithm",
+      "copy_and_formula",
+      "visual_and_rights",
+      "poster_consistency",
+    ] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: complete[moduleCode]!,
+        moduleCode,
+        requestId: `request-current-image-${moduleCode}`,
+      });
+      expect(updated.kind).toBe("updated");
+      revision += 1;
+    }
+    const submitted = await service.submitDraft({
+      actorId: "operator-1",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: revision,
+      idempotencyKey: "submit-current-image-preflight-0001",
+      requestId: "request-submit-current-image-preflight",
+    });
+    if (submitted.kind !== "submitted") return;
+    const evidence = await service.addMasterReviewEvidence({
+      actorId: "operator-1",
+      contentVersion: submitted.result.contentVersion,
+      evidence: {
+        conclusion: "confirmed",
+        notes: "已完成核对。",
+        references: [{ kind: "note", reference: "current-image-preflight" }],
+        reviewedAt: "2026-08-01T12:00:00.000Z",
+        reviewerDisplayName: "林老师",
+      },
+      expectedLifecycleRevision: 1,
+      idempotencyKey: "evidence-current-image-preflight-0001",
+      requestId: "request-evidence-current-image-preflight",
+    });
+    expect(evidence.kind).toBe("added");
+    await store.transaction(async (transaction) => {
+      const imageSet = await transaction.findDailyImageSetForUpdate(
+        submitted.result.contentVersion,
+      );
+      if (imageSet === null) throw new Error("fixture image set missing");
+      const event = {
+        assetId: "asset-3",
+        auditEventId: "audit-current-image-fallback",
+        reason: "必备备用图授权撤销。",
+        withdrawalEventId: "withdraw-current-image-fallback",
+        withdrawnAt: "2026-08-02T05:00:00.000Z",
+      };
+      await transaction.updateDailyImageSet({
+        ...imageSet,
+        lifecycleRevision: 3,
+        withdrawalEvents: [...imageSet.withdrawalEvents, event],
+      });
+      await transaction.insertImageAssetWithdrawalEvent({
+        contentVersion: submitted.result.contentVersion,
+        event,
+      });
+      const projection = await transaction.getOrCreateProjectionForUpdate("2026-08-02");
+      await transaction.updateProjection({ ...projection, revision: 3 });
+    });
+
+    await expect(
+      service.decideReview({
+        actorId: "operator-1",
+        contentVersion: submitted.result.contentVersion,
+        decision: "approved",
+        expectedLifecycleRevision: 3,
+        idempotencyKey: "approve-current-image-preflight-0001",
+        reason: null,
+        requestId: "request-approve-current-image-preflight",
+      }),
+    ).resolves.toMatchObject({
+      kind: "required_review_missing",
+      preflightChecks: expect.arrayContaining([
+        expect.objectContaining({ code: "required_images", status: "failed" }),
+      ]),
+    });
+  });
+
+  it("reports failed preflight when another version globally withdraws a required cover and fallback", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-global-read-source",
+    });
+    if (created.kind !== "created") throw new Error("source draft fixture was not created");
+    const modules = completeModules();
+    const visual = modules.visual_and_rights;
+    if (visual === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(store, created.draft.draftId, created.draft.fortuneDate, visual);
+    let revision = 1;
+    for (const moduleCode of [
+      "calendar_algorithm",
+      "copy_and_formula",
+      "visual_and_rights",
+      "poster_consistency",
+    ] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: modules[moduleCode]!,
+        moduleCode,
+        requestId: `request-global-read-source-${moduleCode}`,
+      });
+      if (updated.kind !== "updated") throw new Error("source module fixture was not saved");
+      revision += 1;
+    }
+    const source = await service.submitDraft({
+      actorId: "operator-1",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: revision,
+      idempotencyKey: "submit-global-read-source-0001",
+      requestId: "request-submit-global-read-source",
+    });
+    if (source.kind !== "submitted") throw new Error("source version fixture was not submitted");
+    const copied = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: source.result.contentVersion,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-global-read-target",
+    });
+    if (copied.kind !== "created") throw new Error("target draft fixture was not created");
+    const target = await service.submitDraft({
+      actorId: "operator-1",
+      draftId: copied.draft.draftId,
+      expectedDraftRevision: copied.draft.draftRevision,
+      idempotencyKey: "submit-global-read-target-0001",
+      requestId: "request-submit-global-read-target",
+    });
+    if (target.kind !== "submitted") throw new Error("target version fixture was not submitted");
+
+    await store.transaction(async (transaction) => {
+      for (const [assetId, suffix] of [
+        ["asset-1", "cover"],
+        ["asset-3", "fallback"],
+      ] as const) {
+        await transaction.insertImageAssetWithdrawalEvent({
+          contentVersion: source.result.contentVersion,
+          event: {
+            assetId,
+            auditEventId: `audit-global-read-${suffix}`,
+            reason: "跨版本全局素材安全撤销。",
+            withdrawalEventId: `withdraw-global-read-${suffix}`,
+            withdrawnAt:
+              suffix === "cover" ? "2026-08-02T05:00:00.000Z" : "2026-08-02T05:01:00.000Z",
+          },
+        });
+      }
+      const projection = await transaction.getOrCreateProjectionForUpdate("2026-08-02");
+      await transaction.updateProjection({ ...projection, revision: projection.revision + 2 });
+    });
+
+    const version = await service.getVersion(target.result.contentVersion);
+
+    expect(version?.preflightChecks).toContainEqual(
+      expect.objectContaining({ code: "required_images", status: "failed" }),
+    );
+  });
+
+  it("rejects submit when a global withdrawal commits as the submit acquires the day lock", async () => {
+    const store = new WithdrawalAtProjectionLockStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-submit-lock-source",
+    });
+    if (created.kind !== "created") throw new Error("source draft fixture was not created");
+    const modules = completeModules();
+    const visual = modules.visual_and_rights;
+    if (visual === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(store, created.draft.draftId, created.draft.fortuneDate, visual);
+    let revision = 1;
+    for (const moduleCode of [
+      "calendar_algorithm",
+      "copy_and_formula",
+      "visual_and_rights",
+      "poster_consistency",
+    ] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: modules[moduleCode]!,
+        moduleCode,
+        requestId: `request-submit-lock-source-${moduleCode}`,
+      });
+      if (updated.kind !== "updated") throw new Error("source module fixture was not saved");
+      revision += 1;
+    }
+    const source = await service.submitDraft({
+      actorId: "operator-1",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: revision,
+      idempotencyKey: "submit-lock-race-source-0001",
+      requestId: "request-submit-lock-race-source",
+    });
+    if (source.kind !== "submitted") throw new Error("source version fixture was not submitted");
+    const copied = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: source.result.contentVersion,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-submit-lock-target",
+    });
+    if (copied.kind !== "created") throw new Error("target draft fixture was not created");
+    store.armWithdrawal(source.result.contentVersion, "asset-1");
+
+    const result = await service.submitDraft({
+      actorId: "operator-1",
+      draftId: copied.draft.draftId,
+      expectedDraftRevision: copied.draft.draftRevision,
+      idempotencyKey: "submit-lock-race-target-0001",
+      requestId: "request-submit-lock-race-target",
+    });
+
+    expect(result).toEqual({ kind: "image_withdrawn" });
+  });
+
+  it("rejects forged server-managed image fields in the visual module", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-forged-visual",
+    });
+    if (created.kind !== "created") return;
+    const modules = completeModules();
+    if (modules.visual_and_rights === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(
+      store,
+      created.draft.draftId,
+      created.draft.fortuneDate,
+      modules.visual_and_rights,
+    );
+    modules.visual_and_rights.assets[0] = {
+      ...modules.visual_and_rights.assets[0]!,
+      sha256: "f".repeat(64),
+    };
+
+    await expect(
+      service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: 1,
+        module: modules.visual_and_rights,
+        moduleCode: "visual_and_rights",
+        requestId: "request-save-forged-visual",
+      }),
+    ).resolves.toEqual({ kind: "invalid_asset_reference" });
+  });
+
+  it("revalidates frozen visual assets against authoritative candidates at submit time", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-submit-image-revalidation",
+    });
+    if (created.kind !== "created") return;
+    const modules = completeModules();
+    const visual = modules.visual_and_rights;
+    if (visual === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(store, created.draft.draftId, created.draft.fortuneDate, visual);
+    let revision = 1;
+    for (const moduleCode of [
+      "calendar_algorithm",
+      "copy_and_formula",
+      "visual_and_rights",
+      "poster_consistency",
+    ] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: modules[moduleCode]!,
+        moduleCode,
+        requestId: `request-submit-image-revalidation-${moduleCode}`,
+      });
+      expect(updated.kind).toBe("updated");
+      revision += 1;
+    }
+    await store.transaction(async (transaction) => {
+      const draft = await transaction.findDraftForUpdate(created.draft.draftId);
+      const candidate = await transaction.findDraftImageAssetForUpdate(
+        created.draft.draftId,
+        visual.assets[0]!.assetId,
+      );
+      if (draft === null || candidate === null) throw new Error("fixture candidate missing");
+      await transaction.updateDraftImageAsset({
+        ...candidate,
+        asset: {
+          ...candidate.asset,
+          fileUrl: null,
+          reviewStatus: "rejected",
+        },
+      });
+      await transaction.updateDraft({
+        ...draft,
+        draft: { ...draft.draft, draftRevision: revision + 1 },
+      });
+    });
+
+    await expect(
+      service.submitDraft({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision + 1,
+        idempotencyKey: "submit-image-revalidation-0001",
+        requestId: "request-submit-image-revalidation",
+      }),
+    ).resolves.toEqual({ kind: "invalid_asset_reference" });
+    await expect(store.readDailyImageSet("content-opaque-1")).resolves.toBeNull();
+  });
+
+  it("rejects duplicate cover assets across frozen image slots", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-duplicate-cover",
+    });
+    if (created.kind !== "created") return;
+    const modules = completeModules();
+    if (modules.visual_and_rights === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(
+      store,
+      created.draft.draftId,
+      created.draft.fortuneDate,
+      modules.visual_and_rights,
+    );
+    modules.visual_and_rights.looks[1] = {
+      ...modules.visual_and_rights.looks[1]!,
+      coverAssetId: modules.visual_and_rights.looks[0]!.coverAssetId,
+    };
+
+    await expect(
+      service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: 1,
+        module: modules.visual_and_rights,
+        moduleCode: "visual_and_rights",
+        requestId: "request-save-duplicate-cover",
+      }),
+    ).resolves.toEqual({ kind: "invalid_asset_reference" });
+  });
+
+  it("rebinds trusted snapshot assets into a copied draft and blocks globally withdrawn assets on submit", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const modules = completeModules();
+    if (modules.visual_and_rights === null) throw new Error("fixture missing visual module");
+    const source = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-copy-source-visual",
+    });
+    if (source.kind !== "created") return;
+    seedTrustedImageCandidates(
+      store,
+      source.draft.draftId,
+      source.draft.fortuneDate,
+      modules.visual_and_rights,
+    );
+    const frozen = await service.updateDraftModule({
+      actorId: "operator-1",
+      draftId: source.draft.draftId,
+      expectedDraftRevision: 1,
+      module: modules.visual_and_rights,
+      moduleCode: "visual_and_rights",
+      requestId: "request-freeze-copy-source-visual",
+    });
+    expect(frozen.kind).toBe("updated");
+    const submitted = await service.submitDraft({
+      actorId: "operator-1",
+      draftId: source.draft.draftId,
+      expectedDraftRevision: 2,
+      idempotencyKey: "submit-copy-source-visual-0001",
+      requestId: "request-submit-copy-source-visual",
+    });
+    if (submitted.kind !== "submitted") return;
+    await store.transaction(async (transaction) => {
+      await transaction.insertImageAssetWithdrawalEvent({
+        contentVersion: submitted.result.contentVersion,
+        event: {
+          assetId: "asset-1",
+          auditEventId: "audit-global-withdrawal-1",
+          reason: "权利方撤销授权。",
+          withdrawalEventId: "global-withdrawal-1",
+          withdrawnAt: "2026-08-01T12:00:00.000Z",
+        },
+      });
+    });
+
+    const copied = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: submitted.result.contentVersion,
+      fortuneDate: "2026-08-02",
+      requestId: "request-copy-frozen-visual",
+    });
+    expect(copied.kind).toBe("created");
+    if (copied.kind !== "created") return;
+    expect(
+      (await store.listDraftImageAssets(copied.draft.draftId)).map(({ asset }) => asset.assetId),
+    ).toEqual(["asset-1", "asset-2", "asset-3", "asset-4"]);
+    await expect(
+      service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: copied.draft.draftId,
+        expectedDraftRevision: 1,
+        module: modules.visual_and_rights,
+        moduleCode: "visual_and_rights",
+        requestId: "request-edit-copied-visual",
+      }),
+    ).resolves.toMatchObject({ kind: "updated", result: { draftRevision: 2 } });
+    await expect(
+      service.submitDraft({
+        actorId: "operator-1",
+        draftId: copied.draft.draftId,
+        expectedDraftRevision: 2,
+        idempotencyKey: "submit-copied-withdrawn-asset-0001",
+        requestId: "request-submit-copied-withdrawn-asset",
+      }),
+    ).resolves.toEqual({ kind: "image_withdrawn" });
+  });
+
   it("reports non-master preflight failures separately", async () => {
     const service = deterministicService();
     const created = await service.createDraft({
@@ -751,6 +1496,177 @@ describe("ContentLifecycleService", () => {
     expect(checks).toContainEqual(
       expect.objectContaining({ code: "calendar_algorithm", status: "failed" }),
     );
+  });
+
+  it("allows a required cover to fall back while an unusable optional cover is omitted", () => {
+    const snapshot = completeModules();
+    if (snapshot.visual_and_rights === null || snapshot.copy_and_formula === null) {
+      throw new Error("fixture missing visual module");
+    }
+    snapshot.visual_and_rights.assets[0] = {
+      ...snapshot.visual_and_rights.assets[0]!,
+      fileUrl: null,
+      reviewStatus: "rejected",
+    };
+    if (snapshot.poster_consistency === null) throw new Error("fixture missing poster module");
+    snapshot.poster_consistency.sampleAssetId = "asset-3";
+    const optionalAsset = {
+      ...snapshot.visual_and_rights.assets[1]!,
+      assetId: "asset-optional-rejected",
+      fileUrl: null,
+      reviewStatus: "rejected" as const,
+      sha256: "a".repeat(64),
+    };
+    snapshot.visual_and_rights.assets.push(optionalAsset);
+    snapshot.visual_and_rights.looks.push({
+      alternatives: [],
+      audience: { code: "all", label: "通用" },
+      coverAssetId: optionalAsset.assetId,
+      detailAssetIds: [],
+      fallbackAssetId: null,
+      formulaId: "formula-three",
+      imageSlot: "optional",
+      items: [
+        {
+          category: "accessory",
+          categoryLabel: "配饰",
+          colorCode: "red",
+          description: "红色配饰",
+        },
+      ],
+      lookId: "look-3",
+      requiredForPublish: false,
+      scenario: { code: "daily", label: "日常" },
+      sortOrder: 3,
+      title: "可选搭配",
+    });
+    snapshot.copy_and_formula.outfitFormulas[2] = {
+      ...snapshot.copy_and_formula.outfitFormulas[2]!,
+      lookIds: ["look-3"],
+    };
+
+    const checks = evaluateContentPreflight(snapshot, [], "2026-08-02");
+
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "required_images", status: "passed" }),
+        expect.objectContaining({ code: "visual_and_rights", status: "passed" }),
+        expect.objectContaining({ code: "ai_label", status: "passed" }),
+        expect.objectContaining({ code: "reference_integrity", status: "passed" }),
+      ]),
+    );
+
+    const unsafeOptionalFallback = {
+      ...optionalAsset,
+      assetId: "asset-optional-fallback-rejected",
+      sha256: "c".repeat(64),
+    };
+    snapshot.visual_and_rights.assets.push(unsafeOptionalFallback);
+    snapshot.visual_and_rights.looks[2] = {
+      ...snapshot.visual_and_rights.looks[2]!,
+      fallbackAssetId: unsafeOptionalFallback.assetId,
+    };
+    expect(evaluateContentPreflight(snapshot, [], "2026-08-02")).toContainEqual(
+      expect.objectContaining({ code: "required_images", status: "failed" }),
+    );
+  });
+
+  it("does not let an unreferenced failed candidate block the frozen selection", () => {
+    const snapshot = completeModules();
+    if (snapshot.visual_and_rights === null) throw new Error("fixture missing visual module");
+    snapshot.visual_and_rights.assets.push({
+      ...snapshot.visual_and_rights.assets[0]!,
+      assetId: "asset-unselected-failed",
+      aiLabelStatus: "failed",
+      fileUrl: null,
+      reviewStatus: "rejected",
+      rightsStatus: "rejected",
+      sha256: "b".repeat(64),
+    });
+
+    const checks = evaluateContentPreflight(snapshot, [], "2026-08-02");
+
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "required_images", status: "passed" }),
+        expect.objectContaining({ code: "visual_and_rights", status: "passed" }),
+        expect.objectContaining({ code: "ai_label", status: "passed" }),
+      ]),
+    );
+  });
+
+  it("requires a safe same-snapshot fallback for each required image slot", () => {
+    const snapshot = completeModules();
+    if (snapshot.visual_and_rights === null) throw new Error("fixture missing visual module");
+    snapshot.visual_and_rights.looks[0] = {
+      ...snapshot.visual_and_rights.looks[0]!,
+      fallbackAssetId: null,
+    } as unknown as NonNullable<DraftModules["visual_and_rights"]>["looks"][number];
+
+    const checks = evaluateContentPreflight(snapshot, [], "2026-08-02");
+
+    expect(checks).toContainEqual(
+      expect.objectContaining({ code: "required_images", status: "failed" }),
+    );
+  });
+
+  it("uses the latest withdrawal projection when assessing release safety", () => {
+    const fallbackWithdrawnSnapshot = completeModules();
+    const fallbackWithdrawn = frozenImageSet(fallbackWithdrawnSnapshot);
+    fallbackWithdrawn.withdrawalEvents.push({
+      assetId: "asset-3",
+      auditEventId: "audit-withdraw-fallback",
+      reason: "备用图授权撤销。",
+      withdrawalEventId: "withdraw-fallback",
+      withdrawnAt: "2026-08-02T05:00:00.000Z",
+    });
+    expect(
+      evaluateContentPreflight(fallbackWithdrawnSnapshot, [], "2026-08-02", fallbackWithdrawn),
+    ).toContainEqual(expect.objectContaining({ code: "required_images", status: "failed" }));
+
+    const coverWithdrawnSnapshot = completeModules();
+    if (coverWithdrawnSnapshot.poster_consistency === null) {
+      throw new Error("fixture missing poster module");
+    }
+    coverWithdrawnSnapshot.poster_consistency.sampleAssetId = "asset-2";
+    const coverWithdrawn = frozenImageSet(coverWithdrawnSnapshot);
+    coverWithdrawn.slots[0] = {
+      ...coverWithdrawn.slots[0]!,
+      deliveryStatus: "fallback",
+      servedCoverAssetId: "asset-3",
+    } as StoredDailyImageSet["slots"][number];
+    coverWithdrawn.withdrawalEvents.push({
+      assetId: "asset-1",
+      auditEventId: "audit-withdraw-cover",
+      reason: "主图授权撤销，已切换安全备用图。",
+      withdrawalEventId: "withdraw-cover",
+      withdrawnAt: "2026-08-02T05:00:00.000Z",
+    });
+    expect(
+      evaluateContentPreflight(coverWithdrawnSnapshot, [], "2026-08-02", coverWithdrawn),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "required_images", status: "passed" }),
+        expect.objectContaining({ code: "visual_and_rights", status: "passed" }),
+      ]),
+    );
+
+    const unavailable = structuredClone(coverWithdrawn);
+    unavailable.slots[0] = {
+      ...unavailable.slots[0]!,
+      deliveryStatus: "unavailable",
+      servedCoverAssetId: null,
+    } as StoredDailyImageSet["slots"][number];
+    unavailable.withdrawalEvents.push({
+      assetId: "asset-3",
+      auditEventId: "audit-withdraw-last-fallback",
+      reason: "最后一张必备备用图也已撤销。",
+      withdrawalEventId: "withdraw-last-fallback",
+      withdrawnAt: "2026-08-02T06:00:00.000Z",
+    });
+    expect(
+      evaluateContentPreflight(coverWithdrawnSnapshot, [], "2026-08-02", unavailable),
+    ).toContainEqual(expect.objectContaining({ code: "required_images", status: "failed" }));
   });
 
   it("rejects public tier labels that disagree with the tier code and rank", () => {
@@ -903,7 +1819,7 @@ describe("ContentLifecycleService", () => {
     );
   });
 
-  it("rejects a look that references an unusable detail asset", () => {
+  it("allows an unusable detail asset to be omitted without blocking the image set", () => {
     const snapshot = completeModules();
     if (snapshot.visual_and_rights === null) throw new Error("fixture missing visual module");
     const sourceAsset = snapshot.visual_and_rights.assets[0];
@@ -922,7 +1838,7 @@ describe("ContentLifecycleService", () => {
     const checks = evaluateContentPreflight(snapshot, [], "2026-08-02");
 
     expect(checks).toContainEqual(
-      expect.objectContaining({ code: "reference_integrity", status: "failed" }),
+      expect.objectContaining({ code: "reference_integrity", status: "passed" }),
     );
   });
 

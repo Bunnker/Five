@@ -94,13 +94,29 @@ _Avoid_: 渠道海报、海报实例
 从已发布内容和海报模板按渠道派生的不可变制品，必须记录 `sourceContentVersion`，但不反向修改内容快照。
 _Avoid_: 内容版本、模板版本
 
-**素材来源类型（`assetSourceType`）**：
+**素材来源类型（`sourceType`）**：
 素材进入 Five 内容生产流程前的来源分类，至少区分授权素材、AI 生成素材和审核过的降级模板；来源类型不替代权利证明、AI 标识或人工审核。
-_Avoid_: 图片类型、文件格式
+_Avoid_: `assetSourceType`、图片类型、文件格式
 
 **每日图片组（`DailyImageSet`）**：
-属于一个命理日和内容版本、已经通过人工检查的一组公开穿搭图片。正常发布包含 2 张必备图片和最多 1 张可选图片；它表示可直接上线的内容素材，不表示一次实时生图任务。
+属于一个命理日和内容版本、已经通过人工检查的一组公开穿搭方案。正常发布包含 `required_primary` 与 `required_alternative` 两个必备封面槽位和最多一个 `optional` 封面槽位；每个必备槽位冻结与原封面不同的已审核降级素材，细节图、降级素材和原始候选素材不计入 2+1。它表示可直接上线的内容素材，不表示一次实时生图任务。
 _Avoid_: 生图任务、当天所有原始候选图
+
+**图片封面槽位（`imageSlot`）**：
+公开穿搭方案在每日图片组中的位置，只允许 `required_primary`、`required_alternative` 和 `optional`，各槽位的 `coverAssetId` 分别唯一。`requiredForPublish` 作为兼容字段必须与槽位一致；两个必备槽位的 `fallbackAssetId` 非空、不同于 `coverAssetId` 并指向同图片组的安全素材，optional 才允许为空；方案详情的 `detailAssetIds` 不属于封面槽位。
+_Avoid_: 图片数组下标、细节图位置
+
+**图片生成方式（`generationMethod`）**：
+供应商无关地记录素材如何进入 Five，固定为 `codex`、`relay`、`external_tool`、`licensed_upload`、`owned_upload` 或 `fallback_template`。前三者只配合 `ai_generated`，两个上传值只配合 `licensed`，降级模板只配合同名来源类型；它用于追溯流程，不把某个中转品牌写入领域模型。
+_Avoid_: 供应商名称、具体中转品牌
+
+**图片人工检查（`ImageManualReview`）**：
+维护者对单张图片保存的结构化检查记录，至少覆盖颜色与文案一致、人物与服装完整、权利与身份风险、场景与可模仿性、手机与微信预览、AI 标识合规，并包含审核编号、维护者账号、时间和备注。
+_Avoid_: 单个“已审核”布尔值、口头确认
+
+**图片交付投影（`ImageAssetDeliveryProjection`）**：
+由内容版本绑定、冻结素材可交付状态和单图下线等追加事件计算出的当前公开图片状态。原封面初始不可交付时可以直接选择同一快照的已审核降级素材或省略 optional，无须伪造下线事件；细节图交付集合必须恰好等于冻结细节图中当前可交付且未下线的部分。投影不能替换或删除不可变快照中的素材引用。
+_Avoid_: 修改快照、换图覆盖原文件
 
 **AI 标识状态**：
 记录 AI 生成内容是否完成适用的显式标识、隐式标识和下载/导出保留要求。它属于 `visual_and_rights` 审核的一部分。

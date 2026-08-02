@@ -252,6 +252,15 @@ export class AdminContentController {
         requestId(request),
       );
     }
+    if (result.kind === "invalid_asset_reference") {
+      return failure(
+        request,
+        reply,
+        422,
+        "IMAGE_SET_INVALID",
+        "图片素材必须来自当前草稿的服务端候选，且不可修改校验值或审核记录。",
+      );
+    }
     return revisionMismatch(request, reply, "draft", result.currentRevision);
   }
 
@@ -303,6 +312,22 @@ export class AdminContentController {
       return adminErrorEnvelope(
         "INVALID_STATE_TRANSITION",
         "当前草稿状态不允许提交。",
+        requestId(request),
+      );
+    }
+    if (result.kind === "image_withdrawn") {
+      reply.status(422);
+      return adminErrorEnvelope(
+        "IMAGE_SET_INVALID",
+        "草稿引用了已下线图片，请替换后再提交。",
+        requestId(request),
+      );
+    }
+    if (result.kind === "invalid_asset_reference") {
+      reply.status(422);
+      return adminErrorEnvelope(
+        "IMAGE_SET_INVALID",
+        "图片审核结果已变化，请重新保存视觉模块后再提交。",
         requestId(request),
       );
     }

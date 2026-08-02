@@ -5,6 +5,28 @@ import { createAdminJsonResponse } from "./admin-test-responses";
 
 const csrfToken = "csrf-token-that-is-longer-than-thirty-two-characters";
 
+const imageAsset = {
+  aiLabelStatus: "complete" as const,
+  altText: "墨绿外套日常穿搭",
+  assetId: "asset-primary",
+  declaredModel: "gpt-image-2",
+  fileUrl: null,
+  generatedAt: "2026-08-01T02:00:00.000Z",
+  generationMethod: "codex" as const,
+  height: 1600,
+  manualReview: null,
+  mediaType: "image/webp" as const,
+  promptVersion: "prompt-v3",
+  reproductionReference: "job-image-001",
+  reviewStatus: "pending" as const,
+  rightsRecordIds: ["rights-ai-001"],
+  rightsStatus: "pending" as const,
+  sha256: "a".repeat(64),
+  sourceMaterialReferences: ["brief:2026-08-01"],
+  sourceType: "ai_generated" as const,
+  width: 1200,
+};
+
 const emptyDraft = {
   createdAt: "2026-07-31T10:00:00+08:00",
   draftId: "draft-31",
@@ -154,6 +176,202 @@ describe("adminApi content workflow", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("uploads an image as multipart data without overriding the browser boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createAdminJsonResponse(
+        {
+          asset: imageAsset,
+          draftId: "draft-31",
+          draftRevision: 2,
+          fortuneDate: "2026-08-01",
+          previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
+          reviewLocked: false,
+        },
+        { headers: { ETag: '"draft:2"' }, status: 201 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const formData = new FormData();
+    formData.append("file", new File(["image"], "outfit.webp", { type: "image/webp" }));
+    formData.append("metadata", new Blob(["{}"], { type: "application/json" }));
+
+    const result = await adminApi.uploadDraftImage({
+      csrfToken,
+      draftId: "draft-31",
+      etag: '"draft:1"',
+      formData,
+      idempotencyKey: "idem-upload-0000000000000001",
+    });
+
+    expect(result.ok).toBe(true);
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(request.headers);
+    expect(request.body).toBe(formData);
+    expect(headers.get("Content-Type")).toBeNull();
+    expect(headers.get("If-Match")).toBe('"draft:1"');
+    expect(headers.get("Idempotency-Key")).toBe("idem-upload-0000000000000001");
+    expect(headers.get("X-CSRF-Token")).toBe(csrfToken);
+  });
+
+  it("reviews an image and reads the refreshed draft revision", async () => {
+    const reviewedAsset = {
+      ...imageAsset,
+      fileUrl: "https://cdn.example.com/asset-primary.webp",
+      manualReview: {
+        aiLabelCompliance: "passed" as const,
+        colorAndCopyConsistency: "passed" as const,
+        garmentAndPersonIntegrity: "passed" as const,
+        mobileAndWechatPreview: "passed" as const,
+        notes: "逐项检查通过",
+        reviewId: "review-1",
+        reviewedAt: "2026-08-01T03:00:00.000Z",
+        reviewerAccountId: "maintainer",
+        rightsAndIdentityRisk: "passed" as const,
+        scenarioAndImitability: "passed" as const,
+      },
+      reviewStatus: "approved" as const,
+      rightsStatus: "cleared" as const,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      createAdminJsonResponse(
+        {
+          asset: reviewedAsset,
+          draftId: "draft-31",
+          draftRevision: 3,
+          fortuneDate: "2026-08-01",
+          previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
+          reviewLocked: false,
+        },
+        { headers: { ETag: '"draft:3"' } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adminApi.reviewDraftImage({
+      assetId: "asset-primary",
+      body: {
+        aiLabelCompliance: "passed",
+        aiLabelStatus: "complete",
+        colorAndCopyConsistency: "passed",
+        decision: "approved",
+        garmentAndPersonIntegrity: "passed",
+        mobileAndWechatPreview: "passed",
+        notes: "逐项检查通过",
+        rightsAndIdentityRisk: "passed",
+        rightsStatus: "cleared",
+        scenarioAndImitability: "passed",
+      },
+      csrfToken,
+      draftId: "draft-31",
+      etag: '"draft:2"',
+      idempotencyKey: "idem-review-0000000000000001",
+    });
+
+    expect(result.ok).toBe(true);
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(request.headers).get("If-Match")).toBe('"draft:2"');
+    expect(new Headers(request.headers).get("Idempotency-Key")).toBe(
+      "idem-review-0000000000000001",
+    );
+    expect(JSON.parse(String(request.body))).toEqual(
+      expect.objectContaining({ decision: "approved", mobileAndWechatPreview: "passed" }),
+    );
+  });
+
+  it("withdraws one image with the lifecycle ETag and idempotency key", async () => {
+    const approvedAsset = (assetId: string, shaCharacter: string) => ({
+      ...imageAsset,
+      assetId,
+      fileUrl: `https://cdn.example.com/${assetId}.webp`,
+      manualReview: {
+        aiLabelCompliance: "passed" as const,
+        colorAndCopyConsistency: "passed" as const,
+        garmentAndPersonIntegrity: "passed" as const,
+        mobileAndWechatPreview: "passed" as const,
+        notes: "逐项检查通过",
+        reviewId: `review-${assetId}`,
+        reviewedAt: "2026-08-01T03:00:00.000Z",
+        reviewerAccountId: "maintainer",
+        rightsAndIdentityRisk: "passed" as const,
+        scenarioAndImitability: "passed" as const,
+      },
+      reviewStatus: "approved" as const,
+      rightsStatus: "cleared" as const,
+      sha256: shaCharacter.repeat(64),
+    });
+    const imageSet = {
+      assets: [
+        approvedAsset("asset-primary", "a"),
+        approvedAsset("asset-fallback", "b"),
+        approvedAsset("asset-alternative", "c"),
+        approvedAsset("asset-alternative-fallback", "d"),
+      ],
+      contentVersion: "fd-20260801-r1",
+      fortuneDate: "2026-08-01",
+      lifecycleRevision: 4,
+      slots: [
+        {
+          coverAssetId: "asset-primary",
+          deliveryStatus: "fallback" as const,
+          detailAssetIds: [],
+          fallbackAssetId: "asset-fallback",
+          imageSlot: "required_primary" as const,
+          lookId: "look-primary",
+          servedCoverAssetId: "asset-fallback",
+          servedDetailAssetIds: [],
+        },
+        {
+          coverAssetId: "asset-alternative",
+          deliveryStatus: "active" as const,
+          detailAssetIds: [],
+          fallbackAssetId: "asset-alternative-fallback",
+          imageSlot: "required_alternative" as const,
+          lookId: "look-alternative",
+          servedCoverAssetId: "asset-alternative",
+          servedDetailAssetIds: [],
+        },
+      ],
+      withdrawalEvents: [
+        {
+          assetId: "asset-primary",
+          auditEventId: "audit-withdraw-1",
+          reason: "授权范围变化",
+          withdrawalEventId: "withdrawal-1",
+          withdrawnAt: "2026-08-01T04:00:00.000Z",
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      createAdminJsonResponse(
+        {
+          assetId: "asset-primary",
+          auditEventId: "audit-withdraw-1",
+          dailyImageSet: imageSet,
+          deliveryAction: "fallback_activated",
+          lifecycleRevision: 4,
+        },
+        { headers: { ETag: '"lifecycle:4"' } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adminApi.withdrawImage({
+      assetId: "asset-primary",
+      body: { expectedActiveContentVersion: "fd-20260801-r1", reason: "授权范围变化" },
+      contentVersion: "fd-20260801-r1",
+      csrfToken,
+      etag: '"lifecycle:3"',
+      idempotencyKey: "idem-withdraw-0000000000001",
+    });
+
+    expect(result.ok).toBe(true);
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(request.headers);
+    expect(headers.get("If-Match")).toBe('"lifecycle:3"');
+    expect(headers.get("Idempotency-Key")).toBe("idem-withdraw-0000000000001");
+    expect(headers.get("X-CSRF-Token")).toBe(csrfToken);
   });
 
   it.each([

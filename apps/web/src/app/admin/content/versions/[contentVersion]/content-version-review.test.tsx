@@ -32,6 +32,165 @@ const version = {
   state: "in_review",
 };
 
+function approvedImageAsset(
+  assetId: string,
+  shaCharacter: string,
+  sourceType: "fallback_template" | "licensed",
+) {
+  return {
+    aiLabelStatus: "not_applicable" as const,
+    altText: `${assetId} 穿搭图`,
+    assetId,
+    declaredModel: null,
+    fileUrl: `https://cdn.example.com/${assetId}.webp`,
+    generatedAt: null,
+    generationMethod:
+      sourceType === "fallback_template"
+        ? ("fallback_template" as const)
+        : ("licensed_upload" as const),
+    height: 1200,
+    manualReview: {
+      aiLabelCompliance: "passed" as const,
+      colorAndCopyConsistency: "passed" as const,
+      garmentAndPersonIntegrity: "passed" as const,
+      mobileAndWechatPreview: "passed" as const,
+      notes: "六项人工检查通过",
+      reviewId: `review-${assetId}`,
+      reviewedAt: "2026-08-01T03:00:00.000Z",
+      reviewerAccountId: "maintainer",
+      rightsAndIdentityRisk: "passed" as const,
+      scenarioAndImitability: "passed" as const,
+    },
+    mediaType: "image/webp" as const,
+    promptVersion: null,
+    reproductionReference: null,
+    reviewStatus: "approved" as const,
+    rightsRecordIds: [`rights-${assetId}`],
+    rightsStatus: "cleared" as const,
+    sha256: shaCharacter.repeat(64),
+    sourceMaterialReferences: [`source-${assetId}`],
+    sourceType,
+    width: 900,
+  };
+}
+
+const imageAssets = [
+  approvedImageAsset("asset-primary", "a", "licensed"),
+  approvedImageAsset("asset-primary-fallback", "b", "fallback_template"),
+  approvedImageAsset("asset-alternative", "c", "licensed"),
+  approvedImageAsset("asset-alternative-fallback", "d", "fallback_template"),
+];
+
+const visualSnapshot = {
+  assetManifestVersion: "assets-v1",
+  assets: imageAssets,
+  looks: [
+    {
+      alternatives: [],
+      audience: { code: "all", label: "通用" },
+      coverAssetId: "asset-primary",
+      detailAssetIds: [],
+      fallbackAssetId: "asset-primary-fallback",
+      formulaId: "formula-primary",
+      imageSlot: "required_primary" as const,
+      items: [
+        {
+          category: "top" as const,
+          categoryLabel: "上装",
+          colorCode: "color-primary",
+          description: "主图上装",
+        },
+      ],
+      lookId: "look-primary",
+      requiredForPublish: true,
+      scenario: { code: "daily", label: "日常" },
+      sortOrder: 1,
+      title: "必备主图",
+    },
+    {
+      alternatives: [],
+      audience: { code: "all", label: "通用" },
+      coverAssetId: "asset-alternative",
+      detailAssetIds: [],
+      fallbackAssetId: "asset-alternative-fallback",
+      formulaId: "formula-alternative",
+      imageSlot: "required_alternative" as const,
+      items: [
+        {
+          category: "top" as const,
+          categoryLabel: "上装",
+          colorCode: "color-alternative",
+          description: "备选图上装",
+        },
+      ],
+      lookId: "look-alternative",
+      requiredForPublish: true,
+      scenario: { code: "daily", label: "日常" },
+      sortOrder: 2,
+      title: "必备备选图",
+    },
+  ],
+  rightsRecords: imageAssets.map((asset) => ({
+    kind: "internal_record" as const,
+    recordedAt: "2026-08-01T03:00:00.000Z",
+    reference: `rights-reference-${asset.assetId}`,
+    rightsRecordId: `rights-${asset.assetId}`,
+  })),
+};
+
+const initialImageSet = {
+  assets: imageAssets,
+  contentVersion: "fd-20260801-r1",
+  fortuneDate: "2026-08-01",
+  lifecycleRevision: 1,
+  slots: [
+    {
+      coverAssetId: "asset-primary",
+      deliveryStatus: "active" as const,
+      detailAssetIds: [],
+      fallbackAssetId: "asset-primary-fallback",
+      imageSlot: "required_primary" as const,
+      lookId: "look-primary",
+      servedCoverAssetId: "asset-primary",
+      servedDetailAssetIds: [],
+    },
+    {
+      coverAssetId: "asset-alternative",
+      deliveryStatus: "active" as const,
+      detailAssetIds: [],
+      fallbackAssetId: "asset-alternative-fallback",
+      imageSlot: "required_alternative" as const,
+      lookId: "look-alternative",
+      servedCoverAssetId: "asset-alternative",
+      servedDetailAssetIds: [],
+    },
+  ],
+  withdrawalEvents: [],
+};
+
+const withdrawalEvent = {
+  assetId: "asset-primary",
+  auditEventId: "audit-withdraw-primary",
+  reason: "授权范围发生变化",
+  withdrawalEventId: "withdrawal-primary",
+  withdrawnAt: "2026-08-01T04:00:00.000Z",
+};
+
+const withdrawnImageSet = {
+  ...initialImageSet,
+  lifecycleRevision: 2,
+  slots: initialImageSet.slots.map((slot) =>
+    slot.imageSlot === "required_primary"
+      ? {
+          ...slot,
+          deliveryStatus: "fallback" as const,
+          servedCoverAssetId: "asset-primary-fallback",
+        }
+      : slot,
+  ),
+  withdrawalEvents: [withdrawalEvent],
+};
+
 describe("ContentVersionReview", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
   afterEach(() => {
@@ -335,5 +494,70 @@ describe("ContentVersionReview", () => {
       "href",
       "/admin/content",
     );
+  });
+
+  it("reloads the parent version and refreshes preflight checks after one image is withdrawn", async () => {
+    const publishedVersion = {
+      ...version,
+      activeContentVersion: "fd-20260801-r1",
+      preflightChecks: [{ code: "required_images", message: "下线前图片检查", status: "passed" }],
+      snapshot: { ...version.snapshot, visual_and_rights: visualSnapshot },
+      state: "published",
+    };
+    const refreshedVersion = {
+      ...publishedVersion,
+      lifecycleRevision: 2,
+      preflightChecks: [
+        {
+          code: "required_images",
+          message: "单图下线后必备图片检查已刷新",
+          status: "passed",
+        },
+      ],
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(createAdminJsonResponse(session))
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(publishedVersion, { headers: { ETag: '"lifecycle:1"' } }),
+      )
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(initialImageSet, { headers: { ETag: '"lifecycle:1"' } }),
+      )
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(
+          {
+            assetId: "asset-primary",
+            auditEventId: withdrawalEvent.auditEventId,
+            dailyImageSet: withdrawnImageSet,
+            deliveryAction: "fallback_activated",
+            lifecycleRevision: 2,
+          },
+          { headers: { ETag: '"lifecycle:2"' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(refreshedVersion, { headers: { ETag: '"lifecycle:2"' } }),
+      );
+
+    render(
+      <AdminSessionProvider>
+        <ContentVersionReview contentVersion="fd-20260801-r1" />
+      </AdminSessionProvider>,
+    );
+
+    expect(await screen.findByText("下线前图片检查")).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText("asset-primary 下线原因"), {
+      target: { value: withdrawalEvent.reason },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下线素材 asset-primary" }));
+
+    expect(await screen.findByText("单图下线后必备图片检查已刷新")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    const versionReads = fetchMock.mock.calls.filter(
+      ([input, init]) =>
+        input === "/admin/api/v1/daily-content-versions/fd-20260801-r1" && init?.method === "GET",
+    );
+    expect(versionReads).toHaveLength(2);
   });
 });

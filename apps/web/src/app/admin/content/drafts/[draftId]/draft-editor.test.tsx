@@ -108,20 +108,35 @@ const completeModules = {
   },
   visual_and_rights: {
     assetManifestVersion: "assets-v1",
-    assets: [1, 2].map((index) => ({
+    assets: [1, 2, 3, 4].map((index) => ({
       aiLabelStatus: "not_applicable" as const,
       altText: `穿搭图 ${index}`,
       assetId: `asset-${index}`,
       declaredModel: null,
-      fileUrl: null,
+      fileUrl: `https://cdn.example.com/asset-${index}.webp`,
       generatedAt: null,
+      generationMethod: "licensed_upload" as const,
       height: 1200,
+      manualReview: {
+        aiLabelCompliance: "passed" as const,
+        colorAndCopyConsistency: "passed" as const,
+        garmentAndPersonIntegrity: "passed" as const,
+        mobileAndWechatPreview: "passed" as const,
+        notes: "已检查",
+        reviewId: `review-${index}`,
+        reviewedAt: "2026-07-31T12:00:00.000Z",
+        reviewerAccountId: "maintainer",
+        rightsAndIdentityRisk: "passed" as const,
+        scenarioAndImitability: "passed" as const,
+      },
       mediaType: "image/webp" as const,
       promptVersion: null,
-      reviewStatus: "pending" as const,
-      rightsRecordIds: [],
-      rightsStatus: "pending" as const,
+      reproductionReference: null,
+      reviewStatus: "approved" as const,
+      rightsRecordIds: [`rights-${index}`],
+      rightsStatus: "cleared" as const,
       sha256: String(index).repeat(64),
+      sourceMaterialReferences: [`source-${index}`],
       sourceType: "licensed" as const,
       width: 900,
     })),
@@ -130,7 +145,10 @@ const completeModules = {
       audience: { code: "all", label: "通用" },
       coverAssetId: `asset-${index}`,
       detailAssetIds: [],
+      fallbackAssetId: `asset-${index + 2}`,
       formulaId: `formula-${index}`,
+      imageSlot: (index === 1 ? "required_primary" : "required_alternative") as
+        "required_primary" | "required_alternative",
       items: [
         {
           category: "top" as const,
@@ -145,9 +163,26 @@ const completeModules = {
       sortOrder: index,
       title: `造型 ${index}`,
     })),
-    rightsRecords: [],
+    rightsRecords: [1, 2, 3, 4].map((index) => ({
+      kind: "internal_record" as const,
+      recordedAt: "2026-07-31T12:00:00.000Z",
+      reference: `rights-reference-${index}`,
+      rightsRecordId: `rights-${index}`,
+    })),
   },
 };
+
+function emptyCandidateResponse(draftRevision: number) {
+  return createAdminJsonResponse(
+    {
+      draftId: "draft-31",
+      draftRevision,
+      fortuneDate: "2026-08-01",
+      items: [],
+    },
+    { headers: { ETag: `"draft:${draftRevision}"` } },
+  );
+}
 
 describe("DraftEditor", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
@@ -166,6 +201,7 @@ describe("DraftEditor", () => {
     fetchMock
       .mockResolvedValueOnce(createAdminJsonResponse(session))
       .mockResolvedValueOnce(createAdminJsonResponse(draft, { headers: { ETag: '"draft:1"' } }))
+      .mockResolvedValueOnce(emptyCandidateResponse(1))
       .mockResolvedValueOnce(
         createAdminJsonResponse(
           {
@@ -185,15 +221,16 @@ describe("DraftEditor", () => {
     );
 
     const editor = await screen.findByLabelText("海报一致性 JSON");
+    await screen.findByText(/还没有图片候选/);
     fireEvent.change(editor, { target: { value: "{" } });
     fireEvent.click(screen.getByRole("button", { name: "保存海报一致性" }));
     expect(await screen.findByText(/不是有效 JSON/)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     fireEvent.change(editor, { target: { value: JSON.stringify(posterModule) } });
     fireEvent.click(screen.getByRole("button", { name: "保存海报一致性" }));
 
-    expect(await screen.findByText(/草稿修订 2/)).toBeInTheDocument();
+    expect(await screen.findByText('"draft:2"')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/admin/api/v1/daily-content-drafts/draft-31/modules/poster_consistency",
       expect.objectContaining({
@@ -211,6 +248,7 @@ describe("DraftEditor", () => {
     fetchMock
       .mockResolvedValueOnce(createAdminJsonResponse(session))
       .mockResolvedValueOnce(createAdminJsonResponse(draft, { headers: { ETag: '"draft:1"' } }))
+      .mockResolvedValueOnce(emptyCandidateResponse(1))
       .mockResolvedValueOnce(new Response(null, { status: 412 }));
 
     render(
@@ -219,7 +257,9 @@ describe("DraftEditor", () => {
       </AdminSessionProvider>,
     );
 
-    fireEvent.change(await screen.findByLabelText("海报一致性 JSON"), {
+    const editor = await screen.findByLabelText("海报一致性 JSON");
+    await screen.findByText(/还没有图片候选/);
+    fireEvent.change(editor, {
       target: {
         value: JSON.stringify({
           posterTemplateVersion: "poster-v1",
@@ -248,6 +288,7 @@ describe("DraftEditor", () => {
     fetchMock
       .mockResolvedValueOnce(createAdminJsonResponse(session))
       .mockResolvedValueOnce(createAdminJsonResponse(draft, { headers: { ETag: '"draft:1"' } }))
+      .mockResolvedValueOnce(emptyCandidateResponse(1))
       .mockReturnValueOnce(saveResponse);
 
     render(
@@ -257,6 +298,7 @@ describe("DraftEditor", () => {
     );
 
     const editor = await screen.findByLabelText("海报一致性 JSON");
+    await screen.findByText(/还没有图片候选/);
     fireEvent.change(editor, { target: { value: JSON.stringify(posterModule) } });
     fireEvent.click(screen.getByRole("button", { name: "保存海报一致性" }));
 
@@ -279,6 +321,7 @@ describe("DraftEditor", () => {
   it("freezes a complete draft with If-Match and an idempotency key", async () => {
     const completeDraft = {
       ...draft,
+      draftRevision: 4,
       modules: completeModules,
     };
     const fetchMock = vi.mocked(fetch);
@@ -287,6 +330,7 @@ describe("DraftEditor", () => {
       .mockResolvedValueOnce(
         createAdminJsonResponse(completeDraft, { headers: { ETag: '"draft:4"' } }),
       )
+      .mockResolvedValueOnce(emptyCandidateResponse(4))
       .mockResolvedValueOnce(
         createAdminJsonResponse(
           {
@@ -304,21 +348,23 @@ describe("DraftEditor", () => {
         <DraftEditor draftId="draft-31" />
       </AdminSessionProvider>,
     );
+    await screen.findByText(/还没有图片候选/);
     fireEvent.click(await screen.findByRole("button", { name: "提交并冻结版本" }));
 
     expect(await screen.findByRole("link", { name: "查看不可变版本" })).toHaveAttribute(
       "href",
       "/admin/content/versions/fd-20260801-r1",
     );
-    const headers = new Headers(fetchMock.mock.calls[2]?.[1]?.headers);
+    const headers = new Headers(fetchMock.mock.calls[3]?.[1]?.headers);
     expect(headers.get("If-Match")).toBe('"draft:4"');
     expect(headers.get("Idempotency-Key")).toMatch(/^[a-f0-9]{32}$/u);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
   });
 
   it("blocks freezing when a module has unsaved edits", async () => {
     const completeDraft = {
       ...draft,
+      draftRevision: 4,
       modules: completeModules,
     };
     const fetchMock = vi.mocked(fetch);
@@ -326,7 +372,8 @@ describe("DraftEditor", () => {
       .mockResolvedValueOnce(createAdminJsonResponse(session))
       .mockResolvedValueOnce(
         createAdminJsonResponse(completeDraft, { headers: { ETag: '"draft:4"' } }),
-      );
+      )
+      .mockResolvedValueOnce(emptyCandidateResponse(4));
 
     render(
       <AdminSessionProvider>
@@ -335,6 +382,7 @@ describe("DraftEditor", () => {
     );
 
     const copyEditor = await screen.findByLabelText("文案与穿法 JSON");
+    await screen.findByText(/还没有图片候选/);
     fireEvent.change(copyEditor, {
       target: {
         value: JSON.stringify({
@@ -350,6 +398,6 @@ describe("DraftEditor", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "提交前必须保存所有修改。尚未保存：文案与穿法。",
     );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

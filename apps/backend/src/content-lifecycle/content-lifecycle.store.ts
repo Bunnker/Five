@@ -1,5 +1,12 @@
 import type { components } from "@five/api-contract";
 
+import type {
+  StoredCachePurgeIntent,
+  StoredDailyImageSet,
+  StoredDraftImageAsset,
+  StoredImageAssetWithdrawalEvent,
+} from "../daily-images/daily-image-asset.store";
+
 export const CONTENT_LIFECYCLE_STORE = Symbol("CONTENT_LIFECYCLE_STORE");
 
 export type AddMasterReviewEvidenceRequest =
@@ -54,6 +61,7 @@ export interface LifecycleProjection {
 
 export interface ContentVersionReadView {
   readonly evidence: readonly StoredMasterReviewEvidence[];
+  readonly imageSet: StoredDailyImageSet | null;
   readonly projection: LifecycleProjection;
   readonly version: StoredContentVersion;
 }
@@ -63,7 +71,23 @@ export interface ContentVersionListReadView {
   readonly versions: readonly StoredContentVersion[];
 }
 
-export type IdempotencyOperation = "add_master_review_evidence" | "review_decision" | "submit";
+export interface DraftImageAssetReadView {
+  readonly candidates: readonly StoredDraftImageAsset[];
+  readonly draft: ContentDraft;
+}
+
+export interface DailyImageSetReadView {
+  readonly imageSet: StoredDailyImageSet;
+  readonly projection: LifecycleProjection;
+}
+
+export type IdempotencyOperation =
+  | "add_master_review_evidence"
+  | "image_review"
+  | "image_upload"
+  | "image_withdrawal"
+  | "review_decision"
+  | "submit";
 
 export interface StoredLifecycleIdempotency {
   readonly idempotencyKey: string;
@@ -86,6 +110,10 @@ export interface AuditCursor {
 }
 
 export interface ContentLifecycleTransaction {
+  findDraftImageAssetForUpdate(
+    draftId: string,
+    assetId: string,
+  ): Promise<StoredDraftImageAsset | null>;
   findDraftForUpdate(draftId: string): Promise<StoredDraft | null>;
   findIdempotency(
     operation: IdempotencyOperation,
@@ -93,11 +121,18 @@ export interface ContentLifecycleTransaction {
     idempotencyKey: string,
   ): Promise<StoredLifecycleIdempotency | null>;
   findVersion(contentVersion: string): Promise<StoredContentVersion | null>;
+  findDailyImageSetForUpdate(contentVersion: string): Promise<StoredDailyImageSet | null>;
+  listGloballyWithdrawnAssetIds(assetIds: readonly string[]): Promise<string[]>;
+  listDraftImageAssets(draftId: string): Promise<StoredDraftImageAsset[]>;
   getOrCreateProjectionForUpdate(fortuneDate: string): Promise<LifecycleProjection>;
   insertAuditEvent(event: StoredAuditEvent): Promise<void>;
   insertDraft(draft: StoredDraft): Promise<void>;
+  insertDraftImageAsset(asset: StoredDraftImageAsset): Promise<void>;
+  insertDailyImageSet(imageSet: StoredDailyImageSet): Promise<void>;
+  insertCachePurgeIntent(intent: StoredCachePurgeIntent): Promise<void>;
   insertEvidence(evidence: StoredMasterReviewEvidence): Promise<void>;
   insertIdempotency(record: StoredLifecycleIdempotency): Promise<void>;
+  insertImageAssetWithdrawalEvent(event: StoredImageAssetWithdrawalEvent): Promise<void>;
   insertVersion(version: StoredContentVersion): Promise<void>;
   listEvidence(contentVersion: string): Promise<StoredMasterReviewEvidence[]>;
   lockIdempotency(
@@ -105,14 +140,22 @@ export interface ContentLifecycleTransaction {
     resourceId: string,
     idempotencyKey: string,
   ): Promise<void>;
+  lockImageAssetWithdrawal(assetId: string): Promise<void>;
   markDraftSubmitted(draftId: string, contentVersion: string, submittedAt: string): Promise<void>;
   updateDraft(draft: StoredDraft): Promise<void>;
+  updateDraftImageAsset(asset: StoredDraftImageAsset): Promise<void>;
+  updateDailyImageSet(imageSet: StoredDailyImageSet): Promise<void>;
   updateProjection(projection: LifecycleProjection): Promise<void>;
   updateVersionState(contentVersion: string, state: Exclude<ContentState, "draft">): Promise<void>;
 }
 
 export interface ContentLifecycleStore {
   findDraft(draftId: string): Promise<ContentDraft | null>;
+  readDraftImageAssetView(draftId: string): Promise<DraftImageAssetReadView | null>;
+  listDraftImageAssets(draftId: string): Promise<StoredDraftImageAsset[]>;
+  readDailyImageSet(contentVersion: string): Promise<StoredDailyImageSet | null>;
+  readDailyImageSetView(contentVersion: string): Promise<DailyImageSetReadView | null>;
+  readImageAsset(assetId: string): Promise<StoredDraftImageAsset | null>;
   listAuditEvents(input: {
     readonly contentVersion: string | null;
     readonly cursor: AuditCursor | null;

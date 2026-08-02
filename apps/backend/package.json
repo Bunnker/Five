@@ -18,6 +18,7 @@
     "db:rollback": "node-pg-migrate -j mts --envPath ../../.env down"
   },
   "dependencies": {
+    "@fastify/multipart": "10.1.0",
     "@five/api-contract": "workspace:*",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
@@ -25,7 +26,8 @@
     "pg": "^8.22.0",
     "qrcode": "1.5.4",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "sharp": "0.34.5"
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",

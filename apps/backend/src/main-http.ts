@@ -11,6 +11,7 @@ import {
   adminTrustedOriginsFromEnvironment,
   installAdminRequestProtection,
 } from "./admin-http/admin-request-protection";
+import { installAdminImageMultipart } from "./admin-http/admin-image-multipart";
 import { installFeedbackRequestProtection } from "./feedback/feedback-request-protection";
 import { installPublicAccessGate } from "./http/public-access-gate";
 
@@ -30,6 +31,7 @@ async function bootstrap(): Promise<void> {
       trustProxy: "loopback",
     }),
   );
+  await installAdminImageMultipart(app.getHttpAdapter().getInstance());
   installFeedbackRequestProtection(app.getHttpAdapter().getInstance());
   installAdminRequestProtection(
     app.getHttpAdapter().getInstance(),

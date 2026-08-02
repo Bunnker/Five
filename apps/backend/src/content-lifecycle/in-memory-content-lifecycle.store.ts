@@ -4,6 +4,8 @@ import type {
   ContentDraftSummary,
   ContentLifecycleStore,
   ContentLifecycleTransaction,
+  DailyImageSetReadView,
+  DraftImageAssetReadView,
   ContentVersionListReadView,
   ContentVersionReadView,
   IdempotencyOperation,
@@ -14,6 +16,13 @@ import type {
   StoredLifecycleIdempotency,
   StoredMasterReviewEvidence,
 } from "./content-lifecycle.store";
+import type {
+  StoredCachePurgeIntent,
+  StoredDailyImageSet,
+  StoredDraftImageAsset,
+  StoredImageAssetWithdrawalEvent,
+} from "../daily-images/daily-image-asset.store";
+import { projectDailyImageSet } from "../daily-images/image-delivery-projection";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -29,18 +38,103 @@ function idempotencyId(
 
 export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
   private audits: StoredAuditEvent[] = [];
+  private cachePurgeIntents: StoredCachePurgeIntent[] = [];
+  private dailyImageSets = new Map<string, StoredDailyImageSet>();
   private drafts = new Map<string, StoredDraft>();
+  private draftImageAssets = new Map<string, StoredDraftImageAsset>();
   private evidence = new Map<string, StoredMasterReviewEvidence[]>();
   private idempotency = new Map<string, StoredLifecycleIdempotency>();
+  private imageWithdrawalEvents: StoredImageAssetWithdrawalEvent[] = [];
   private projections = new Map<string, LifecycleProjection>();
   private transactionTail: Promise<void> = Promise.resolve();
   private versions = new Map<string, StoredContentVersion>();
+
+  seedDraftImageAssetsForTest(assets: readonly StoredDraftImageAsset[]): void {
+    for (const asset of assets) {
+      this.draftImageAssets.set(`${asset.draftId}\u0000${asset.asset.assetId}`, clone(asset));
+    }
+  }
+
+  seedDailyImageSetForTest(imageSet: StoredDailyImageSet): void {
+    this.dailyImageSets.set(imageSet.contentVersion, clone(imageSet));
+  }
+
+  publishVersionForTest(contentVersion: string): void {
+    const version = this.versions.get(contentVersion);
+    if (version === undefined) throw new Error("version missing from test fixture");
+    this.versions.set(contentVersion, { ...clone(version), state: "published" });
+    const projection = this.projections.get(version.fortuneDate);
+    if (projection === undefined) throw new Error("projection missing from test fixture");
+    this.projections.set(version.fortuneDate, {
+      ...clone(projection),
+      activeContentVersion: contentVersion,
+    });
+  }
+
+  readCachePurgeIntentsForTest(): StoredCachePurgeIntent[] {
+    return clone(this.cachePurgeIntents);
+  }
 
   async findDraft(draftId: string): Promise<ContentDraft | null> {
     const stored = this.drafts.get(draftId);
     return stored === undefined || stored.submittedContentVersion !== null
       ? null
       : clone(stored.draft);
+  }
+
+  async listDraftImageAssets(draftId: string): Promise<StoredDraftImageAsset[]> {
+    await this.transactionTail;
+    return clone(
+      [...this.draftImageAssets.values()]
+        .filter((candidate) => candidate.draftId === draftId)
+        .sort(
+          (left, right) =>
+            left.uploadedAt.localeCompare(right.uploadedAt) ||
+            left.asset.assetId.localeCompare(right.asset.assetId),
+        ),
+    );
+  }
+
+  async readDraftImageAssetView(draftId: string): Promise<DraftImageAssetReadView | null> {
+    await this.transactionTail;
+    const stored = this.drafts.get(draftId);
+    if (stored === undefined || stored.submittedContentVersion !== null) return null;
+    return clone({
+      candidates: [...this.draftImageAssets.values()]
+        .filter((candidate) => candidate.draftId === draftId)
+        .sort(
+          (left, right) =>
+            left.uploadedAt.localeCompare(right.uploadedAt) ||
+            left.asset.assetId.localeCompare(right.asset.assetId),
+        ),
+      draft: stored.draft,
+    });
+  }
+
+  async readDailyImageSet(contentVersion: string): Promise<StoredDailyImageSet | null> {
+    await this.transactionTail;
+    const imageSet = this.dailyImageSets.get(contentVersion);
+    return imageSet === undefined ? null : clone(this.projectImageSet(imageSet));
+  }
+
+  async readDailyImageSetView(contentVersion: string): Promise<DailyImageSetReadView | null> {
+    await this.transactionTail;
+    const imageSet = this.dailyImageSets.get(contentVersion);
+    if (imageSet === undefined) return null;
+    const projection = this.projections.get(imageSet.fortuneDate);
+    if (projection === undefined) {
+      throw new Error(`Lifecycle projection missing for ${contentVersion}`);
+    }
+    return clone({ imageSet: this.projectImageSet(imageSet), projection });
+  }
+
+  async readImageAsset(assetId: string): Promise<StoredDraftImageAsset | null> {
+    await this.transactionTail;
+    return clone(
+      [...this.draftImageAssets.values()].find(
+        (candidate) => candidate.asset.assetId === assetId,
+      ) ?? null,
+    );
   }
 
   async listAuditEvents(input: {
@@ -111,12 +205,14 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
     await this.transactionTail;
     const version = this.versions.get(contentVersion);
     if (version === undefined) return null;
+    const imageSet = this.dailyImageSets.get(contentVersion);
     const projection = this.projections.get(version.fortuneDate);
     if (projection === undefined) {
       throw new Error(`Lifecycle projection missing for ${contentVersion}`);
     }
     return clone({
       evidence: this.evidence.get(contentVersion) ?? [],
+      imageSet: imageSet === undefined ? null : this.projectImageSet(imageSet),
       projection,
       version,
     });
@@ -131,9 +227,13 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
     await prior;
     const snapshot = {
       audits: clone(this.audits),
+      cachePurgeIntents: clone(this.cachePurgeIntents),
+      dailyImageSets: clone(this.dailyImageSets),
       drafts: clone(this.drafts),
+      draftImageAssets: clone(this.draftImageAssets),
       evidence: clone(this.evidence),
       idempotency: clone(this.idempotency),
+      imageWithdrawalEvents: clone(this.imageWithdrawalEvents),
       projections: clone(this.projections),
       versions: clone(this.versions),
     };
@@ -141,9 +241,13 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
       return await work(this.transactionAdapter());
     } catch (error) {
       this.audits = snapshot.audits;
+      this.cachePurgeIntents = snapshot.cachePurgeIntents;
+      this.dailyImageSets = snapshot.dailyImageSets;
       this.drafts = snapshot.drafts;
+      this.draftImageAssets = snapshot.draftImageAssets;
       this.evidence = snapshot.evidence;
       this.idempotency = snapshot.idempotency;
+      this.imageWithdrawalEvents = snapshot.imageWithdrawalEvents;
       this.projections = snapshot.projections;
       this.versions = snapshot.versions;
       throw error;
@@ -154,10 +258,30 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
 
   private transactionAdapter(): ContentLifecycleTransaction {
     return {
+      findDraftImageAssetForUpdate: async (draftId, assetId) => {
+        const candidate = this.draftImageAssets.get(`${draftId}\u0000${assetId}`);
+        return clone(candidate?.draftId === draftId ? candidate : null);
+      },
       findDraftForUpdate: async (draftId) => clone(this.drafts.get(draftId) ?? null),
       findIdempotency: async (operation, resourceId, idempotencyKey) =>
         clone(this.idempotency.get(idempotencyId(operation, resourceId, idempotencyKey)) ?? null),
       findVersion: async (contentVersion) => clone(this.versions.get(contentVersion) ?? null),
+      findDailyImageSetForUpdate: async (contentVersion) => {
+        const imageSet = this.dailyImageSets.get(contentVersion);
+        return imageSet === undefined ? null : clone(this.projectImageSet(imageSet));
+      },
+      listGloballyWithdrawnAssetIds: async (assetIds) => {
+        const selected = new Set(assetIds);
+        return [
+          ...new Set(
+            this.imageWithdrawalEvents
+              .map(({ event }) => event.assetId)
+              .filter((assetId) => selected.has(assetId)),
+          ),
+        ].sort();
+      },
+      listDraftImageAssets: async (draftId) =>
+        clone([...this.draftImageAssets.values()].filter((asset) => asset.draftId === draftId)),
       getOrCreateProjectionForUpdate: async (fortuneDate) => {
         const current = this.projections.get(fortuneDate) ?? {
           activeContentVersion: null,
@@ -170,9 +294,25 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
       insertAuditEvent: async (event) => {
         this.audits.push(clone(event));
       },
+      insertCachePurgeIntent: async (intent) => {
+        this.cachePurgeIntents.push(clone(intent));
+      },
+      insertDailyImageSet: async (imageSet) => {
+        if (this.dailyImageSets.has(imageSet.contentVersion)) {
+          throw new Error("duplicate daily image set");
+        }
+        this.dailyImageSets.set(imageSet.contentVersion, clone(imageSet));
+      },
       insertDraft: async (draft) => {
         if (this.drafts.has(draft.draft.draftId)) throw new Error("duplicate draft id");
         this.drafts.set(draft.draft.draftId, clone(draft));
+      },
+      insertDraftImageAsset: async (asset) => {
+        const key = `${asset.draftId}\u0000${asset.asset.assetId}`;
+        if (this.draftImageAssets.has(key)) {
+          throw new Error("duplicate draft image asset");
+        }
+        this.draftImageAssets.set(key, clone(asset));
       },
       insertEvidence: async (record) => {
         const records = this.evidence.get(record.contentVersion) ?? [];
@@ -184,12 +324,30 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
         if (this.idempotency.has(key)) throw new Error("duplicate idempotency key");
         this.idempotency.set(key, clone(record));
       },
+      insertImageAssetWithdrawalEvent: async (event) => {
+        const imageSet = this.dailyImageSets.get(event.contentVersion);
+        if (
+          imageSet === undefined ||
+          !imageSet.assets.some((asset) => asset.assetId === event.event.assetId)
+        ) {
+          throw new Error("withdrawal asset does not belong to daily image set");
+        }
+        if (
+          this.imageWithdrawalEvents.some(
+            (existing) => existing.event.assetId === event.event.assetId,
+          )
+        ) {
+          throw new Error("image asset already globally withdrawn");
+        }
+        this.imageWithdrawalEvents.push(clone(event));
+      },
       insertVersion: async (version) => {
         if (this.versions.has(version.contentVersion)) throw new Error("duplicate content version");
         this.versions.set(version.contentVersion, clone(version));
       },
       listEvidence: async (contentVersion) => clone(this.evidence.get(contentVersion) ?? []),
       lockIdempotency: async () => undefined,
+      lockImageAssetWithdrawal: async () => undefined,
       markDraftSubmitted: async (draftId, contentVersion) => {
         const stored = this.drafts.get(draftId);
         if (stored === undefined) throw new Error("draft disappeared");
@@ -198,6 +356,19 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
       updateDraft: async (draft) => {
         if (!this.drafts.has(draft.draft.draftId)) throw new Error("draft disappeared");
         this.drafts.set(draft.draft.draftId, clone(draft));
+      },
+      updateDraftImageAsset: async (asset) => {
+        const key = `${asset.draftId}\u0000${asset.asset.assetId}`;
+        if (!this.draftImageAssets.has(key)) {
+          throw new Error("draft image asset disappeared");
+        }
+        this.draftImageAssets.set(key, clone(asset));
+      },
+      updateDailyImageSet: async (imageSet) => {
+        if (!this.dailyImageSets.has(imageSet.contentVersion)) {
+          throw new Error("daily image set disappeared");
+        }
+        this.dailyImageSets.set(imageSet.contentVersion, clone(imageSet));
       },
       updateProjection: async (projection) => {
         this.projections.set(projection.fortuneDate, clone(projection));
@@ -208,5 +379,13 @@ export class InMemoryContentLifecycleStore implements ContentLifecycleStore {
         this.versions.set(contentVersion, { ...clone(version), state });
       },
     };
+  }
+
+  private projectImageSet(imageSet: StoredDailyImageSet): StoredDailyImageSet {
+    const assetIds = new Set(imageSet.assets.map((asset) => asset.assetId));
+    const globalEvents = this.imageWithdrawalEvents
+      .filter(({ event }) => assetIds.has(event.assetId))
+      .map(({ event }) => event);
+    return projectDailyImageSet(imageSet, globalEvents);
   }
 }

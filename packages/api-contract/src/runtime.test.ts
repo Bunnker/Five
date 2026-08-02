@@ -4,12 +4,22 @@ import { describe, expect, it } from "vitest";
 import {
   DRAFT_MODULE_CODES,
   DRAFT_MODULE_REQUIRED_KEYS,
+  isAdminDailyImageSet,
+  isAdminImageAsset,
+  isDeliverableAdminImageAsset,
+  isDraftImageAssetList,
+  isDraftImageAssetResult,
   isDraftModuleCode,
   isDraftModuleUpdate,
+  isImageAssetReviewRequest,
+  isImageAssetUploadMetadata,
+  isImageAssetWithdrawalResult,
+  isWithdrawImageAssetRequest,
 } from "./runtime";
 
 type DraftModuleCode = components["schemas"]["ModuleCode"];
 type DraftModuleUpdate = components["schemas"]["DraftModuleUpdate"];
+type VisualAndRightsModule = components["schemas"]["VisualAndRightsModule"];
 
 const modules = {
   calendar_algorithm: {
@@ -88,29 +98,81 @@ const modules = {
   },
   visual_and_rights: {
     assetManifestVersion: "assets-v1",
-    assets: [1, 2].map((index) => ({
-      aiLabelStatus: "not_applicable",
-      altText: `搭配图 ${index}`,
-      assetId: `asset-${index}`,
-      declaredModel: null,
-      fileUrl: `https://cdn.example.com/asset-${index}.webp`,
-      generatedAt: null,
-      height: 1200,
-      mediaType: "image/webp",
-      promptVersion: null,
-      reviewStatus: "approved",
-      rightsRecordIds: [`rights-${index}`],
-      rightsStatus: "cleared",
-      sha256: String(index).repeat(64),
-      sourceType: "licensed",
-      width: 900,
-    })),
+    assets: [1, 2]
+      .map((index) => ({
+        aiLabelStatus: "not_applicable",
+        altText: `搭配图 ${index}`,
+        assetId: `asset-${index}`,
+        declaredModel: null,
+        fileUrl: `https://cdn.example.com/asset-${index}.webp`,
+        generationMethod: "licensed_upload",
+        generatedAt: null,
+        height: 1200,
+        manualReview: {
+          aiLabelCompliance: "passed",
+          colorAndCopyConsistency: "passed",
+          garmentAndPersonIntegrity: "passed",
+          mobileAndWechatPreview: "passed",
+          notes: `人工检查 ${index}`,
+          reviewId: `review-${index}`,
+          reviewedAt: "2026-08-02T09:30:00+08:00",
+          reviewerAccountId: "operator-1",
+          rightsAndIdentityRisk: "passed",
+          scenarioAndImitability: "passed",
+        },
+        mediaType: "image/webp",
+        promptVersion: null,
+        reproductionReference: null,
+        reviewStatus: "approved",
+        rightsRecordIds: [`rights-${index}`],
+        rightsStatus: "cleared",
+        sha256: String(index).repeat(64),
+        sourceMaterialReferences: [`source-material-${index}`],
+        sourceType: "licensed",
+        width: 900,
+      }))
+      .concat(
+        [1, 2].map((index) => ({
+          aiLabelStatus: "not_applicable" as const,
+          altText: `审核降级卡片 ${index}`,
+          assetId: `fallback-${index}`,
+          declaredModel: null,
+          fileUrl: `https://cdn.example.com/fallback-${index}.webp`,
+          generationMethod: "fallback_template" as const,
+          generatedAt: null,
+          height: 1200,
+          manualReview: {
+            aiLabelCompliance: "passed" as const,
+            colorAndCopyConsistency: "passed" as const,
+            garmentAndPersonIntegrity: "passed" as const,
+            mobileAndWechatPreview: "passed" as const,
+            notes: `降级卡片人工检查 ${index}`,
+            reviewId: `fallback-review-${index}`,
+            reviewedAt: "2026-08-02T09:30:00+08:00",
+            reviewerAccountId: "operator-1",
+            rightsAndIdentityRisk: "passed" as const,
+            scenarioAndImitability: "passed" as const,
+          },
+          mediaType: "image/webp" as const,
+          promptVersion: null,
+          reproductionReference: null,
+          reviewStatus: "approved" as const,
+          rightsRecordIds: [`rights-fallback-${index}`],
+          rightsStatus: "cleared" as const,
+          sha256: String(index + 2).repeat(64),
+          sourceMaterialReferences: [`fallback-template-${index}`],
+          sourceType: "fallback_template" as const,
+          width: 900,
+        })),
+      ),
     looks: [1, 2].map((index) => ({
       alternatives: [],
       audience: { code: "all", label: "通用" },
       coverAssetId: `asset-${index}`,
       detailAssetIds: [],
+      fallbackAssetId: `fallback-${index}`,
       formulaId: `formula-${index === 1 ? "one" : "two"}`,
+      imageSlot: index === 1 ? "required_primary" : "required_alternative",
       items: [
         {
           category: "top",
@@ -125,14 +187,67 @@ const modules = {
       sortOrder: index,
       title: `搭配 ${index}`,
     })),
-    rightsRecords: [1, 2].map((index) => ({
-      kind: "license",
-      recordedAt: "2026-07-31T23:00:00+08:00",
-      reference: `license-${index}`,
-      rightsRecordId: `rights-${index}`,
-    })),
+    rightsRecords: [
+      ...[1, 2].map((index) => ({
+        kind: "license" as const,
+        recordedAt: "2026-07-31T23:00:00+08:00",
+        reference: `license-${index}`,
+        rightsRecordId: `rights-${index}`,
+      })),
+      ...[1, 2].map((index) => ({
+        kind: "internal_record" as const,
+        recordedAt: "2026-07-31T23:00:00+08:00",
+        reference: `fallback-template-${index}`,
+        rightsRecordId: `rights-fallback-${index}`,
+      })),
+    ],
   },
 } as unknown as Record<DraftModuleCode, DraftModuleUpdate>;
+
+const approvedAssets = (modules.visual_and_rights as VisualAndRightsModule).assets;
+
+const adminDailyImageSet = {
+  assets: approvedAssets,
+  contentVersion: "content-v1",
+  fortuneDate: "2026-08-02",
+  lifecycleRevision: 4,
+  slots: [
+    {
+      coverAssetId: "asset-1",
+      deliveryStatus: "active",
+      detailAssetIds: [],
+      fallbackAssetId: "fallback-1",
+      imageSlot: "required_primary",
+      lookId: "look-1",
+      servedCoverAssetId: "asset-1",
+      servedDetailAssetIds: [],
+    },
+    {
+      coverAssetId: "asset-2",
+      deliveryStatus: "active",
+      detailAssetIds: [],
+      fallbackAssetId: "fallback-2",
+      imageSlot: "required_alternative",
+      lookId: "look-2",
+      servedCoverAssetId: "asset-2",
+      servedDetailAssetIds: [],
+    },
+  ],
+  withdrawalEvents: [],
+};
+
+type MutableImageSetFixture = {
+  assets: Array<Record<string, unknown>>;
+  contentVersion: string;
+  fortuneDate: string;
+  lifecycleRevision: number;
+  slots: Array<Record<string, unknown>>;
+  withdrawalEvents: Array<Record<string, unknown>>;
+};
+
+function cloneAdminDailyImageSet(): MutableImageSetFixture {
+  return structuredClone(adminDailyImageSet) as unknown as MutableImageSetFixture;
+}
 
 describe("generated contract runtime guards", () => {
   it("keeps module values, required keys, and nested guards in one shared contract", () => {
@@ -171,5 +286,656 @@ describe("generated contract runtime guards", () => {
     rightsRecords[0] = { ...rightsRecords[0], kind: "web_search" };
 
     expect(isDraftModuleUpdate("visual_and_rights", visual)).toBe(false);
+  });
+
+  it("rejects whitespace-only rights references", () => {
+    const visual = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const rightsRecords = visual.rightsRecords as Array<Record<string, unknown>>;
+    rightsRecords[0] = { ...rightsRecords[0], reference: "   " };
+
+    expect(isDraftModuleUpdate("visual_and_rights", visual)).toBe(false);
+  });
+
+  it("requires every approved image to carry the six structured manual checks", () => {
+    const visual = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const assets = visual.assets as Array<Record<string, unknown>>;
+    const manualReview = assets[0]?.manualReview as Record<string, unknown>;
+    delete manualReview.mobileAndWechatPreview;
+
+    expect(isDraftModuleUpdate("visual_and_rights", visual)).toBe(false);
+  });
+
+  it("requires reproducible generation metadata for AI images", () => {
+    const visual = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const assets = visual.assets as Array<Record<string, unknown>>;
+    assets[0] = {
+      ...assets[0],
+      aiLabelStatus: "complete",
+      declaredModel: null,
+      generatedAt: null,
+      generationMethod: "codex",
+      promptVersion: null,
+      reproductionReference: null,
+      sourceType: "ai_generated",
+    };
+
+    expect(isDraftModuleUpdate("visual_and_rights", visual)).toBe(false);
+  });
+
+  it("rejects image sets without one primary and one alternative required cover slot", () => {
+    const visual = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const looks = visual.looks as Array<Record<string, unknown>>;
+    looks[1] = { ...looks[1], imageSlot: "required_primary" };
+
+    expect(isDraftModuleUpdate("visual_and_rights", visual)).toBe(false);
+  });
+
+  it("requires every required cover to freeze a distinct approved fallback from the same asset set", () => {
+    const missingFallback = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const missingFallbackLooks = missingFallback.looks as Array<Record<string, unknown>>;
+    missingFallbackLooks[0] = { ...missingFallbackLooks[0], fallbackAssetId: null };
+
+    const reusedCover = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const reusedCoverLooks = reusedCover.looks as Array<Record<string, unknown>>;
+    reusedCoverLooks[0] = {
+      ...reusedCoverLooks[0],
+      fallbackAssetId: reusedCoverLooks[0]?.coverAssetId,
+    };
+
+    const unknownFallback = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const unknownFallbackLooks = unknownFallback.looks as Array<Record<string, unknown>>;
+    unknownFallbackLooks[0] = { ...unknownFallbackLooks[0], fallbackAssetId: "asset-missing" };
+
+    const rejectedFallback = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const rejectedFallbackAssets = rejectedFallback.assets as Array<Record<string, unknown>>;
+    const fallbackIndex = rejectedFallbackAssets.findIndex(
+      (asset) => asset.assetId === "fallback-1",
+    );
+    rejectedFallbackAssets[fallbackIndex] = {
+      ...rejectedFallbackAssets[fallbackIndex],
+      reviewStatus: "rejected",
+    };
+
+    const privateFallback = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const privateFallbackAssets = privateFallback.assets as Array<Record<string, unknown>>;
+    const privateFallbackIndex = privateFallbackAssets.findIndex(
+      (asset) => asset.assetId === "fallback-1",
+    );
+    privateFallbackAssets[privateFallbackIndex] = {
+      ...privateFallbackAssets[privateFallbackIndex],
+      fileUrl: null,
+    };
+
+    expect(isDraftModuleUpdate("visual_and_rights", missingFallback)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", reusedCover)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", unknownFallback)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", rejectedFallback)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", privateFallback)).toBe(false);
+  });
+
+  it("validates upload metadata without trusting client file hashes or dimensions", () => {
+    const metadata = {
+      aiLabelStatus: "pending",
+      altText: "红色上衣和绿色下装的通勤穿搭",
+      declaredModel: "gpt-image-2",
+      generatedAt: "2026-08-02T09:00:00+08:00",
+      generationMethod: "codex",
+      promptVersion: "outfit-prompt-v3",
+      reproductionReference: "generation-job-01",
+      rightsRecordIds: ["rights-ai-terms-01"],
+      sourceMaterialReferences: ["formula-triple-01"],
+      sourceType: "ai_generated",
+    };
+
+    expect(isImageAssetUploadMetadata(metadata)).toBe(true);
+    expect(isImageAssetUploadMetadata({ ...metadata, reproductionReference: null })).toBe(false);
+    expect(isImageAssetUploadMetadata({ ...metadata, sha256: "0".repeat(64) })).toBe(false);
+    expect(isImageAssetUploadMetadata({ ...metadata, sourceMaterialReferences: [] })).toBe(false);
+    expect(isImageAssetUploadMetadata({ ...metadata, sourceMaterialReferences: ["   "] })).toBe(
+      false,
+    );
+    expect(isImageAssetUploadMetadata({ ...metadata, rightsRecordIds: [] })).toBe(false);
+    expect(isImageAssetUploadMetadata({ ...metadata, altText: "   " })).toBe(false);
+    expect(isImageAssetUploadMetadata({ ...metadata, reproductionReference: "   " })).toBe(false);
+  });
+
+  it("requires approved assets to retain non-empty source and rights references", () => {
+    expect(isAdminImageAsset({ ...approvedAssets[0], sourceMaterialReferences: [] })).toBe(false);
+    expect(isAdminImageAsset({ ...approvedAssets[0], sourceMaterialReferences: ["   "] })).toBe(
+      false,
+    );
+    expect(isAdminImageAsset({ ...approvedAssets[0], rightsRecordIds: [] })).toBe(false);
+  });
+
+  it("uses one public predicate for fully reviewed assets that can be delivered", () => {
+    const approved = approvedAssets[0];
+    if (approved === undefined) throw new Error("approved asset fixture missing");
+
+    expect(isDeliverableAdminImageAsset(approved)).toBe(true);
+    expect(isDeliverableAdminImageAsset({ ...approved, fileUrl: null })).toBe(false);
+    expect(
+      isDeliverableAdminImageAsset({
+        ...approved,
+        manualReview: { ...approved.manualReview!, mobileAndWechatPreview: "failed" },
+      }),
+    ).toBe(false);
+    expect(isDeliverableAdminImageAsset(undefined)).toBe(false);
+  });
+
+  it("accepts only the documented source type and generation method combinations", () => {
+    const base = {
+      aiLabelStatus: "not_applicable",
+      altText: "审核素材",
+      declaredModel: null,
+      generatedAt: null,
+      promptVersion: null,
+      reproductionReference: null,
+      rightsRecordIds: ["rights-1"],
+      sourceMaterialReferences: ["source-1"],
+    };
+    const ai = {
+      ...base,
+      aiLabelStatus: "pending",
+      declaredModel: "gpt-image-2",
+      generatedAt: "2026-08-02T09:00:00+08:00",
+      promptVersion: "prompt-v1",
+      reproductionReference: "job-1",
+      sourceType: "ai_generated",
+    };
+
+    for (const generationMethod of ["codex", "relay", "external_tool"]) {
+      expect(isImageAssetUploadMetadata({ ...ai, generationMethod })).toBe(true);
+    }
+    for (const generationMethod of ["licensed_upload", "owned_upload"]) {
+      expect(
+        isImageAssetUploadMetadata({ ...base, generationMethod, sourceType: "licensed" }),
+      ).toBe(true);
+    }
+    expect(
+      isImageAssetUploadMetadata({
+        ...base,
+        generationMethod: "fallback_template",
+        sourceType: "fallback_template",
+      }),
+    ).toBe(true);
+    expect(
+      isImageAssetUploadMetadata({
+        ...ai,
+        generationMethod: "licensed_upload",
+      }),
+    ).toBe(false);
+    expect(
+      isImageAssetUploadMetadata({
+        ...base,
+        generationMethod: "codex",
+        sourceType: "licensed",
+      }),
+    ).toBe(false);
+    expect(
+      isImageAssetUploadMetadata({
+        ...base,
+        generationMethod: "owned_upload",
+        sourceType: "fallback_template",
+      }),
+    ).toBe(false);
+  });
+
+  it("only accepts an approved review when every structured check and gate passes", () => {
+    const approved = {
+      aiLabelCompliance: "passed",
+      aiLabelStatus: "complete",
+      colorAndCopyConsistency: "passed",
+      decision: "approved",
+      garmentAndPersonIntegrity: "passed",
+      mobileAndWechatPreview: "passed",
+      notes: "手机与微信预览清楚",
+      rightsAndIdentityRisk: "passed",
+      rightsStatus: "cleared",
+      scenarioAndImitability: "passed",
+    };
+
+    expect(isImageAssetReviewRequest(approved)).toBe(true);
+    expect(isImageAssetReviewRequest({ ...approved, mobileAndWechatPreview: "failed" })).toBe(
+      false,
+    );
+  });
+
+  it("validates a draft image result including its same-origin preview reference", () => {
+    const result = {
+      asset: approvedAssets[0],
+      draftId: "draft-1",
+      draftRevision: 2,
+      fortuneDate: "2026-08-02",
+      previewUrl: "/admin/api/v1/image-assets/asset-1/preview",
+      reviewLocked: false,
+    };
+
+    expect(isDraftImageAssetResult(result)).toBe(true);
+    const missingReviewLock: Partial<typeof result> = { ...result };
+    delete missingReviewLock.reviewLocked;
+    expect(isDraftImageAssetResult(missingReviewLock)).toBe(false);
+    expect(isDraftImageAssetResult({ ...result, reviewLocked: "false" })).toBe(false);
+    expect(isDraftImageAssetResult({ ...result, fortuneDate: "2026-02-30" })).toBe(false);
+    expect(isDraftImageAssetResult({ ...result, unexpected: true })).toBe(false);
+    expect(
+      isDraftImageAssetResult({
+        ...result,
+        previewUrl: "/admin/api/v1/image-assets/asset-2/preview",
+      }),
+    ).toBe(false);
+    expect(
+      isDraftImageAssetResult({
+        ...result,
+        previewUrl: "/admin/api/v1/daily-content-drafts/draft-1/image-assets/asset-1/preview",
+      }),
+    ).toBe(false);
+    expect(
+      isDraftImageAssetResult({
+        ...result,
+        asset: { ...approvedAssets[0], assetId: "asset/with space" },
+        previewUrl: "/admin/api/v1/image-assets/asset%2Fwith%20space/preview",
+      }),
+    ).toBe(true);
+  });
+
+  it("validates draft image lists and every nested candidate", () => {
+    const list = {
+      draftId: "draft-1",
+      draftRevision: 3,
+      fortuneDate: "2026-08-02",
+      items: [
+        {
+          asset: approvedAssets[0],
+          previewUrl: "/admin/api/v1/image-assets/asset-1/preview",
+          reviewLocked: true,
+        },
+      ],
+    };
+
+    expect(isDraftImageAssetList(list)).toBe(true);
+    expect(
+      isDraftImageAssetList({
+        ...list,
+        items: [{ asset: list.items[0].asset, previewUrl: list.items[0].previewUrl }],
+      }),
+    ).toBe(false);
+    expect(
+      isDraftImageAssetList({
+        ...list,
+        items: [{ ...list.items[0], reviewLocked: "true" }],
+      }),
+    ).toBe(false);
+    expect(
+      isDraftImageAssetList({
+        ...list,
+        items: [{ ...list.items[0], previewUrl: "/admin/api/v1/image-assets/asset-2/preview" }],
+      }),
+    ).toBe(false);
+    expect(
+      isDraftImageAssetList({
+        ...list,
+        items: [{ ...list.items[0], previewUrl: "https://untrusted.example/asset-1" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects dangling image references and duplicate manifest identifiers", () => {
+    const danglingCover = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const danglingCoverLooks = danglingCover.looks as Array<Record<string, unknown>>;
+    danglingCoverLooks[0] = { ...danglingCoverLooks[0], coverAssetId: "asset-missing" };
+
+    const danglingDetail = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const danglingDetailLooks = danglingDetail.looks as Array<Record<string, unknown>>;
+    danglingDetailLooks[0] = { ...danglingDetailLooks[0], detailAssetIds: ["detail-missing"] };
+
+    const duplicateAsset = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const duplicateAssets = duplicateAsset.assets as Array<Record<string, unknown>>;
+    duplicateAssets.push(structuredClone(duplicateAssets[0]!));
+
+    const duplicateRights = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const duplicateRightsRecords = duplicateRights.rightsRecords as Array<Record<string, unknown>>;
+    duplicateRightsRecords.push(structuredClone(duplicateRightsRecords[0]!));
+
+    const danglingRights = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const danglingRightsAssets = danglingRights.assets as Array<Record<string, unknown>>;
+    danglingRightsAssets[0] = { ...danglingRightsAssets[0], rightsRecordIds: ["rights-missing"] };
+
+    const duplicateLook = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const duplicateLookItems = duplicateLook.looks as Array<Record<string, unknown>>;
+    duplicateLookItems[1] = {
+      ...duplicateLookItems[1],
+      lookId: duplicateLookItems[0]?.lookId,
+    };
+
+    const duplicateSortOrder = structuredClone(modules.visual_and_rights) as Record<
+      string,
+      unknown
+    >;
+    const duplicateSortOrderLooks = duplicateSortOrder.looks as Array<Record<string, unknown>>;
+    duplicateSortOrderLooks[1] = {
+      ...duplicateSortOrderLooks[1],
+      sortOrder: duplicateSortOrderLooks[0]?.sortOrder,
+    };
+
+    const duplicateCover = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const duplicateCoverLooks = duplicateCover.looks as Array<Record<string, unknown>>;
+    duplicateCoverLooks[1] = {
+      ...duplicateCoverLooks[1],
+      coverAssetId: duplicateCoverLooks[0]?.coverAssetId,
+    };
+
+    expect(isDraftModuleUpdate("visual_and_rights", danglingCover)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", danglingDetail)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", duplicateAsset)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", duplicateRights)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", danglingRights)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", duplicateLook)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", duplicateSortOrder)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", duplicateCover)).toBe(false);
+  });
+
+  it("allows frozen covers and details to fail review when required fallbacks remain safe", () => {
+    const visual = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
+    const assets = visual.assets as Array<Record<string, unknown>>;
+    const looks = visual.looks as Array<Record<string, unknown>>;
+    const cover = assets.find((asset) => asset.assetId === "asset-1");
+    if (cover === undefined) throw new Error("cover fixture missing");
+    cover.reviewStatus = "rejected";
+    const rejectedDetail = {
+      ...structuredClone(assets[1]!),
+      assetId: "detail-rejected",
+      reviewStatus: "rejected",
+      sha256: "9".repeat(64),
+    };
+    assets.push(rejectedDetail);
+    looks[0] = { ...looks[0], detailAssetIds: ["detail-rejected"] };
+
+    expect(isDraftModuleUpdate("visual_and_rights", visual)).toBe(true);
+  });
+
+  it("validates 2+1 delivery slots, nested assets, and withdrawal events", () => {
+    expect(isAdminDailyImageSet(adminDailyImageSet)).toBe(true);
+    expect(
+      isAdminDailyImageSet({
+        ...adminDailyImageSet,
+        slots: [
+          ...adminDailyImageSet.slots,
+          ...adminDailyImageSet.slots.map((slot, index) => ({
+            ...slot,
+            imageSlot: "optional",
+            lookId: `optional-${index}`,
+          })),
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      isAdminDailyImageSet({
+        ...adminDailyImageSet,
+        withdrawalEvents: [
+          {
+            assetId: "asset-1",
+            auditEventId: "audit-1",
+            reason: "版权材料失效",
+            withdrawalEventId: "withdrawal-1",
+            withdrawnAt: "2026-02-30T10:00:00+08:00",
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects contradictory delivery projections and dangling or withdrawn references", () => {
+    const omittedRequired = cloneAdminDailyImageSet();
+    omittedRequired.slots[0] = {
+      ...omittedRequired.slots[0]!,
+      deliveryStatus: "omitted",
+      servedCoverAssetId: null,
+    };
+
+    const wrongFallback = cloneAdminDailyImageSet();
+    wrongFallback.slots[0] = {
+      ...wrongFallback.slots[0]!,
+      deliveryStatus: "fallback",
+      servedCoverAssetId: "asset-1",
+    };
+
+    const extraDetail = cloneAdminDailyImageSet();
+    extraDetail.slots[0] = {
+      ...extraDetail.slots[0]!,
+      servedDetailAssetIds: ["asset-2"],
+    };
+
+    const danglingCover = cloneAdminDailyImageSet();
+    danglingCover.slots[0] = {
+      ...danglingCover.slots[0]!,
+      coverAssetId: "asset-missing",
+      servedCoverAssetId: "asset-missing",
+    };
+
+    const withdrawnButServed = cloneAdminDailyImageSet();
+    withdrawnButServed.withdrawalEvents = [
+      {
+        assetId: "asset-1",
+        auditEventId: "audit-1",
+        reason: "版权材料失效",
+        withdrawalEventId: "withdrawal-1",
+        withdrawnAt: "2026-08-02T10:00:00+08:00",
+      },
+    ];
+
+    const duplicateAsset = cloneAdminDailyImageSet();
+    duplicateAsset.assets = [...duplicateAsset.assets, structuredClone(duplicateAsset.assets[0]!)];
+
+    const duplicateWithdrawalTarget = cloneAdminDailyImageSet();
+    duplicateWithdrawalTarget.slots[0] = {
+      ...duplicateWithdrawalTarget.slots[0],
+      deliveryStatus: "fallback",
+      servedCoverAssetId: "fallback-1",
+    };
+    duplicateWithdrawalTarget.withdrawalEvents = [
+      {
+        assetId: "asset-1",
+        auditEventId: "audit-1",
+        reason: "版权材料失效",
+        withdrawalEventId: "withdrawal-1",
+        withdrawnAt: "2026-08-02T10:00:00+08:00",
+      },
+      {
+        assetId: "asset-1",
+        auditEventId: "audit-2",
+        reason: "重复下线不应生成第二个事件",
+        withdrawalEventId: "withdrawal-2",
+        withdrawnAt: "2026-08-02T10:01:00+08:00",
+      },
+    ];
+
+    const duplicateCover = cloneAdminDailyImageSet();
+    duplicateCover.slots[1] = {
+      ...duplicateCover.slots[1],
+      coverAssetId: duplicateCover.slots[0].coverAssetId,
+      servedCoverAssetId: duplicateCover.slots[0].servedCoverAssetId,
+    };
+
+    expect(isAdminDailyImageSet(omittedRequired)).toBe(false);
+    expect(isAdminDailyImageSet(wrongFallback)).toBe(false);
+    expect(isAdminDailyImageSet(extraDetail)).toBe(false);
+    expect(isAdminDailyImageSet(danglingCover)).toBe(false);
+    expect(isAdminDailyImageSet(withdrawnButServed)).toBe(false);
+    expect(isAdminDailyImageSet(duplicateAsset)).toBe(false);
+    expect(isAdminDailyImageSet(duplicateWithdrawalTarget)).toBe(false);
+    expect(isAdminDailyImageSet(duplicateCover)).toBe(false);
+  });
+
+  it("allows an initial fallback or optional omission when the frozen cover is not deliverable", () => {
+    const requiredFallback = cloneAdminDailyImageSet();
+    const requiredCover = requiredFallback.assets.find((asset) => asset.assetId === "asset-1");
+    if (requiredCover === undefined) throw new Error("required cover fixture missing");
+    requiredCover.reviewStatus = "rejected";
+    requiredFallback.slots[0] = {
+      ...requiredFallback.slots[0],
+      deliveryStatus: "fallback",
+      servedCoverAssetId: "fallback-1",
+    };
+
+    const optionalOmitted = cloneAdminDailyImageSet();
+    const optionalCover = {
+      ...structuredClone(optionalOmitted.assets[0]!),
+      assetId: "asset-optional",
+      reviewStatus: "rejected",
+      sha256: "5".repeat(64),
+    };
+    optionalOmitted.assets.push(optionalCover);
+    optionalOmitted.slots.push({
+      coverAssetId: "asset-optional",
+      deliveryStatus: "omitted",
+      detailAssetIds: [],
+      fallbackAssetId: null,
+      imageSlot: "optional",
+      lookId: "look-optional",
+      servedCoverAssetId: null,
+      servedDetailAssetIds: [],
+    });
+
+    expect(isAdminDailyImageSet(requiredFallback)).toBe(true);
+    expect(isAdminDailyImageSet(optionalOmitted)).toBe(true);
+  });
+
+  it("never treats an approved asset without a public URL as deliverable", () => {
+    const privateFallback = cloneAdminDailyImageSet();
+    const requiredCover = privateFallback.assets.find((asset) => asset.assetId === "asset-1");
+    const fallback = privateFallback.assets.find((asset) => asset.assetId === "fallback-1");
+    if (requiredCover === undefined || fallback === undefined) {
+      throw new Error("required fallback fixture missing");
+    }
+    requiredCover.reviewStatus = "rejected";
+    fallback.fileUrl = null;
+    privateFallback.slots[0] = {
+      ...privateFallback.slots[0],
+      deliveryStatus: "fallback",
+      servedCoverAssetId: "fallback-1",
+    };
+
+    expect(isAdminDailyImageSet(privateFallback)).toBe(false);
+  });
+
+  it("represents a required slot as unavailable only when neither frozen image can be served", () => {
+    const unavailable = cloneAdminDailyImageSet();
+    unavailable.slots[0] = {
+      ...unavailable.slots[0],
+      deliveryStatus: "unavailable",
+      servedCoverAssetId: null,
+    };
+    unavailable.withdrawalEvents = [
+      {
+        assetId: "asset-1",
+        auditEventId: "audit-unavailable-cover",
+        reason: "主图权利撤销",
+        withdrawalEventId: "withdraw-unavailable-cover",
+        withdrawnAt: "2026-08-02T10:00:00+08:00",
+      },
+      {
+        assetId: "fallback-1",
+        auditEventId: "audit-unavailable-fallback",
+        reason: "降级图权利撤销",
+        withdrawalEventId: "withdraw-unavailable-fallback",
+        withdrawnAt: "2026-08-02T10:01:00+08:00",
+      },
+    ];
+
+    expect(isAdminDailyImageSet(unavailable)).toBe(true);
+    expect(
+      isAdminDailyImageSet({
+        ...unavailable,
+        withdrawalEvents: unavailable.withdrawalEvents.slice(0, 1),
+      }),
+    ).toBe(false);
+  });
+
+  it("serves exactly the deliverable, non-withdrawn subset of frozen detail images", () => {
+    const mixedDetails = cloneAdminDailyImageSet();
+    const goodDetail = {
+      ...structuredClone(mixedDetails.assets[0]!),
+      assetId: "detail-good",
+      sha256: "6".repeat(64),
+    };
+    const badDetail = {
+      ...structuredClone(mixedDetails.assets[0]!),
+      assetId: "detail-bad",
+      reviewStatus: "rejected",
+      sha256: "7".repeat(64),
+    };
+    mixedDetails.assets.push(goodDetail, badDetail);
+    mixedDetails.slots[0] = {
+      ...mixedDetails.slots[0],
+      detailAssetIds: ["detail-good", "detail-bad"],
+      servedDetailAssetIds: ["detail-good"],
+    };
+
+    const silentOmission = cloneAdminDailyImageSet();
+    const omittedGoodDetail = {
+      ...structuredClone(silentOmission.assets[0]!),
+      assetId: "detail-should-serve",
+      sha256: "8".repeat(64),
+    };
+    silentOmission.assets.push(omittedGoodDetail);
+    silentOmission.slots[0] = {
+      ...silentOmission.slots[0],
+      detailAssetIds: ["detail-should-serve"],
+      servedDetailAssetIds: [],
+    };
+
+    expect(isAdminDailyImageSet(mixedDetails)).toBe(true);
+    expect(isAdminDailyImageSet(silentOmission)).toBe(false);
+  });
+
+  it("validates image withdrawal requests with nullable active versions", () => {
+    expect(
+      isWithdrawImageAssetRequest({
+        expectedActiveContentVersion: null,
+        reason: "上线前发现质量问题",
+      }),
+    ).toBe(true);
+    expect(
+      isWithdrawImageAssetRequest({
+        expectedActiveContentVersion: null,
+        reason: "",
+      }),
+    ).toBe(false);
+    expect(
+      isWithdrawImageAssetRequest({
+        expectedActiveContentVersion: null,
+        reason: "   \n\t",
+      }),
+    ).toBe(false);
+  });
+
+  it("validates withdrawal results and keeps lifecycle revisions consistent", () => {
+    const withdrawnImageSet = cloneAdminDailyImageSet();
+    withdrawnImageSet.slots[0] = {
+      ...withdrawnImageSet.slots[0]!,
+      deliveryStatus: "fallback",
+      servedCoverAssetId: "fallback-1",
+    };
+    withdrawnImageSet.withdrawalEvents = [
+      {
+        assetId: "asset-1",
+        auditEventId: "audit-1",
+        reason: "版权材料失效",
+        withdrawalEventId: "withdrawal-1",
+        withdrawnAt: "2026-08-02T10:00:00+08:00",
+      },
+    ];
+    const result = {
+      assetId: "asset-1",
+      auditEventId: "audit-1",
+      dailyImageSet: withdrawnImageSet,
+      deliveryAction: "fallback_activated",
+      lifecycleRevision: 4,
+    };
+
+    expect(isImageAssetWithdrawalResult(result)).toBe(true);
+    expect(isImageAssetWithdrawalResult({ ...result, lifecycleRevision: 5 })).toBe(false);
+    expect(isImageAssetWithdrawalResult({ ...result, deliveryAction: "deleted" })).toBe(false);
+    expect(isImageAssetWithdrawalResult({ ...result, auditEventId: "audit-other" })).toBe(false);
   });
 });

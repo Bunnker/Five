@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+
+import { isDeliverableAdminImageAsset } from "@five/api-contract/runtime";
 
 import { evaluateContentPreflight } from "./content-preflight";
+import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
 import {
   CONTENT_LIFECYCLE_IDEMPOTENCY_KEY_PATTERN,
   isStrictRfc3339DateTime,
@@ -59,6 +63,103 @@ function validFortuneDate(value: string): boolean {
   );
 }
 
+function deliverableSnapshotAsset(
+  asset: NonNullable<DraftModules["visual_and_rights"]>["assets"][number] | undefined,
+  rights: ReadonlySet<string>,
+): boolean {
+  return (
+    asset !== undefined &&
+    isDeliverableAdminImageAsset(asset) &&
+    asset.rightsRecordIds.every((rightId) => rights.has(rightId))
+  );
+}
+
+function initialImageSlot(
+  look: NonNullable<DraftModules["visual_and_rights"]>["looks"][number],
+  assets: ReadonlyMap<string, NonNullable<DraftModules["visual_and_rights"]>["assets"][number]>,
+  rights: ReadonlySet<string>,
+): StoredDailyImageSet["slots"][number] {
+  const coverUsable = deliverableSnapshotAsset(assets.get(look.coverAssetId), rights);
+  const servedDetailAssetIds = look.detailAssetIds.filter((assetId) =>
+    deliverableSnapshotAsset(assets.get(assetId), rights),
+  );
+  const base = {
+    coverAssetId: look.coverAssetId,
+    detailAssetIds: structuredClone(look.detailAssetIds),
+    fallbackAssetId: look.fallbackAssetId,
+    imageSlot: look.imageSlot,
+    lookId: look.lookId,
+    servedDetailAssetIds,
+  };
+  if (look.imageSlot === "optional") {
+    return coverUsable
+      ? {
+          ...base,
+          deliveryStatus: "active",
+          imageSlot: "optional",
+          servedCoverAssetId: look.coverAssetId,
+          servedDetailAssetIds,
+        }
+      : {
+          ...base,
+          deliveryStatus: "omitted",
+          imageSlot: "optional",
+          servedCoverAssetId: null,
+          servedDetailAssetIds,
+        };
+  }
+  if (look.fallbackAssetId === null) {
+    throw new Error(`Required image slot ${look.lookId} is missing its frozen fallback`);
+  }
+  const requiredBase = {
+    ...base,
+    fallbackAssetId: look.fallbackAssetId,
+    imageSlot: look.imageSlot,
+  };
+  if (coverUsable) {
+    return {
+      ...requiredBase,
+      deliveryStatus: "active",
+      servedCoverAssetId: look.coverAssetId,
+      servedDetailAssetIds,
+    };
+  }
+  return {
+    ...requiredBase,
+    deliveryStatus: "fallback",
+    servedCoverAssetId: look.fallbackAssetId,
+    servedDetailAssetIds,
+  };
+}
+
+function visualAssetsAreAuthoritative(
+  visual: NonNullable<DraftModules["visual_and_rights"]>,
+  candidates: Awaited<ReturnType<ContentLifecycleStore["listDraftImageAssets"]>>,
+): boolean {
+  const authoritative = new Map(
+    candidates.map((candidate) => [candidate.asset.assetId, candidate.asset]),
+  );
+  const rightsRecords = new Set(visual.rightsRecords.map((record) => record.rightsRecordId));
+  const selectedAssets = new Set(visual.assets.map((asset) => asset.assetId));
+  const coverAssetIds = visual.looks.map((look) => look.coverAssetId);
+  const references = visual.looks.flatMap((look) => [
+    look.coverAssetId,
+    ...look.detailAssetIds,
+    ...(look.fallbackAssetId === null ? [] : [look.fallbackAssetId]),
+  ]);
+  return (
+    visual.assets.every(
+      (asset) =>
+        isDeepStrictEqual(authoritative.get(asset.assetId), asset) &&
+        asset.rightsRecordIds.length > 0 &&
+        asset.sourceMaterialReferences.length > 0 &&
+        asset.rightsRecordIds.every((rightId) => rightsRecords.has(rightId)),
+    ) &&
+    references.every((assetId) => selectedAssets.has(assetId)) &&
+    new Set(coverAssetIds).size === coverAssetIds.length
+  );
+}
+
 export type CreateDraftResult =
   | { readonly draft: ContentDraft; readonly kind: "created" }
   | { readonly kind: "invalid_argument" }
@@ -77,6 +178,7 @@ export type UpdateDraftModuleResult =
     }
   | { readonly kind: "not_found" }
   | { readonly kind: "invalid_state" }
+  | { readonly kind: "invalid_asset_reference" }
   | { readonly currentRevision: number; readonly kind: "revision_mismatch" };
 
 interface SubmitDraftResultBody {
@@ -92,6 +194,8 @@ export type SubmitDraftResult =
   | { readonly kind: "invalid_state" }
   | { readonly currentRevision: number; readonly kind: "revision_mismatch" }
   | { readonly kind: "idempotency_conflict" }
+  | { readonly kind: "image_withdrawn" }
+  | { readonly kind: "invalid_asset_reference" }
   | { readonly kind: "invalid_argument" };
 
 export type AddMasterReviewEvidenceResult =
@@ -153,6 +257,7 @@ export class ContentLifecycleService {
 
     return this.store.transaction(async (transaction) => {
       let modules = structuredClone(EMPTY_MODULES);
+      let copiedCandidates: Awaited<ReturnType<typeof transaction.listDraftImageAssets>> = [];
       if (input.copyFromContentVersion !== null) {
         const source = await transaction.findVersion(input.copyFromContentVersion);
         if (source === null) return { kind: "source_not_found" } as const;
@@ -160,6 +265,7 @@ export class ContentLifecycleService {
           return { kind: "source_date_mismatch" } as const;
         }
         modules = structuredClone(source.snapshot);
+        copiedCandidates = await transaction.listDraftImageAssets(source.draftId);
       }
 
       const now = this.clock.now().toISOString();
@@ -173,6 +279,14 @@ export class ContentLifecycleService {
         updatedAt: now,
       };
       await transaction.insertDraft({ draft, submittedContentVersion: null });
+      for (const candidate of copiedCandidates) {
+        await transaction.insertDraftImageAsset({
+          ...candidate,
+          draftId: draft.draftId,
+          fortuneDate: draft.fortuneDate,
+          reviewLocked: true,
+        });
+      }
       return { draft, kind: "created" } as const;
     });
   }
@@ -205,6 +319,13 @@ export class ContentLifecycleService {
           currentRevision: stored.draft.draftRevision,
           kind: "revision_mismatch",
         } as const;
+      }
+      if (input.moduleCode === "visual_and_rights") {
+        const visual = input.module as DraftModuleByCode["visual_and_rights"];
+        const candidates = await transaction.listDraftImageAssets(input.draftId);
+        if (!visualAssetsAreAuthoritative(visual, candidates)) {
+          return { kind: "invalid_asset_reference" } as const;
+        }
       }
 
       const draftRevision = stored.draft.draftRevision + 1;
@@ -271,7 +392,22 @@ export class ContentLifecycleService {
         } as const;
       }
 
+      const visual = stored.draft.modules.visual_and_rights;
+      if (
+        visual !== null &&
+        !visualAssetsAreAuthoritative(visual, await transaction.listDraftImageAssets(input.draftId))
+      ) {
+        return { kind: "invalid_asset_reference" } as const;
+      }
       const projection = await transaction.getOrCreateProjectionForUpdate(stored.draft.fortuneDate);
+      const selectedImageAssetIds = visual?.assets.map((asset) => asset.assetId) ?? [];
+      if (
+        selectedImageAssetIds.length > 0 &&
+        (await transaction.listGloballyWithdrawnAssetIds(selectedImageAssetIds)).length > 0
+      ) {
+        return { kind: "image_withdrawn" } as const;
+      }
+
       const lifecycleRevision = projection.revision + 1;
       const contentVersion = this.identifiers.nextContentVersion();
       const now = this.clock.now().toISOString();
@@ -297,6 +433,18 @@ export class ContentLifecycleService {
         state: "in_review",
       };
       await transaction.insertVersion(version);
+      if (visual !== null) {
+        const assets = new Map(visual.assets.map((asset) => [asset.assetId, asset]));
+        const rights = new Set(visual.rightsRecords.map((record) => record.rightsRecordId));
+        await transaction.insertDailyImageSet({
+          assets: structuredClone(visual.assets),
+          contentVersion,
+          fortuneDate: stored.draft.fortuneDate,
+          lifecycleRevision,
+          slots: visual.looks.map((look) => initialImageSlot(look, assets, rights)),
+          withdrawalEvents: [],
+        });
+      }
       await transaction.markDraftSubmitted(stored.draft.draftId, contentVersion, now);
       await transaction.updateProjection({
         ...projection,
@@ -397,7 +545,8 @@ export class ContentLifecycleService {
         toState: "in_review",
       });
       const allEvidence = [...(await transaction.listEvidence(input.contentVersion))];
-      const view = versionView(version, nextProjection, allEvidence);
+      const currentImageSet = await transaction.findDailyImageSetForUpdate(input.contentVersion);
+      const view = versionView(version, nextProjection, allEvidence, currentImageSet);
       await transaction.insertIdempotency({
         idempotencyKey: input.idempotencyKey,
         operation: "add_master_review_evidence",
@@ -461,10 +610,19 @@ export class ContentLifecycleService {
       }
 
       const evidence = await transaction.listEvidence(input.contentVersion);
+      const currentImageSet = await transaction.findDailyImageSetForUpdate(input.contentVersion);
+      const globallyWithdrawnAssetIds =
+        currentImageSet === null
+          ? []
+          : await transaction.listGloballyWithdrawnAssetIds(
+              currentImageSet.assets.map((asset) => asset.assetId),
+            );
       const preflightChecks = evaluateContentPreflight(
         version.snapshot,
         evidence,
         version.fortuneDate,
+        currentImageSet,
+        globallyWithdrawnAssetIds,
       );
       if (input.decision === "approved") {
         if (!checkPassed(preflightChecks, "master_review_evidence")) {
@@ -524,7 +682,7 @@ export class ContentLifecycleService {
   async getVersion(contentVersion: string): Promise<AdminContentVersion | null> {
     const view = await this.store.readVersionView(contentVersion);
     if (view === null) return null;
-    return versionView(view.version, view.projection, view.evidence);
+    return versionView(view.version, view.projection, view.evidence, view.imageSet);
   }
 
   async listVersions(fortuneDate: string): Promise<
@@ -643,6 +801,7 @@ function versionView(
   version: StoredContentVersion,
   projection: LifecycleProjection | null,
   evidence: readonly StoredMasterReviewEvidence[],
+  currentImageSet: StoredDailyImageSet | null,
 ): AdminContentVersion {
   if (projection === null || projection.revision < 1) {
     throw new Error(`Lifecycle projection missing for ${version.contentVersion}`);
@@ -660,7 +819,12 @@ function versionView(
       reviewedAt: record.reviewedAt,
       reviewerDisplayName: record.reviewerDisplayName,
     })),
-    preflightChecks: evaluateContentPreflight(version.snapshot, evidence, version.fortuneDate),
+    preflightChecks: evaluateContentPreflight(
+      version.snapshot,
+      evidence,
+      version.fortuneDate,
+      currentImageSet,
+    ),
     snapshot: structuredClone(version.snapshot),
     state: version.state,
   };

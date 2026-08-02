@@ -3,7 +3,10 @@ import {
   CALENDAR_SOURCE,
   CalendarRuleEngine,
 } from "../calendar/calendar-rule-engine";
+import { isDeliverableAdminImageAsset } from "@five/api-contract/runtime";
 import type { FiveElement } from "../calendar/calendar-rule-engine";
+import { assessCurrentImageReleaseSafety } from "../daily-images/current-image-release-safety";
+import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
 import type {
   DraftModules,
   PreflightCheck,
@@ -203,10 +206,30 @@ function hasRequiredFormulaKinds(
   );
 }
 
+function lookMatchesFormulaRole(
+  look: NonNullable<DraftModules["visual_and_rights"]>["looks"][number],
+  formula: NonNullable<DraftModules["copy_and_formula"]>["outfitFormulas"][number] | undefined,
+): boolean {
+  if (formula === undefined) return false;
+  const tiers = new Set(formula.slots.map((slot) => slot.tierCode));
+  const hasGreatFortunePrimary = formula.slots.some(
+    (slot) => slot.role === "primary" && slot.tierCode === "da_ji",
+  );
+  if (look.imageSlot === "required_primary") {
+    return hasGreatFortunePrimary;
+  }
+  if (look.imageSlot === "required_alternative") {
+    return formula.kind === "dual" && hasGreatFortunePrimary && tiers.has("ci_ji");
+  }
+  return hasGreatFortunePrimary;
+}
+
 export function evaluateContentPreflight(
   snapshot: DraftModules,
   evidence: readonly StoredMasterReviewEvidence[],
   fortuneDate: string,
+  currentImageSet: StoredDailyImageSet | null | undefined = undefined,
+  globallyWithdrawnAssetIds: readonly string[] = [],
 ): PreflightCheck[] {
   const calendar = snapshot.calendar_algorithm;
   const copy = snapshot.copy_and_formula;
@@ -224,6 +247,12 @@ export function evaluateContentPreflight(
       new Set(tier.colors.map((color) => color.colorCode)),
     ]) ?? [],
   );
+  const currentImageSafety = assessCurrentImageReleaseSafety(
+    currentImageSet ?? null,
+    globallyWithdrawnAssetIds,
+  );
+  const currentImageSetReady =
+    currentImageSet === undefined || visual === null || currentImageSet !== null;
   const calendarReady =
     calendar !== null &&
     calendar.tiers.length === 5 &&
@@ -270,35 +299,53 @@ export function evaluateContentPreflight(
     const asset = assets.get(assetId);
     return (
       asset !== undefined &&
-      asset.fileUrl !== null &&
-      asset.reviewStatus === "approved" &&
-      asset.rightsStatus === "cleared" &&
-      (asset.sourceType !== "ai_generated" || asset.aiLabelStatus === "complete")
+      !currentImageSafety.withdrawnAssetIds.has(assetId) &&
+      isDeliverableAdminImageAsset(asset) &&
+      asset.rightsRecordIds.every((rightsRecordId) => rights.has(rightsRecordId))
     );
   };
-  const requiredLooks = visual?.looks.filter((look) => look.requiredForPublish) ?? [];
+  const requiredLooks =
+    visual?.looks.filter(
+      (look) => look.imageSlot === "required_primary" || look.imageSlot === "required_alternative",
+    ) ?? [];
+  const slotCodes = visual?.looks.map((look) => look.imageSlot) ?? [];
+  const coverAssetIds = visual?.looks.map((look) => look.coverAssetId) ?? [];
+  const slotShapeReady =
+    slotCodes.filter((slot) => slot === "required_primary").length === 1 &&
+    slotCodes.filter((slot) => slot === "required_alternative").length === 1 &&
+    slotCodes.filter((slot) => slot === "optional").length <= 1 &&
+    new Set(coverAssetIds).size === coverAssetIds.length &&
+    visual?.looks.every(
+      (look) =>
+        look.requiredForPublish === (look.imageSlot !== "optional") &&
+        (look.imageSlot === "optional"
+          ? look.fallbackAssetId === null || usableAsset(look.fallbackAssetId)
+          : look.fallbackAssetId !== null && usableAsset(look.fallbackAssetId)),
+    ) === true;
   const requiredImagesReady =
+    slotShapeReady &&
+    currentImageSetReady &&
+    currentImageSafety.requiredSlotsSafe &&
     requiredLooks.length === 2 &&
     new Set(requiredLooks.map((look) => look.coverAssetId)).size === 2 &&
-    requiredLooks.every((look) => usableAsset(look.coverAssetId));
+    requiredLooks.every(
+      (look) =>
+        usableAsset(look.coverAssetId) ||
+        (look.fallbackAssetId !== null && usableAsset(look.fallbackAssetId)),
+    );
+  const deliveryCriticalAssetIds = new Set(
+    requiredLooks.flatMap((look) => [
+      ...(usableAsset(look.coverAssetId) ? [look.coverAssetId] : []),
+      ...(look.fallbackAssetId === null ? [] : [look.fallbackAssetId]),
+    ]),
+  );
+  if (poster !== null) deliveryCriticalAssetIds.add(poster.sampleAssetId);
   const visualReady =
     visual !== null &&
-    visual.looks.length >= 2 &&
-    visual.assets.length >= 2 &&
-    visual.assets.every(
-      (asset) =>
-        asset.reviewStatus === "approved" &&
-        asset.rightsStatus === "cleared" &&
-        asset.rightsRecordIds.length > 0 &&
-        asset.rightsRecordIds.every((rightsRecordId) => rights.has(rightsRecordId)),
-    );
-  const aiLabelsReady =
-    visual !== null &&
-    visual.assets.every((asset) =>
-      asset.sourceType === "ai_generated"
-        ? asset.aiLabelStatus === "complete"
-        : asset.aiLabelStatus === "not_applicable" || asset.aiLabelStatus === "complete",
-    );
+    slotShapeReady &&
+    requiredImagesReady &&
+    [...deliveryCriticalAssetIds].every(usableAsset);
+  const aiLabelsReady = [...deliveryCriticalAssetIds].every(usableAsset);
   const posterReady =
     poster !== null &&
     copy !== null &&
@@ -323,10 +370,12 @@ export function evaluateContentPreflight(
       const formulaColors = new Set(formula?.slots.flatMap((slot) => slot.colorCodes) ?? []);
       return (
         formula !== undefined &&
+        lookMatchesFormulaRole(look, formula) &&
         formula.lookIds.includes(look.lookId) &&
         look.items.every((item) => formulaColors.has(item.colorCode)) &&
-        usableAsset(look.coverAssetId) &&
-        look.detailAssetIds.every((assetId) => usableAsset(assetId))
+        assets.has(look.coverAssetId) &&
+        look.detailAssetIds.every((assetId) => assets.has(assetId)) &&
+        (look.fallbackAssetId === null || assets.has(look.fallbackAssetId))
       );
     }) &&
     assets.has(poster.sampleAssetId);

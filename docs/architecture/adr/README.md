@@ -37,3 +37,4 @@
 - [ADR-0018：使用最小 pnpm 工作区和版本化数据库迁移](0018-minimal-pnpm-workspace-and-versioned-migrations.md)
 - [ADR-0019：公开页面直接显示完整五档算法标签](0019-public-pages-use-algorithm-tier-labels.md)
 - [ADR-0020：单一维护者使用强密码、TOTP、恢复码与全局紧急开关](0020-single-operator-authentication-recovery-and-emergency-control.md)
+- [ADR-0021：不可变图片快照与追加式交付投影](0021-immutable-image-snapshots-and-append-only-delivery.md)

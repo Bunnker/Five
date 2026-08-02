@@ -6,7 +6,7 @@
 > 当前开发范围：公共每日五行、穿搭方案、每日图片、分享、设置与帮助、单人运营后台
 > 暂不开发：微信小程序、App、公开用户登录与账户、收藏、主动提醒、出生信息、个人五行、商品和吉祥物
 > 文档状态：技术启动评审有条件通过；公共网页、后台业务接口和单人维护者安全入口已经冻结，可继续本地功能开发，完成部署与上线门槛后才可公开测试
-> 本次修订：Issue #31 冻结单维护者强密码、TOTP、恢复码、安全会话、关键登录记录和全局紧急开关
+> 本次修订：Issue #33 冻结每日图片上传、结构化人工检查、2+1 封面槽位与单图追加式下线
 
 [[PAGEBREAK]]
 
@@ -427,7 +427,7 @@ P0 每日目标：
 - 2 张必备图片：一张以大吉色为主的主方案，一张大吉色搭配次吉色的替代方案；
 - 额度和质量允许时增加第 3 张可选图片，使用大吉色搭配平色或提供另一高频场景；
 - 至少覆盖通勤或日常休闲中的一个高频场景；
-- 图片不足时使用审核过的纯色单品板降级，不能临时在线生成。
+- 两个必备方案都必须预先冻结一张与原封面不同、来源和权利材料完整且审核通过的纯色单品板；原封面不可交付或后来单图下线时立即使用该降级素材，不能临时在线生成。
 
 P0 内容可以携带场景和人群标签，但不提供筛选 UI；场景与人群筛选交互进入 P1。
 
@@ -584,9 +584,11 @@ P0 不在用户请求时临时生成图片。图片在开发或内容准备阶�
 4. 自动检查主色和禁止元素；
 5. 维护者检查人物、服装结构、颜色、场景、权利和 AI 标识；
 6. 大师只核对五行与颜色关系，不承担时尚审美全责；
-7. 每个制品记录 `assetSourceType`、素材哈希、权利证明、审核结果和 AI 标识状态；AI 生成制品另记录生成模型、提示词版本、随机种子或等价重现信息；
+7. 每个制品记录 `sourceType`、素材哈希、供应商无关的 `generationMethod`、来源材料引用、权利证明、审核结果和 AI 标识状态；AI 生成制品必须另记录生成模型、提示词版本、生成时间和 `reproductionReference`；非 AI 制品的这些生成字段可以为空；
 8. 先完成连续 30 天并让大师确认；质量稳定且额度允许时，再扩到一年；
-9. 审核通过后绑定内容版本并部署到对象存储；不通过时使用审核过的纯色单品板。
+9. 图片先绑定 `draftId + fortuneDate` 上传，草稿提交时在同一事务中冻结引用并绑定 `contentVersion`；每张图片必须保存至少一个来源材料引用和一个权利记录引用；两个必备槽位必须同时冻结与原封面不同、审核和权利状态均已通过的降级素材，原图不通过时直接交付该素材。
+
+“2 张必备、最多 1 张可选”只统计公开方案的封面槽位：`required_primary`、`required_alternative` 和最多一个 `optional`，各槽位的 `coverAssetId` 分别唯一。方案详情的细节图、降级卡片和原始候选素材不计入 2+1；`detailAssetIds` 保持现有兼容上限。
 
 ## 15.3 审核清单
 
@@ -599,6 +601,8 @@ P0 不在用户请求时临时生成图片。图片在开发或内容准备阶�
 - AI 生成内容是否按适用法律、强制标准和平台规则完成用户可感知的显式标识；
 - AI 生成文件是否保留所需隐式标识和来源记录，下载、复制或导出后是否仍符合标识要求；
 - 是否至少有一套普通用户可模仿。
+
+后台逐图检查必须保存结构化结果，至少包含 `colorAndCopyConsistency`、`garmentAndPersonIntegrity`、`rightsAndIdentityRisk`、`scenarioAndImitability`、`mobileAndWechatPreview` 与 `aiLabelCompliance`，并记录 `reviewId`、`reviewerAccountId`、`reviewedAt` 和备注。两个必备槽位的原封面可以不通过，但各自必须冻结同一快照内不同于原图、已审核且可安全交付的降级素材，否则提交与发布预检失败；可选封面质量不足时直接省略。
 
 ## 15.4 合规依据
 
@@ -621,7 +625,7 @@ P0 不在用户请求时临时生成图片。图片在开发或内容准备阶�
 
 ## 16.2 O02A/O02B 内容与素材库
 
-P0 的 O02A 包含：固定颜色、固定场景与人群枚举、素材标签绑定、搭配公式、配饰库、每日图片与权利信息、`assetSourceType`、AI 标识状态、生成模型和提示词版本记录、硬禁词、效果承诺、高风险表达、必要模板和失败备选模板。
+P0 的 O02A 包含：固定颜色、固定场景与人群枚举、素材标签绑定、搭配公式、配饰库、每日图片与权利信息、`sourceType`、`generationMethod`、生成模型、提示词版本、生成时间、重现引用、来源材料、结构化人工检查、AI 标识状态、硬禁词、效果承诺、高风险表达、必要模板和失败备选模板。
 
 P1 的 O02B 增加：自定义标签管理、场景与人群筛选 UI、穿搭小课堂选题、提示词管理 UI、批量管理和素材效果分析。
 
@@ -666,6 +670,8 @@ P0 看板不得显示尚未上线的收藏、账户或提醒指标，也不得�
 | 回滚 | 将活跃版本指针重新指向一个历史已批准快照，不修改历史快照本身。 |
 | 撤回 | 阻止某个快照继续公开访问；被撤回版本不得直接重新发布。 |
 | 内容模块 | 日历算法、五档与文案、搭配公式、图片与版权、海报一致性。 |
+| 图片交付投影 `ImageAssetDeliveryProjection` | 由提交时的版本绑定和之后追加的单图下线事件计算出的当前图片交付状态；原封面初始不合格时也可直接选择同快照降级素材或省略 optional，无须伪造下线事件；可交付且未下线的细节图必须完整交付，不得静默省略。 |
+| 图片封面槽位 `imageSlot` | `required_primary`、`required_alternative` 或 `optional`；每天 2+1 的数量只统计封面槽位，不统计细节图、降级图和候选图。 |
 
 公开网页、后台和公共 API 共用相同的内容快照和活跃版本。展示层使用 `algorithmLabel` 直接显示完整五档；兼容分组元数据不得改变日柱、五档、颜色、搭配配方或 `contentVersion`。
 
@@ -744,7 +750,7 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
 3. 大师确认依据已记录；
 4. `tiers` 恰好为五档且顺序唯一；
 5. 单色、双色、三色方案齐全；
-6. 两张必备图片可用，或已经明确切换到审核过的降级模板；第 3 张图片不阻塞发布；
+6. `required_primary` 与 `required_alternative` 各自冻结与原封面不同、来源和权利完整且审核通过的降级模板；交付时原封面可用则使用原图，否则使用该降级素材；最多一个 `optional` 封面槽位不阻塞发布，细节图不计入 2+1；
 7. 图片、公式和海报模板均引用同一 `contentVersion`；
 8. 海报模板渲染校验和至少一条网页分享落地链路可用；单个渠道海报实例异步生成失败不阻断基础内容发布；
 9. 当前活跃版本与发布操作读取到的版本一致，避免并发覆盖。
@@ -790,11 +796,12 @@ P0 只有一个后台账号，由项目维护者使用。该账号可以创建�
 - 日历数据记录及其版本；
 - 算法、文案、配方、图片清单和海报模板版本；
 - 所有素材的 `assetId`、文件哈希和授权记录引用；
+- 封面槽位、封面素材、细节素材和同快照降级素材引用；
 - 提交时已经完成的自动检查结果。
 
 审核中及之后的 `ContentSnapshotPayload` 不可修改或删除。需要调整内容时，复制为新草稿并生成新的 `contentVersion`。
 
-之后产生的大师确认、状态变化、发布、撤回、回滚和失败记录分别追加到 `MasterReviewEvidence`、`ReleaseEvent` 与 `AuditEvent`，均引用 `contentVersion`；`ContentLifecycleProjection` 只由这些事件计算，不得用于覆盖历史事件。审计记录后台用户不得覆盖，P0 默认至少保留 365 天。
+之后产生的大师确认、状态变化、发布、撤回、回滚、单图下线和失败记录分别追加到 `MasterReviewEvidence`、`ReleaseEvent`、图片交付事件与 `AuditEvent`，均引用 `contentVersion`；`ContentLifecycleProjection` 与 `ImageAssetDeliveryProjection` 只由这些事件计算，不得用于覆盖历史事件。单图下线不改快照：必备封面切换到同一快照的审核降级素材，可选封面或问题细节图从交付中省略。审计记录后台用户不得覆盖，P0 默认至少保留 365 天。
 
 # 17. 数据结构与 API v1 契约
 
@@ -1214,11 +1221,17 @@ P0 只有网页端，不传来源平台或目标平台。如果 `expectedContent
 | `POST` | `/admin/api/v1/daily-content-drafts` | 创建某命理日草稿 |
 | `GET` | `/admin/api/v1/daily-content-drafts/{draftId}` | 查看草稿 |
 | `PATCH` | `/admin/api/v1/daily-content-drafts/{draftId}/modules/{moduleCode}` | 按模块编辑草稿 |
+| `GET` | `/admin/api/v1/daily-content-drafts/{draftId}/image-assets` | 找回该草稿已上传的图片候选与预览地址 |
+| `POST` | `/admin/api/v1/daily-content-drafts/{draftId}/image-assets` | 以文件和 JSON 元数据上传草稿图片 |
+| `POST` | `/admin/api/v1/daily-content-drafts/{draftId}/image-assets/{assetId}/review` | 逐图登记六项结构化人工检查 |
+| `GET` | `/admin/api/v1/image-assets/{assetId}/preview` | 在已认证后台按精确同源地址预览素材 |
 | `POST` | `/admin/api/v1/daily-content-drafts/{draftId}/submit` | 冻结草稿并生成 `contentVersion` |
 | `GET` | `/admin/api/v1/daily-content-versions?fortuneDate=...` | 查看该日全部版本 |
 | `GET` | `/admin/api/v1/daily-content-versions/{contentVersion}` | 查看快照、检查项、大师确认依据和发布记录 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/master-review-evidence` | 登记大师在系统外的确认依据 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/review-decision` | 运行必审检查并批准或退回 |
+| `GET` | `/admin/api/v1/daily-content-versions/{contentVersion}/daily-image-set` | 查看不可变图片引用与当前交付投影 |
+| `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/image-assets/{assetId}/withdraw` | 追加单图下线事件并切换降级或省略可选图 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/schedule` | 设置定时生效 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/cancel-schedule` | 取消排期并回到已批准 |
 | `POST` | `/admin/api/v1/daily-content-versions/{contentVersion}/publish` | 立即发布 |
@@ -1253,7 +1266,9 @@ P0 只有网页端，不传来源平台或目标平台。如果 `expectedContent
 }
 ```
 
-模块内容沿用第 17.2 节对象、枚举与引用约束：`calendar_algorithm` 管理 `calendar`、`tiers` 和日历/算法版本，`copy_and_formula` 管理摘要、依据、`outfitFormulas` 和文案/搭配版本，`visual_and_rights` 管理 `looks`、素材哈希、素材清单版本与权利记录，`poster_consistency` 管理海报模板版本和渲染样张。编辑接口只允许修改 `draft`，成功返回更新后的模块与 `draftRevision`。
+模块内容沿用第 17.2 节对象、枚举与引用约束：`calendar_algorithm` 管理 `calendar`、`tiers` 和日历/算法版本，`copy_and_formula` 管理摘要、依据、`outfitFormulas` 和文案/搭配版本，`visual_and_rights` 管理 `looks`、2+1 封面槽位、细节与降级素材引用、素材哈希、素材清单版本、结构化人工检查与权利记录，`poster_consistency` 管理海报模板版本和渲染样张。编辑接口只允许修改 `draft`，成功返回更新后的模块与 `draftRevision`。
+
+图片上传使用 `multipart/form-data`，其中 `file` 是二进制图片，`metadata` 是不带 filename 的普通表单字段，其 UTF-8 字段值为符合 `ImageAssetUploadMetadata` 的 JSON 文本。服务端计算文件校验值和尺寸，图片先绑定当前 `draftId + fortuneDate`；草稿提交时绑定新生成的 `contentVersion`。每次上传都必须提供非空来源材料与权利记录引用；来源类型和生成方式按 OpenAPI 的固定组合提交。上传与逐图审核都必须携带当前草稿 ETag、CSRF 和幂等键，不能通过重复请求创建重复素材或重复审核记录。后台预览只接受 `/admin/api/v1/image-assets/{assetId}/preview` 这一精确同源路径。
 
 `submit` 不接收业务内容，请求体为空，必须携带当前草稿 `If-Match` 和 `Idempotency-Key`。成功冻结载荷并返回：
 
@@ -1272,15 +1287,16 @@ P0 只有网页端，不传来源平台或目标平台。如果 `expectedContent
 
 - 除未登录阶段的登录与两阶段恢复外，所有后台写操作必须携带会话绑定的 `X-CSRF-Token`，并由服务端同时验证可信同源 `Origin`；
 - 所有后台响应（包括业务内容、核对凭证和错误）一律 `Cache-Control: no-store`，CSRF、挑战、恢复码和会话原文不得进入 localStorage、URL 或日志；
-- `PATCH` 草稿必须原样回传上次响应中的草稿 `ETag`，例如 `If-Match: "draft:7"`；成功响应返回新的草稿 ETag；
+- `PATCH` 草稿、图片上传和逐图审核必须原样回传上次响应中的草稿 `ETag`，例如 `If-Match: "draft:7"`；成功响应返回新的草稿 ETag；
 - `submit` 使用草稿 `If-Match` 校验冻结前版本并必须携带 `Idempotency-Key`；成功后的 `ETag` 改为表示新建生命周期聚合的 `lifecycleRevision`；
 - 登记大师确认依据、批准、排期、取消排期、发布、撤回和回滚必须原样回传内容版本 ETag，例如 `If-Match: "lifecycle:12"`；
-- `submit` 及所有状态变化动作必须携带 `Idempotency-Key`，网络重试不得重复创建快照或重复发布；
+- `submit`、图片上传、逐图审核、单图下线及所有状态变化动作必须携带 `Idempotency-Key`，网络重试不得重复创建素材、审核、快照、下线事件或发布；
+- 单图下线使用内容版本 ETag 并增加 `lifecycleRevision`；它只追加交付事件，不修改不可变快照，必备封面切换同快照审核降级素材，可选封面和问题细节图省略；
 - 批准动作必须一次检查：大师确认依据、366 日机器比对状态、文案、两张必备图片、权利记录、AI 标识、海报样张和引用完整性；
 - 退回时必须填写原因；发布、撤回和回滚必须记录操作者、原因、请求标识、前后状态及内容版本；
 - `expectedActiveContentVersion` 必填但允许为 `null`，用于防止旧页面覆盖新版本；
 - 撤回可带安全替代版本；不带替代版本时公共端进入“今日内容校验中”；
-- 动作成功必须返回新的 `lifecycleRevision`、全部状态变化和事务完成后的 `activeContentVersion`；
+- 批准、排期、发布、版本撤回和回滚等内容生命周期状态动作成功时，必须返回新的 `lifecycleRevision`、全部状态变化和事务完成后的 `activeContentVersion`；单图下线返回新的图片交付投影与审计编号，不伪造内容状态转换；
 - 字段、枚举、错误码和示例已经冻结在 OpenAPI；后台登录、二次确认、找回和紧急停止遵守 ADR-0020 与 Issue #31 的维护者确认记录。
 
 ## 17.5 错误响应
@@ -1322,6 +1338,11 @@ P0 只有网页端，不传来源平台或目标平台。如果 `expectedContent
 | 422 | `REQUIRED_REVIEW_MISSING` | 必审检查未全部通过 |
 | 422 | `MASTER_REVIEW_EVIDENCE_MISSING` | 大师确认依据缺失或未覆盖当前版本 |
 | 422 | `PUBLISH_PRECHECK_FAILED` | 五档、图片、海报模板或引用校验失败 |
+| 422 | `IMAGE_REVIEW_INCOMPLETE` | 图片人工检查、权利状态或 AI 标识未满足批准条件 |
+| 422 | `IMAGE_SET_INVALID` | 2+1 封面槽位、素材引用或审核降级关系不完整 |
+| 422 | `IMAGE_WITHDRAWAL_BLOCKED` | 必备封面没有同快照内可安全切换的审核降级素材 |
+| 413 | `IMAGE_FILE_TOO_LARGE` | 上传图片超过当前接口限制 |
+| 415 | `IMAGE_MEDIA_TYPE_UNSUPPORTED` | 上传文件不是允许的图片格式 |
 | 422 | `SCHEDULE_TIME_INVALID` | 排期时间不符合生效区间 |
 | 428 | `PRECONDITION_REQUIRED` | 需要并发保护的写操作缺少 `If-Match` |
 | 429 | `RATE_LIMITED` | 登录、恢复、海报或反馈请求过于频繁 |
@@ -1360,7 +1381,7 @@ P0 只有网页端，不传来源平台或目标平台。如果 `expectedContent
 }
 ```
 
-任一业务内容组成部分或海报模板变化都生成新的 `contentVersion` 并重新走对应模块审核。按既定模板和 `channelId` 派生的 `posterInstanceId` 不属于该组合；只重渲染入口码或渠道标识不生成新 `contentVersion`。不得只替换图片或文案而继续沿用旧版本。
+任一业务内容组成部分、图片引用、降级关系或海报模板变化都生成新的 `contentVersion` 并重新走对应模块审核。按既定模板和 `channelId` 派生的 `posterInstanceId` 不属于该组合；只重渲染入口码或渠道标识不生成新 `contentVersion`。图片交付投影可以在不改快照的前提下停用问题图片，并只切换到该快照已经冻结且审核通过的降级素材，或省略可选/细节图；补入新图、替换为快照外素材、修改文案仍必须生成新版本。
 
 ## 17.8 网页、后台与 Worker 的复用边界
 
@@ -1633,6 +1654,9 @@ P2：
 - 海报生成中途发生撤回或回滚时，旧任务返回 `version_changed` 且不公开制品，目标版本以新任务重新生成；
 - 回滚原子切换活跃指针，不出现网页、公共 API 和 CDN 分别读取不同版本；
 - 无安全替代版本的撤回返回“今日内容校验中”，不得由 LLM 临时补算。
+- 2+1 只统计两个必备封面槽位和最多一个可选封面槽位；增加或省略细节图不改变该计数。
+- 必备图片未完成六项结构化检查、权利确认或适用的 AI 标识时，批准与发布预检失败；可选图片可以不提供。
+- 两个必备槽位始终冻结不同于原封面的同快照审核降级素材；原封面初始不合格或单图下线后使用该素材，可选封面初始不合格或下线后省略；细节图只交付冻结集合中当前可用且未下线的完整子集；快照中的原始 `assetId`、校验值和审核记录保持不变。
 - 在预发环境或受控测试素材上完成一次版权/合规撤回的 CDN `purge/deny` 演练，验证活跃接口、素材源站和 CDN 新请求均停止提供被撤回内容。
 
 “60 秒”是发布和回滚的活跃接口同步 SLA；如技术评审确认无法达到，必须在开工前替换为另一个明确数字。
@@ -1701,7 +1725,7 @@ P0 技术启动评审已确认：
 1. 大师书面确认公共算法、颜色表、五档和 23:00 产品换日规则；
 2. 工程侧完成国家标准锚点与固定版本离线库连续 366 个命理日机器比对且零差异；大师书面复核不少于连续 30 日及边界样本；
 3. 核心页面完成目标用户任务测试；
-4. 连续 30 天每天至少 2 张必备图具备审核、权利记录、AI 标识、降级和下线机制；
+4. 连续 30 天每天的两个必备封面槽位具备结构化人工检查、权利记录、AI 标识、同快照降级和追加式单图下线机制；可选封面最多一个，细节图不计入 2+1；
 5. 内容、海报模板、海报实例 `sourceContentVersion` 和活跃缓存版本一致；
 6. 异常、离线、23:00 跨日、回滚及版权/合规撤回的 CDN `purge/deny` 测试通过；
 7. 用户协议、隐私说明、内容参考声明和 AI 标识方案就绪；

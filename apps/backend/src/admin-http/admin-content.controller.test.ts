@@ -357,6 +357,8 @@ describe("admin content HTTP", () => {
   it.each([
     [{ kind: "not_found" } as const, 404, "RESOURCE_NOT_FOUND", undefined],
     [{ kind: "invalid_state" } as const, 409, "INVALID_STATE_TRANSITION", undefined],
+    [{ kind: "image_withdrawn" } as const, 422, "IMAGE_SET_INVALID", undefined],
+    [{ kind: "invalid_asset_reference" } as const, 422, "IMAGE_SET_INVALID", undefined],
     [{ kind: "idempotency_conflict" } as const, 409, "IDEMPOTENCY_KEY_REUSED", undefined],
     [
       { currentRevision: 9, kind: "revision_mismatch" } as const,

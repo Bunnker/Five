@@ -15,6 +15,7 @@ import {
 } from "../../../admin-api";
 import { AdminSessionGate } from "../../../admin-session-gate";
 import { useAdminSession } from "../../../admin-session-context";
+import { DailyImageWorkbench } from "./daily-image-workbench";
 
 type LoadState =
   | { kind: "loading" }
@@ -134,6 +135,20 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
   useEffect(() => {
     void loadDraft();
   }, [loadDraft]);
+
+  const synchronizeImageRevision = useCallback(
+    ({ draftRevision, etag: nextEtag }: { draftRevision: number; etag: string }) => {
+      setEtag(nextEtag);
+      setDraft((current) =>
+        current === null ? current : { ...current, draftRevision, updatedAt: current.updatedAt },
+      );
+    },
+    [],
+  );
+
+  const reportImageConflict = useCallback((message: string) => {
+    setLoadState({ kind: "conflict", message });
+  }, []);
 
   async function saveModule(moduleCode: DraftModuleCode) {
     if (draft === null || etag === null || loadState.kind !== "ready") return;
@@ -350,6 +365,24 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
                       : "已保存"}
                 </strong>
               </header>
+              {code === "visual_and_rights" ? (
+                <DailyImageWorkbench
+                  csrfToken={session.csrfToken}
+                  disabled={
+                    state.kind === "saving" ||
+                    loadState.kind !== "ready" ||
+                    submittedVersion !== null
+                  }
+                  draftId={draft.draftId}
+                  draftRevision={draft.draftRevision}
+                  etag={etag}
+                  fortuneDate={draft.fortuneDate}
+                  onConflict={reportImageConflict}
+                  onRevisionChange={synchronizeImageRevision}
+                  onUnauthorized={clearSession}
+                  visualModule={draft.modules.visual_and_rights}
+                />
+              ) : null}
               <label>
                 <span>{label} JSON</span>
                 <textarea
