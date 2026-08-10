@@ -91,7 +91,7 @@ describe("admin request protection", () => {
       },
       ip: "203.0.113.8",
       method: "POST",
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response).toEqual({
@@ -146,7 +146,7 @@ describe("admin request protection", () => {
       },
       ip: "203.0.113.9",
       method: "POST",
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     };
 
     const response = await inject(request);
@@ -164,7 +164,7 @@ describe("admin request protection", () => {
     const service = {
       authenticateSession: vi.fn(),
       preflight: vi.fn().mockResolvedValue({
-        action: "recovery",
+        action: "login",
         evidence: {
           requestId: "admin-source-limited",
           sourceFingerprint: Buffer.alloc(32, 4),
@@ -186,7 +186,7 @@ describe("admin request protection", () => {
       },
       ip: "203.0.113.10",
       method: "POST",
-      url: "/admin/api/v1/auth/recovery-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.continued).toBe(false);
@@ -220,7 +220,7 @@ describe("admin request protection", () => {
         "x-request-id": "admin-store-unavailable",
       },
       method: "POST",
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.statusCode).toBe(503);

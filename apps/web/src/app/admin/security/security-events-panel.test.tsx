@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminSessionProvider } from "../admin-session-context";
-import { createAdminJsonResponse } from "../admin-test-responses";
+import { createAdminEmptyResponse, createAdminJsonResponse } from "../admin-test-responses";
 import { SecurityEventsPanel } from "./security-events-panel";
 
 const testNowMs = Date.now();
@@ -32,12 +32,12 @@ describe("SecurityEventsPanel", () => {
           JSON.stringify({
             items: [
               {
-                action: "login_totp",
+                action: "login_password",
                 clientSummary: "Safari · macOS",
                 eventId: "event-01",
                 occurredAt: "2026-07-31T08:00:00+08:00",
                 outcome: "succeeded",
-                reason: "维护者完成当班动态码验证",
+                reason: "维护者完成账号密码验证",
                 requestId: "request-0001",
                 sourceFingerprint: "fingerprint-abcdef1234567890",
               },
@@ -88,9 +88,9 @@ describe("SecurityEventsPanel", () => {
       </AdminSessionProvider>,
     );
 
-    expect(await screen.findByText("动态码登录")).toBeInTheDocument();
+    expect(await screen.findByText("账号密码登录")).toBeInTheDocument();
     expect(screen.getByText("Safari · macOS")).toBeInTheDocument();
-    expect(screen.getByText("维护者完成当班动态码验证")).toBeInTheDocument();
+    expect(screen.getByText("维护者完成账号密码验证")).toBeInTheDocument();
     expect(screen.getByText("fingerprint-abcdef1234567890")).toBeInTheDocument();
     expect(screen.queryByText(/IP 地址/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "加载更多记录" }));
@@ -117,6 +117,34 @@ describe("SecurityEventsPanel", () => {
       </AdminSessionProvider>,
     );
 
+    expect(await screen.findByRole("link", { name: "前往登录" })).toBeInTheDocument();
+  });
+
+  it("revokes every session from Security settings and clears the local session", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(createAdminJsonResponse(sessionResponse))
+      .mockResolvedValueOnce(createAdminJsonResponse({ items: [], nextCursor: null }))
+      .mockResolvedValueOnce(createAdminEmptyResponse());
+
+    render(
+      <AdminSessionProvider>
+        <SecurityEventsPanel />
+      </AdminSessionProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "注销全部会话" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/admin/api/v1/auth/logout-all",
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: expect.objectContaining({ "X-CSRF-Token": sessionResponse.csrfToken }),
+        method: "POST",
+      }),
+    );
     expect(await screen.findByRole("link", { name: "前往登录" })).toBeInTheDocument();
   });
 });

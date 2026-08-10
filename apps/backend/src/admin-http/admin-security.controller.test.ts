@@ -244,7 +244,7 @@ describe("admin security HTTP", () => {
     });
   });
 
-  it("stops public access with fresh TOTP, exact confirmation, revision and idempotency", async () => {
+  it("stops public access with an authenticated session, exact confirmation, revision and idempotency", async () => {
     vi.mocked(emergencyService.apply).mockResolvedValue({
       kind: "applied",
       state: {
@@ -270,7 +270,6 @@ describe("admin security HTTP", () => {
       payload: {
         confirmationPhrase: "停止全部公开内容",
         reason: "发现图片权利材料错误",
-        totpCode: "123456",
       },
       url: "/admin/api/v1/emergency-control/stop",
     });
@@ -290,48 +289,7 @@ describe("admin security HTTP", () => {
       idempotencyKey: "emergency-stop-0001",
       principal,
       reason: "发现图片权利材料错误",
-      totpCode: "123456",
     });
-  });
-
-  it("resumes only the global gate and maps a replayed TOTP to a stable conflict", async () => {
-    vi.mocked(emergencyService.apply).mockResolvedValue({ kind: "totp_replayed" });
-
-    const response = await app.inject({
-      headers: {
-        cookie: `five_admin_session=${"s".repeat(43)}`,
-        "idempotency-key": "emergency-resume-01",
-        "if-match": '"emergency-control:8"',
-        origin: "http://127.0.0.1:3000",
-        "x-csrf-token": "c".repeat(43),
-        "x-request-id": "emergency-resume-request",
-      },
-      method: "POST",
-      payload: {
-        confirmationPhrase: "恢复全部公开内容",
-        reason: "已替换问题图片并完成复核",
-        totpCode: "234567",
-      },
-      url: "/admin/api/v1/emergency-control/resume",
-    });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toEqual({
-      error: {
-        code: "TOTP_REPLAYED",
-        details: {},
-        message: "动态码已经使用，请等待新动态码后重试。",
-        requestId: "emergency-resume-request",
-        retryable: false,
-      },
-    });
-    expect(emergencyService.apply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "resume",
-        confirmationPhrase: "恢复全部公开内容",
-        expectedRevision: 8,
-      }),
-    );
   });
 
   it("requires If-Match before attempting an emergency update", async () => {
@@ -347,7 +305,6 @@ describe("admin security HTTP", () => {
       payload: {
         confirmationPhrase: "停止全部公开内容",
         reason: "发现图片权利材料错误",
-        totpCode: "123456",
       },
       url: "/admin/api/v1/emergency-control/stop",
     });
@@ -372,7 +329,6 @@ describe("admin security HTTP", () => {
       payload: {
         confirmationPhrase: "停止公开内容",
         reason: "发现图片权利材料错误",
-        totpCode: "123456",
       },
       url: "/admin/api/v1/emergency-control/stop",
     });
@@ -414,7 +370,6 @@ describe("admin security HTTP", () => {
       "EMERGENCY_CONTROL_CONFLICT",
       undefined,
     ],
-    ["invalid_totp", { kind: "invalid_totp" as const }, 401, "AUTHENTICATION_FAILED", undefined],
   ])(
     "maps %s to the frozen HTTP error",
     async (_caseName, result, expectedStatus, expectedCode, expectedEtag) => {
@@ -431,7 +386,6 @@ describe("admin security HTTP", () => {
         payload: {
           confirmationPhrase: "停止全部公开内容",
           reason: "发现图片权利材料错误",
-          totpCode: "123456",
         },
         url: "/admin/api/v1/emergency-control/stop",
       });

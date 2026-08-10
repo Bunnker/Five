@@ -1,8 +1,8 @@
 import type { CompleteTodayPageData, TodaySnapshot } from "./today";
 import { resolveTodayContextBoundary } from "./today-refresh-policy";
 
-const CACHE_SCHEMA_VERSION = 1;
-export const TODAY_CACHE_KEY_PREFIX = "five:today:v1";
+const CACHE_SCHEMA_VERSION = 2;
+export const TODAY_CACHE_KEY_PREFIX = "five:today:v2";
 export const TODAY_PENDING_REFRESH_ANCHOR_KEY = `${TODAY_CACHE_KEY_PREFIX}:pending-refresh-anchor`;
 
 export const TODAY_CACHE_POINTER_KEY = `${TODAY_CACHE_KEY_PREFIX}:active`;
@@ -42,6 +42,13 @@ function isFortuneDate(value: unknown): value is string {
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function nextFortuneDate(value: string): string | null {
+  const instant = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(instant)
+    ? new Date(instant + 86_400_000).toISOString().slice(0, 10)
+    : null;
+}
+
 function isContentVersion(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -63,12 +70,31 @@ function isCompleteTodayData(
   fortuneDate: string,
   contentVersion: string,
 ): value is CompleteTodayPageData {
+  const civilDate =
+    isRecord(value) && isRecord(value.requestContext) ? value.requestContext.civilDate : null;
+  const crossedDayBoundary =
+    isRecord(value) && isRecord(value.requestContext)
+      ? value.requestContext.crossedDayBoundary
+      : null;
+  const advancedFromCivilDate =
+    isRecord(value) && isRecord(value.publicContentContext)
+      ? value.publicContentContext.advancedFromCivilDate
+      : null;
+  const nextCivilDate = isFortuneDate(civilDate) ? nextFortuneDate(civilDate) : null;
   if (
     !isRecord(value) ||
     !isRecord(value.content) ||
+    !isRecord(value.publicContentContext) ||
     !isRecord(value.requestContext) ||
     value.content.fortuneDate !== fortuneDate ||
-    value.requestContext.fortuneDate !== fortuneDate ||
+    value.publicContentContext.servedFortuneDate !== fortuneDate ||
+    value.publicContentContext.switchBoundary !== "18:00" ||
+    typeof advancedFromCivilDate !== "boolean" ||
+    !isFortuneDate(civilDate) ||
+    typeof crossedDayBoundary !== "boolean" ||
+    value.requestContext.fortuneDate !== (crossedDayBoundary ? nextCivilDate : civilDate) ||
+    value.publicContentContext.servedFortuneDate !==
+      (advancedFromCivilDate ? nextCivilDate : civilDate) ||
     !isVersioned(value.daJiCard, contentVersion) ||
     !isVersioned(value.ciJiCard, contentVersion) ||
     !isVersioned(value.pingCard, contentVersion) ||

@@ -1,4 +1,5 @@
 import type { TodayPageData } from "./today";
+import { parsePublicChannelId } from "./channel-links";
 
 export type TodayEntrySearchParamValue = string | string[] | undefined;
 export type TodayEntrySearchParams = Record<string, TodayEntrySearchParamValue>;
@@ -62,14 +63,13 @@ export function resolveTodayEntry(
   const expectedContentVersion = getSingleParam(params.expectedContentVersion, (value) =>
     isBoundedValue(value, 128),
   );
-  const channelId = requireChannelId
-    ? getSingleParam(params.channelId, (value) => isBoundedValue(value, 64))
-    : null;
+  const carriesChannelId = params.channelId !== undefined;
+  const channelId = carriesChannelId ? parsePublicChannelId(params.channelId) : null;
 
   if (
     fortuneDate === null ||
     expectedContentVersion === null ||
-    (requireChannelId && channelId === null)
+    ((requireChannelId || carriesChannelId) && channelId === null)
   ) {
     return { status: "invalid" };
   }
@@ -84,7 +84,7 @@ export function resolveTodayEntry(
 
   if (
     today.content.fortuneDate !== fortuneDate ||
-    today.requestContext.fortuneDate !== fortuneDate ||
+    today.publicContentContext.servedFortuneDate !== fortuneDate ||
     contentVersion !== expectedContentVersion
   ) {
     return { status: "stale" };

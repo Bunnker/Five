@@ -12,7 +12,6 @@ type PublicLook = components["schemas"]["PublicLook"];
 const REVIEWED_AI_DISCLOSURE = "AI 生成穿搭示意图";
 
 function publicImage(asset: AdminImageAsset | undefined): PublicImageAsset | null {
-  if (asset?.fileUrl === null || asset?.reviewStatus !== "approved") return null;
   if (asset === undefined) return null;
 
   const aiGenerated = asset.sourceType === "ai_generated";
@@ -23,21 +22,22 @@ function publicImage(asset: AdminImageAsset | undefined): PublicImageAsset | nul
     assetId: asset.assetId,
     height: asset.height,
     mediaType: asset.mediaType,
-    url: asset.fileUrl,
+    url: asset.fileUrl ?? `/api/v1/image-assets/${encodeURIComponent(asset.assetId)}`,
     width: asset.width,
   };
 }
 
-export function projectPublishedDailyContent(
+export function projectDailyContentSnapshot(
   version: StoredContentVersion,
   imageSet: StoredDailyImageSet,
+  allowedStates: ReadonlySet<StoredContentVersion["state"]>,
 ): DailyContent | null {
   const calendar = version.snapshot.calendar_algorithm;
   const copy = version.snapshot.copy_and_formula;
   const visual = version.snapshot.visual_and_rights;
   const poster = version.snapshot.poster_consistency;
   if (
-    version.state !== "published" ||
+    !allowedStates.has(version.state) ||
     version.effectiveFrom === null ||
     version.effectiveTo === null ||
     calendar === null ||
@@ -57,6 +57,7 @@ export function projectPublishedDailyContent(
 
   for (const look of [...visual.looks].sort((left, right) => left.sortOrder - right.sortOrder)) {
     const slot = slots.get(look.lookId);
+    if (slot === undefined && look.imageSlot === "optional") continue;
     if (slot === undefined) return null;
     if (slot.deliveryStatus === "omitted" && look.imageSlot === "optional") continue;
     if (slot.servedCoverAssetId === null) return null;
@@ -105,4 +106,11 @@ export function projectPublishedDailyContent(
       posterTemplateVersion: poster.posterTemplateVersion,
     },
   };
+}
+
+export function projectPublishedDailyContent(
+  version: StoredContentVersion,
+  imageSet: StoredDailyImageSet,
+): DailyContent | null {
+  return projectDailyContentSnapshot(version, imageSet, new Set(["published"]));
 }

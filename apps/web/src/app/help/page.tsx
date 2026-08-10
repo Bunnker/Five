@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
 
 import { loadToday, type TodayPageData } from "../../lib/today";
+import { parsePublicChannelId, withPublicChannelId } from "../../lib/channel-links";
+import { PublicContentBoundaryGuard } from "../../components/public-content-boundary-guard";
 import { FeedbackForm, type FeedbackCategory, type FeedbackContext } from "./feedback-form";
 import { LocalDataControls } from "./local-data-controls";
 
@@ -35,11 +37,11 @@ function isBoundedString(value: unknown, maxLength: number): value is string {
 
 function currentFeedbackContext(today: TodayPageData | null): FeedbackContext | null {
   const fortuneDate = today?.content.fortuneDate;
-  const requestFortuneDate = today?.requestContext.fortuneDate;
+  const servedFortuneDate = today?.publicContentContext.servedFortuneDate;
   const contentVersion = today?.daJiCard?.contentVersion;
   if (
     typeof fortuneDate !== "string" ||
-    fortuneDate !== requestFortuneDate ||
+    fortuneDate !== servedFortuneDate ||
     !isBoundedString(contentVersion, 128)
   ) {
     return null;
@@ -67,10 +69,10 @@ function resolveFeedbackContext(
 
   if (
     params.fortuneDate === current.fortuneDate &&
-    params.expectedContentVersion === current.contentVersion &&
-    isBoundedString(params.channelId, 64)
+    params.expectedContentVersion === current.contentVersion
   ) {
-    return { ...current, channelId: params.channelId };
+    const channelId = parsePublicChannelId(params.channelId);
+    return channelId === null ? null : { ...current, channelId };
   }
 
   return null;
@@ -97,14 +99,15 @@ export default async function HelpPage({ searchParams }: HelpPageProps) {
   const [params, requestHeaders] = await Promise.all([searchParams, headers()]);
   const today = await loadToday({ requestId: requestHeaders.get("x-request-id") });
   const context = resolveFeedbackContext(today, params);
+  const entryChannelId = parsePublicChannelId(params.channelId);
 
-  return (
+  const page = (
     <main className="outfit-page help-page">
       <article
         className="outfit-page__sheet help-page__sheet"
         data-content-version={context?.contentVersion}
       >
-        <a className="outfit-page__back" href="/">
+        <a className="outfit-page__back" href={withPublicChannelId("/", entryChannelId)}>
           <span aria-hidden="true">←</span>
           返回今日首页
         </a>
@@ -161,7 +164,7 @@ export default async function HelpPage({ searchParams }: HelpPageProps) {
           <header className="help-section__heading">
             <span aria-hidden="true">叁</span>
             <div>
-              <p>匿名访问现状</p>
+              <p>匿名使用统计</p>
               <h2 id="help-privacy-title">数据与隐私</h2>
             </div>
           </header>
@@ -169,8 +172,10 @@ export default async function HelpPage({ searchParams }: HelpPageProps) {
             <div>
               <dt>匿名统计</dt>
               <dd>
-                当前未启用匿名访问统计，未接入第三方统计 SDK，不创建跨设备标识，也不使用分析
-                Cookie；这类统计数据当前不产生，因此无需退出开关。
+                Five
+                使用第一方匿名统计了解页面是否被打开、穿搭是否被查看，以及用户是否发起分享或保存海报。浏览器只生成一个随机标识；服务端只保存该标识的独立单向摘要，不记录分享对象、完整网址、原始
+                IP 或完整浏览器标识，不接入第三方统计 SDK，也不创建跨设备标识或分析
+                Cookie。事件最长保存 90 天，可在下方随时退出。
               </dd>
             </div>
             <div>
@@ -197,11 +202,11 @@ export default async function HelpPage({ searchParams }: HelpPageProps) {
             <span aria-hidden="true">肆</span>
             <div>
               <p>只在这台设备</p>
-              <h2 id="help-local-title">本机公开内容缓存</h2>
+              <h2 id="help-local-title">本机数据与统计选择</h2>
             </div>
           </header>
           <p>
-            浏览器只保存当前已发布的公开内容快照、命理日期、内容版本、有效期和刷新锚点，用于短暂断网或页面恢复；不保存身份档案，也不会跨设备同步。
+            浏览器保存当前已发布的公开内容快照、有效期和刷新锚点，用于短暂断网或页面恢复；启用匿名统计时还保存一个随机浏览器标识。两者都不包含身份档案，也不会跨设备同步。清除数据不会替你重新启用已经退出的匿名统计。
           </p>
           <LocalDataControls />
         </section>
@@ -263,5 +268,15 @@ export default async function HelpPage({ searchParams }: HelpPageProps) {
         </footer>
       </article>
     </main>
+  );
+  return today === null ? (
+    page
+  ) : (
+    <PublicContentBoundaryGuard
+      effectiveTo={today.content.effectiveTo}
+      responseGeneratedAt={today.requestContext.responseGeneratedAt}
+    >
+      {page}
+    </PublicContentBoundaryGuard>
   );
 }

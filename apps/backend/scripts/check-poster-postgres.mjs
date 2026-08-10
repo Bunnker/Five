@@ -7,7 +7,9 @@ import pg from "pg";
 
 const { Client } = pg;
 const databaseName = `five_integration_test_${process.pid}_${randomUUID().replaceAll("-", "")}`;
+const productionDatabaseName = `five_prod_test_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const createdDatabaseNames = new Set();
 let activeChild = null;
 let baseUrlForCleanup = null;
 let cleanupPromise = null;
@@ -62,15 +64,16 @@ function signalExitCode(signal) {
   return signal === "SIGINT" ? 130 : 143;
 }
 
-async function dropDisposableDatabase(baseUrl) {
+async function dropDisposableDatabase(baseUrl, targetDatabaseName) {
   const client = new Client({ connectionString: baseUrl.toString() });
   await client.connect();
   try {
     await client.query(
       "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-      [databaseName],
+      [targetDatabaseName],
     );
-    await client.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+    await client.query(`DROP DATABASE IF EXISTS "${targetDatabaseName}" WITH (FORCE)`);
+    createdDatabaseNames.delete(targetDatabaseName);
   } finally {
     await client.end();
   }
@@ -83,7 +86,11 @@ function cleanupDisposableDatabase() {
   if (baseUrlForCleanup === null) {
     return Promise.resolve();
   }
-  cleanupPromise = dropDisposableDatabase(baseUrlForCleanup);
+  cleanupPromise = (async () => {
+    for (const targetDatabaseName of [...createdDatabaseNames]) {
+      await dropDisposableDatabase(baseUrlForCleanup, targetDatabaseName);
+    }
+  })();
   return cleanupPromise;
 }
 
@@ -114,11 +121,12 @@ function handleSignal(signal) {
 process.once("SIGINT", () => handleSignal("SIGINT"));
 process.once("SIGTERM", () => handleSignal("SIGTERM"));
 
-async function createDisposableDatabase(baseUrl) {
+async function createDisposableDatabase(baseUrl, targetDatabaseName) {
   const client = new Client({ connectionString: baseUrl.toString() });
   try {
     await client.connect();
-    await client.query(`CREATE DATABASE "${databaseName}"`);
+    await client.query(`CREATE DATABASE "${targetDatabaseName}"`);
+    createdDatabaseNames.add(targetDatabaseName);
   } finally {
     await client.end();
   }
@@ -131,12 +139,41 @@ async function main() {
   testUrl.pathname = `/${databaseName}`;
 
   try {
-    setupPromise = createDisposableDatabase(baseUrl);
+    setupPromise = createDisposableDatabase(baseUrl, databaseName);
     await setupPromise;
     assertNotInterrupted();
     await run(["--filter", "@five/backend", "exec", "node-pg-migrate", "-j", "mts", "up"], {
       DATABASE_URL: testUrl.toString(),
     });
+    // This test intentionally rolls the migration chain back to 000005. Run it
+    // before repository tests create valid password-only administrator rows,
+    // which 000014 must refuse to convert back into legacy TOTP accounts.
+    await run(
+      [
+        "--filter",
+        "@five/backend",
+        "exec",
+        "vitest",
+        "run",
+        "src/daily-images/postgres-daily-image-migration.integration.test.ts",
+      ],
+      {
+        FIVE_CONTENT_LIFECYCLE_TEST_DATABASE_URL: testUrl.toString(),
+      },
+    );
+    await run(
+      [
+        "--filter",
+        "@five/backend",
+        "exec",
+        "vitest",
+        "run",
+        "src/public-content/public-content-18h-migration.integration.test.ts",
+      ],
+      {
+        FIVE_PUBLIC_WINDOW_MIGRATION_TEST_DATABASE_URL: testUrl.toString(),
+      },
+    );
     await run(
       [
         "--filter",
@@ -163,16 +200,28 @@ async function main() {
         "src/poster/postgres-poster-job.repository.integration.test.ts",
         "src/feedback/postgres-feedback-report.repository.integration.test.ts",
         "src/admin-auth/postgres-admin-security.store.integration.test.ts",
+        "src/admin-operations/postgres-admin-operations.store.integration.test.ts",
         "src/content-lifecycle/postgres-content-lifecycle.store.integration.test.ts",
         "src/daily-images/postgres-daily-image-assets.integration.test.ts",
+        "src/product-analytics/postgres-analytics-event.repository.integration.test.ts",
       ],
       {
         FIVE_FEEDBACK_TEST_DATABASE_URL: testUrl.toString(),
         FIVE_ADMIN_SECURITY_TEST_DATABASE_URL: testUrl.toString(),
         FIVE_POSTER_TEST_DATABASE_URL: testUrl.toString(),
         FIVE_CONTENT_LIFECYCLE_TEST_DATABASE_URL: testUrl.toString(),
+        FIVE_ANALYTICS_TEST_DATABASE_URL: testUrl.toString(),
       },
     );
+    // The production-current suite intentionally leaves historical production rows behind and
+    // expects an otherwise empty business database. Give it a separately migrated disposable
+    // database so neither it nor the shared repository suites can contaminate the other.
+    const productionTestUrl = new URL(baseUrl);
+    productionTestUrl.pathname = `/${productionDatabaseName}`;
+    await createDisposableDatabase(baseUrl, productionDatabaseName);
+    await run(["--filter", "@five/backend", "exec", "node-pg-migrate", "-j", "mts", "up"], {
+      DATABASE_URL: productionTestUrl.toString(),
+    });
     await run(
       [
         "--filter",
@@ -180,15 +229,17 @@ async function main() {
         "exec",
         "vitest",
         "run",
-        "src/daily-images/postgres-daily-image-migration.integration.test.ts",
+        "--no-file-parallelism",
+        "src/content-production/postgres-content-production-current.integration.test.ts",
       ],
       {
-        FIVE_CONTENT_LIFECYCLE_TEST_DATABASE_URL: testUrl.toString(),
+        FIVE_CONTENT_LIFECYCLE_TEST_DATABASE_URL: productionTestUrl.toString(),
       },
     );
+    await dropDisposableDatabase(baseUrl, productionDatabaseName);
     assertNotInterrupted();
     process.stdout.write(
-      "Poster, feedback, admin-security, content-lifecycle, daily-image, and content-release PostgreSQL integration checks passed in an isolated disposable database.\n",
+      "Poster, feedback, admin-security, content-lifecycle, daily-image, content-release, and anonymous-analytics PostgreSQL integration checks passed in an isolated disposable database.\n",
     );
   } finally {
     await cleanupDisposableDatabase();

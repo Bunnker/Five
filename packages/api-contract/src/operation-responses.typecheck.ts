@@ -20,6 +20,24 @@ export type SubmitDraftDocumentsImageSetInvalid = Assert<
   IsEqual<operations["submitDailyContentDraft"]["responses"][422], ImageSetInvalidResponse>
 >;
 
+// Visual correction endpoints expose the same 422 shape the controllers emit
+// when a candidate or image set no longer belongs to the working copy.
+export type PatchDayCorrectionDocumentsImageSetInvalid = Assert<
+  IsEqual<operations["patchDayCorrectionWorkingCopy"]["responses"][422], ImageSetInvalidResponse>
+>;
+export type SelectDayCorrectionImageDocumentsImageSetInvalid = Assert<
+  IsEqual<
+    operations["selectDayCorrectionImageCandidate"]["responses"][422],
+    ImageSetInvalidResponse
+  >
+>;
+export type ReuseDayCorrectionImageDocumentsImageSetInvalid = Assert<
+  IsEqual<operations["reuseDayCorrectionImage"]["responses"][422], ImageSetInvalidResponse>
+>;
+export type UploadDayCorrectionImageDocumentsImageSetInvalid = Assert<
+  IsEqual<operations["uploadDayCorrectionImage"]["responses"][422], ImageSetInvalidResponse>
+>;
+
 // Every lifecycle write can reject malformed input before reaching the domain
 // service and can report that its target version or fortune date does not exist.
 export type ScheduleDocumentsInvalidArgument = Assert<

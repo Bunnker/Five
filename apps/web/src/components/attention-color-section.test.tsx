@@ -61,11 +61,13 @@ describe("AttentionColorSection", () => {
     expect(jiaoCha).toHaveClass("decision-card--quaternary");
     expect(jiaoCha).toHaveTextContent("04");
     expect(jiaoCha).toHaveTextContent("较差");
-    expect(jiaoCha).toHaveTextContent("水生木");
+    expect(within(jiaoCha).getByText("水", { selector: "strong" })).toBeVisible();
+    expect(within(jiaoCha).queryByText("水生木")).not.toBeInTheDocument();
     expect(buLi).toHaveClass("decision-card--quinary");
     expect(buLi).toHaveTextContent("05");
     expect(buLi).toHaveTextContent("不利");
-    expect(buLi).toHaveTextContent("木克土");
+    expect(within(buLi).getByText("土", { selector: "strong" })).toBeVisible();
+    expect(within(buLi).queryByText("木克土")).not.toBeInTheDocument();
     expect(lowerTiers).not.toHaveTextContent("注意");
 
     expect(

@@ -11,7 +11,7 @@ import {
 import { InMemoryContentReleaseStore } from "./in-memory-content-release.store";
 
 const fortuneDate = "2026-08-02";
-const effectiveFrom = "2026-08-01T23:00:00+08:00";
+const effectiveFrom = "2026-08-01T18:00:00+08:00";
 
 function version(
   contentVersion: string,
@@ -22,7 +22,7 @@ function version(
     createdAt: "2026-08-01T02:00:00.000Z",
     draftId: `draft-${contentVersion}`,
     effectiveFrom,
-    effectiveTo: "2026-08-02T23:00:00+08:00",
+    effectiveTo: "2026-08-02T18:00:00+08:00",
     fortuneDate,
     preflightChecks: [],
     snapshot: {
@@ -78,7 +78,7 @@ function pendingTask(
   };
 }
 
-function harness(now = "2026-08-01T12:00:00.000Z", preflight?: ContentReleasePreflightEvaluator) {
+function harness(now = "2026-08-01T09:00:00.000Z", preflight?: ContentReleasePreflightEvaluator) {
   const store = new InMemoryContentReleaseStore();
   let currentNow = now;
   let audit = 0;
@@ -215,8 +215,8 @@ describe("ContentReleaseService", () => {
     await expect(store.listPublicCachePurgeIntents(fortuneDate)).resolves.toHaveLength(0);
   });
 
-  it("publishes once, supersedes the old active version, purges aliases, and invalidates old poster work", async () => {
-    const { service, store } = harness("2026-08-01T16:00:00.000Z");
+  it("publishes at effectiveTo minus one millisecond, supersedes the old active version, purges aliases, and invalidates old poster work", async () => {
+    const { service, store } = harness("2026-08-02T09:59:59.999Z");
     store.seedProjection(projection({ active: "content-current" }));
     store.seedVersion(version("content-current", "published"));
     store.seedVersion(version("content-new", "approved"));
@@ -260,8 +260,8 @@ describe("ContentReleaseService", () => {
     await expect(store.readPosterVersionChangedCount()).resolves.toBe(1);
   });
 
-  it("publishes an approved correction after the historical day window has ended", async () => {
-    const { service, store } = harness("2026-08-03T16:00:00.000Z");
+  it("rejects a direct publish exactly at effectiveTo without changing either version", async () => {
+    const { service, store } = harness("2026-08-02T10:00:00.000Z");
     store.seedProjection(projection({ active: "content-current" }));
     store.seedVersion(version("content-current", "published"));
     store.seedVersion(version("content-correction", "approved"));
@@ -273,19 +273,17 @@ describe("ContentReleaseService", () => {
         expectedActiveContentVersion: "content-current",
         idempotencyKey: "publish-historical-correction-0001",
       }),
-    ).resolves.toMatchObject({
-      action: { activeContentVersion: "content-correction", state: "published" },
-      kind: "applied",
-    });
+    ).resolves.toEqual({ kind: "schedule_time_invalid" });
     await expect(store.readVersion("content-current")).resolves.toMatchObject({
-      state: "superseded",
-    });
-    await expect(store.readVersion("content-correction")).resolves.toMatchObject({
       state: "published",
     });
+    await expect(store.readVersion("content-correction")).resolves.toMatchObject({
+      state: "approved",
+    });
+    await expect(store.listReleaseEvents(fortuneDate)).resolves.toHaveLength(0);
   });
 
-  it("keeps an unsafe version approved when the current release preflight fails", async () => {
+  it("publishes first while retaining failed preflight information for post-publication review", async () => {
     const failed: ContentReleasePreflightEvaluator = () => [
       { code: "required_images", message: "必备图片当前不可交付。", status: "failed" },
     ];
@@ -299,12 +297,11 @@ describe("ContentReleaseService", () => {
         contentVersion: "content-unsafe",
         idempotencyKey: "publish-unsafe-0001",
       }),
-    ).resolves.toMatchObject({
-      kind: "preflight_failed",
-      preflightChecks: [{ code: "required_images", status: "failed" }],
+    ).resolves.toMatchObject({ action: { state: "published" }, kind: "applied" });
+    await expect(store.readVersion("content-unsafe")).resolves.toMatchObject({
+      state: "published",
     });
-    await expect(store.readVersion("content-unsafe")).resolves.toMatchObject({ state: "approved" });
-    await expect(store.listReleaseEvents(fortuneDate)).resolves.toHaveLength(0);
+    await expect(store.listReleaseEvents(fortuneDate)).resolves.toHaveLength(1);
   });
 
   it("publishes a valid schedule task exactly once without drifting the active version", async () => {
@@ -319,11 +316,11 @@ describe("ContentReleaseService", () => {
     });
     expect(scheduled.kind).toBe("applied");
 
-    setNow("2026-08-01T15:00:00.000Z");
+    setNow("2026-08-02T09:59:59.999Z");
     const task = await store.claimNextScheduleTask({
       attemptToken: "attempt-worker-1",
-      claimedAt: "2026-08-01T15:00:00.000Z",
-      leaseExpiresAt: "2026-08-01T15:05:00.000Z",
+      claimedAt: "2026-08-02T09:59:59.999Z",
+      leaseExpiresAt: "2026-08-02T10:04:59.999Z",
       workerId: "worker-1",
     });
     expect(task).not.toBeNull();
@@ -350,7 +347,7 @@ describe("ContentReleaseService", () => {
     });
   });
 
-  it("publishes an overdue schedule task once after the historical day window has ended", async () => {
+  it("atomically cancels a scheduled publish exactly at effectiveTo", async () => {
     const { service, setNow, store } = harness();
     store.seedProjection(projection());
     store.seedVersion(version("content-overdue", "approved"));
@@ -361,11 +358,11 @@ describe("ContentReleaseService", () => {
       idempotencyKey: "schedule-overdue-0001",
     });
 
-    setNow("2026-08-03T16:00:00.000Z");
+    setNow("2026-08-02T10:00:00.000Z");
     const task = await store.claimNextScheduleTask({
       attemptToken: "attempt-overdue-1",
-      claimedAt: "2026-08-03T16:00:00.000Z",
-      leaseExpiresAt: "2026-08-03T16:05:00.000Z",
+      claimedAt: "2026-08-02T10:00:00.000Z",
+      leaseExpiresAt: "2026-08-02T10:05:00.000Z",
       workerId: "worker-overdue",
     });
     expect(task).not.toBeNull();
@@ -381,15 +378,221 @@ describe("ContentReleaseService", () => {
       workerId: "worker-overdue",
     });
 
-    expect(first).toMatchObject({ kind: "published" });
+    expect(first).toMatchObject({
+      action: {
+        lifecycleRevision: 5,
+        state: "approved",
+        transitions: [
+          { contentVersion: "content-overdue", fromState: "scheduled", toState: "approved" },
+        ],
+      },
+      kind: "terminated",
+    });
     expect(replay).toEqual({ kind: "lost" });
     await expect(store.readProjection(fortuneDate)).resolves.toMatchObject({
-      activeContentVersion: "content-overdue",
+      activeContentVersion: null,
+      lifecycleRevision: 5,
+      scheduleSlotRevision: 2,
+      scheduledContentVersion: null,
+      scheduledEffectiveFrom: null,
+    });
+    await expect(store.readScheduleTask(task!.taskId)).resolves.toMatchObject({
+      status: "terminated",
+      terminationReason: "排期任务已到达或越过内容有效期，排期已自动取消。",
+    });
+    await expect(store.readVersion("content-overdue")).resolves.toMatchObject({
+      state: "approved",
+    });
+    expect((await store.listReleaseEvents(fortuneDate)).at(-1)).toMatchObject({
+      action: "cancel_schedule",
+      actorId: "system:scheduled-release-worker",
+      scheduleTaskId: task!.taskId,
+      transitions: [
+        { contentVersion: "content-overdue", fromState: "scheduled", toState: "approved" },
+      ],
+    });
+  });
+
+  it("atomically cancels a current task whose release time disagrees with the fixed day window", async () => {
+    const { service, store } = harness("2026-08-01T10:00:00.000Z");
+    store.seedProjection(projection({ scheduled: "content-mismatched", scheduleSlotRevision: 1 }));
+    store.seedVersion(version("content-mismatched", "scheduled"));
+    await store.transaction((transaction) =>
+      transaction.insertScheduleTask({
+        ...pendingTask("schedule-task-mismatched", "content-mismatched", 1),
+        effectiveFrom: "2026-08-01T19:00:00+08:00",
+      }),
+    );
+    const task = await store.claimNextScheduleTask({
+      attemptToken: "attempt-mismatched",
+      claimedAt: "2026-08-01T10:00:00.000Z",
+      leaseExpiresAt: "2026-08-01T10:05:00.000Z",
+      workerId: "worker-mismatched",
+    });
+    expect(task).not.toBeNull();
+
+    await expect(
+      service.publishScheduledTask({
+        attemptToken: "attempt-mismatched",
+        taskId: task!.taskId,
+        workerId: "worker-mismatched",
+      }),
+    ).resolves.toMatchObject({
+      action: {
+        state: "approved",
+        transitions: [
+          { contentVersion: "content-mismatched", fromState: "scheduled", toState: "approved" },
+        ],
+      },
+      kind: "terminated",
+    });
+    await expect(store.readProjection(fortuneDate)).resolves.toMatchObject({
+      scheduleSlotRevision: 2,
+      scheduledContentVersion: null,
+      scheduledEffectiveFrom: null,
+    });
+    await expect(store.readScheduleTask(task!.taskId)).resolves.toMatchObject({
+      status: "terminated",
+      terminationReason: "排期任务与内容固定有效窗口不一致，排期已自动取消。",
+    });
+    await expect(store.readVersion("content-mismatched")).resolves.toMatchObject({
+      state: "approved",
+    });
+  });
+
+  it("atomically cancels a current schedule whose task fence disagrees with its slot", async () => {
+    const { service, store } = harness("2026-08-01T10:00:00.000Z");
+    store.seedProjection(projection({ scheduled: "content-fence", scheduleSlotRevision: 2 }));
+    store.seedVersion(version("content-fence", "scheduled"));
+    await store.transaction((transaction) =>
+      transaction.insertScheduleTask(pendingTask("schedule-task-fence", "content-fence", 1)),
+    );
+    const task = await store.claimNextScheduleTask({
+      attemptToken: "attempt-fence",
+      claimedAt: "2026-08-01T10:00:00.000Z",
+      leaseExpiresAt: "2026-08-01T10:05:00.000Z",
+      workerId: "worker-fence",
+    });
+    expect(task).not.toBeNull();
+
+    await expect(
+      service.publishScheduledTask({
+        attemptToken: "attempt-fence",
+        taskId: task!.taskId,
+        workerId: "worker-fence",
+      }),
+    ).resolves.toMatchObject({
+      action: {
+        state: "approved",
+        transitions: [
+          { contentVersion: "content-fence", fromState: "scheduled", toState: "approved" },
+        ],
+      },
+      kind: "terminated",
+    });
+    await expect(store.readProjection(fortuneDate)).resolves.toMatchObject({
+      lifecycleRevision: 4,
+      scheduleSlotRevision: 3,
       scheduledContentVersion: null,
     });
     await expect(store.readScheduleTask(task!.taskId)).resolves.toMatchObject({
-      status: "completed",
+      status: "terminated",
+      terminationReason: "排期任务与当前排期槽修订不一致，排期已自动取消。",
     });
+    await expect(store.readVersion("content-fence")).resolves.toMatchObject({ state: "approved" });
+  });
+
+  it("terminates a stale task for a replaced slot and restores only its orphaned version", async () => {
+    const { service, store } = harness("2026-08-01T10:00:00.000Z");
+    store.seedProjection(
+      projection({ scheduled: "content-current-slot", scheduleSlotRevision: 2 }),
+    );
+    store.seedVersion(version("content-current-slot", "scheduled"));
+    store.seedVersion(version("content-orphaned-slot", "scheduled"));
+    await store.transaction((transaction) =>
+      transaction.insertScheduleTask(
+        pendingTask("schedule-task-orphaned", "content-orphaned-slot", 1),
+      ),
+    );
+    const task = await store.claimNextScheduleTask({
+      attemptToken: "attempt-orphaned",
+      claimedAt: "2026-08-01T10:00:00.000Z",
+      leaseExpiresAt: "2026-08-01T10:05:00.000Z",
+      workerId: "worker-orphaned",
+    });
+    expect(task).not.toBeNull();
+
+    await expect(
+      service.publishScheduledTask({
+        attemptToken: "attempt-orphaned",
+        taskId: task!.taskId,
+        workerId: "worker-orphaned",
+      }),
+    ).resolves.toMatchObject({
+      action: {
+        state: "approved",
+        transitions: [
+          {
+            contentVersion: "content-orphaned-slot",
+            fromState: "scheduled",
+            toState: "approved",
+          },
+        ],
+      },
+      kind: "terminated",
+    });
+    await expect(store.readProjection(fortuneDate)).resolves.toMatchObject({
+      lifecycleRevision: 4,
+      scheduleSlotRevision: 2,
+      scheduledContentVersion: "content-current-slot",
+      scheduledEffectiveFrom: effectiveFrom,
+    });
+    await expect(store.readScheduleTask(task!.taskId)).resolves.toMatchObject({
+      status: "terminated",
+      terminationReason: "排期任务已被当前排期槽替换，孤立任务已终止。",
+    });
+    await expect(store.readVersion("content-orphaned-slot")).resolves.toMatchObject({
+      state: "approved",
+    });
+    await expect(store.readVersion("content-current-slot")).resolves.toMatchObject({
+      state: "scheduled",
+    });
+  });
+
+  it("terminates a claimed task when its day projection is missing", async () => {
+    const { service, store } = harness("2026-08-01T10:00:00.000Z");
+    await store.transaction((transaction) =>
+      transaction.insertScheduleTask(
+        pendingTask("schedule-task-missing-projection", "content-without-day", 1),
+      ),
+    );
+    const task = await store.claimNextScheduleTask({
+      attemptToken: "attempt-missing-projection",
+      claimedAt: "2026-08-01T10:00:00.000Z",
+      leaseExpiresAt: "2026-08-01T10:05:00.000Z",
+      workerId: "worker-missing-projection",
+    });
+    expect(task).not.toBeNull();
+
+    await expect(
+      service.publishScheduledTask({
+        attemptToken: "attempt-missing-projection",
+        taskId: task!.taskId,
+        workerId: "worker-missing-projection",
+      }),
+    ).resolves.toEqual({ kind: "stale" });
+    await expect(store.readScheduleTask(task!.taskId)).resolves.toMatchObject({
+      status: "terminated",
+      terminationReason: "排期任务对应日期投影不存在，任务已终止。",
+    });
+    await expect(
+      store.claimNextScheduleTask({
+        attemptToken: "attempt-after-lease",
+        claimedAt: "2026-08-01T10:05:00.001Z",
+        leaseExpiresAt: "2026-08-01T10:10:00.001Z",
+        workerId: "worker-after-lease",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("withdraws and rolls back a safe superseded version after the historical window", async () => {

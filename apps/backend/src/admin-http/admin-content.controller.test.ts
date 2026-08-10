@@ -7,12 +7,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import type { AdminAuthService, SessionPrincipal } from "../admin-auth/admin-auth.service";
 import type { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
+import type { ContentProductionService } from "../content-production/content-production.service";
 import type { ContentReleaseService } from "../content-release/content-release.service";
 import { AdminContentController } from "./admin-content.controller";
 import { AdminHttpExceptionFilter } from "./admin-http-exception.filter";
 import {
   ADMIN_AUTH_SERVICE,
   CONTENT_LIFECYCLE_SERVICE,
+  CONTENT_PRODUCTION_SERVICE,
   CONTENT_RELEASE_SERVICE,
 } from "./admin-http.providers";
 import { installAdminRequestProtection } from "./admin-request-protection";
@@ -46,6 +48,11 @@ const lifecycleService = {
   submitDraft: vi.fn(),
   updateDraftModule: vi.fn(),
 } as unknown as ContentLifecycleService;
+
+const productionService = {
+  ensureDay: vi.fn(),
+  list: vi.fn(),
+} as unknown as ContentProductionService;
 
 const releaseService = {
   cancelSchedule: vi.fn(),
@@ -114,6 +121,7 @@ const protectedWriteHeaders = {
   providers: [
     { provide: ADMIN_AUTH_SERVICE, useValue: authService },
     { provide: CONTENT_LIFECYCLE_SERVICE, useValue: lifecycleService },
+    { provide: CONTENT_PRODUCTION_SERVICE, useValue: productionService },
     { provide: CONTENT_RELEASE_SERVICE, useValue: releaseService },
     { provide: APP_FILTER, useClass: AdminHttpExceptionFilter },
   ],
@@ -141,6 +149,7 @@ describe("admin content HTTP", () => {
     vi.resetAllMocks();
     vi.mocked(authService.authenticateSession).mockResolvedValue(principal);
     vi.mocked(authService.recordCsrfRejected).mockResolvedValue(undefined);
+    vi.mocked(productionService.list).mockResolvedValue({ items: [] });
   });
 
   afterAll(async () => {
@@ -204,6 +213,120 @@ describe("admin content HTTP", () => {
       copyFromContentVersion: null,
       fortuneDate: "2026-08-02",
       requestId: "content-draft-create",
+    });
+  });
+
+  it("automatically prepares one day for review without an empty manual draft", async () => {
+    vi.mocked(productionService.ensureDay).mockResolvedValue({
+      kind: "accepted",
+      production: {
+        completedImageSlots: 0,
+        draftId: "auto-draft-1",
+        draftRevision: 1,
+        fortuneDate: "2026-08-02",
+        imageSlots: [
+          {
+            attemptLimit: 3,
+            attempts: 0,
+            canRetry: false,
+            deliveryReady: false,
+            imageSlot: "required_primary",
+            lastError: null,
+            nextAttemptAt: "2026-08-01T08:00:00.000Z",
+            status: "pending",
+          },
+          {
+            attemptLimit: 3,
+            attempts: 0,
+            canRetry: false,
+            deliveryReady: false,
+            imageSlot: "required_alternative",
+            lastError: null,
+            nextAttemptAt: "2026-08-01T08:00:00.000Z",
+            status: "pending",
+          },
+          {
+            attemptLimit: 0,
+            attempts: 0,
+            canRetry: false,
+            deliveryReady: false,
+            imageSlot: "optional",
+            lastError: null,
+            nextAttemptAt: null,
+            status: "not_requested",
+          },
+        ],
+        lastError: null,
+        optionalImageStatus: "not_requested",
+        pendingImageSlots: 2,
+        requiredGenerationComplete: false,
+        requiredImagesReady: false,
+        status: "generating",
+        updatedAt: "2026-08-01T08:00:00.000Z",
+      },
+    });
+    const response = await app.inject({
+      headers: {
+        ...protectedWriteHeaders,
+        "idempotency-key": "generate-2026-08-02-once",
+        "x-request-id": "content-production-create",
+      },
+      method: "POST",
+      payload: { fortuneDate: "2026-08-02" },
+      url: "/admin/api/v1/daily-content-productions",
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({
+      completedImageSlots: 0,
+      draftId: "auto-draft-1",
+      draftRevision: 1,
+      fortuneDate: "2026-08-02",
+      imageSlots: [
+        {
+          attemptLimit: 3,
+          attempts: 0,
+          canRetry: false,
+          deliveryReady: false,
+          imageSlot: "required_primary",
+          lastError: null,
+          nextAttemptAt: "2026-08-01T08:00:00.000Z",
+          status: "pending",
+        },
+        {
+          attemptLimit: 3,
+          attempts: 0,
+          canRetry: false,
+          deliveryReady: false,
+          imageSlot: "required_alternative",
+          lastError: null,
+          nextAttemptAt: "2026-08-01T08:00:00.000Z",
+          status: "pending",
+        },
+        {
+          attemptLimit: 0,
+          attempts: 0,
+          canRetry: false,
+          deliveryReady: false,
+          imageSlot: "optional",
+          lastError: null,
+          nextAttemptAt: null,
+          status: "not_requested",
+        },
+      ],
+      lastError: null,
+      optionalImageStatus: "not_requested",
+      pendingImageSlots: 2,
+      requiredGenerationComplete: false,
+      requiredImagesReady: false,
+      status: "generating",
+      updatedAt: "2026-08-01T08:00:00.000Z",
+    });
+    expect(productionService.ensureDay).toHaveBeenCalledWith({
+      actorId: "admin-1",
+      fortuneDate: "2026-08-02",
+      idempotencyKey: "generate-2026-08-02-once",
+      requestId: "content-production-create",
     });
   });
 
@@ -352,7 +475,7 @@ describe("admin content HTTP", () => {
         contentVersion: "content-opaque-1",
         draftId: "draft-1",
         lifecycleRevision: 4,
-        state: "in_review",
+        state: "approved",
       },
     });
 
@@ -373,7 +496,7 @@ describe("admin content HTTP", () => {
       contentVersion: "content-opaque-1",
       draftId: "draft-1",
       lifecycleRevision: 4,
-      state: "in_review",
+      state: "approved",
     });
     expect(lifecycleService.submitDraft).toHaveBeenCalledWith({
       actorId: "admin-1",

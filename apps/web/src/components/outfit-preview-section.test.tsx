@@ -93,7 +93,7 @@ const section = {
 
 describe("OutfitPreviewSection", () => {
   it("shows three actionable summaries in the fixed mono, dual and triple order", () => {
-    render(<OutfitPreviewSection section={section} />);
+    render(<OutfitPreviewSection channelId="wechat_official" section={section} />);
 
     const preview = screen.getByRole("region", { name: "今日怎么搭" });
     const links = within(preview).getAllByRole("link");
@@ -112,7 +112,7 @@ describe("OutfitPreviewSection", () => {
     expect(links[2]).toHaveAccessibleName("查看三色穿法：通勤三色搭配");
     expect(links[2]).toHaveAttribute(
       "href",
-      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01",
+      "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01&channelId=wechat_official",
     );
   });
 

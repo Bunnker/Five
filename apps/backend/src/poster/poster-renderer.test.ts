@@ -1,12 +1,21 @@
 import type { components } from "@five/api-contract";
-import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 
-import { FixedSvgPosterRenderer, StrictPosterImageOriginPolicy } from "./poster-renderer";
+import {
+  FixedSvgPosterRenderer,
+  LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+  PublicWebPosterImageOriginPolicy,
+  StrictPosterImageOriginPolicy,
+} from "./poster-renderer";
 
 type DailyContent = components["schemas"]["DailyContent"];
 
-const SOURCE_IMAGE_BYTES = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x46, 0x49, 0x56, 0x45]);
+const SOURCE_IMAGE_BYTES = Buffer.from(
+  "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/vuUAAA=",
+  "base64",
+);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function reviewedImageResponse(
   body: string | Uint8Array = SOURCE_IMAGE_BYTES,
@@ -221,59 +230,35 @@ const input = {
 };
 
 describe("FixedSvgPosterRenderer", () => {
-  it("embeds the reviewed published image and complete content in a self-contained frozen SVG", async () => {
+  it("renders the reviewed published image and complete content as a shareable PNG", async () => {
     const fetchImage = vi.fn(async () => reviewedImageResponse());
     const renderer = createRenderer(fetchImage);
     const rendered = await renderer.render({ content: fixtureContent(), ...input });
-    const svg = rendered.body.toString("utf8");
-    const qrData = /id="web-qr"[^>]+href="data:image\/svg\+xml;base64,([^"]+)"/u.exec(svg)?.[1];
-    const expectedImageData = `data:image/webp;base64,${Buffer.from(SOURCE_IMAGE_BYTES).toString("base64")}`;
+    const metadata = await sharp(rendered.body).metadata();
 
-    expect(rendered.mediaType).toBe("image/svg+xml");
+    expect(rendered.mediaType).toBe("image/png");
+    expect(rendered.body.subarray(0, PNG_SIGNATURE.byteLength)).toEqual(PNG_SIGNATURE);
+    expect(metadata).toMatchObject({ format: "png", height: 1440, width: 1080 });
     expect(fetchImage).toHaveBeenCalledOnce();
     expect(fetchImage).toHaveBeenCalledWith(
       "https://cdn.example.com/reviewed-look-01.webp?approved=true&kind=cover",
       expect.objectContaining({ redirect: "error" }),
     );
-    expect(svg).toContain('data-template-version="poster-template-v3"');
-    expect(svg).toContain('data-template-layout="five-fixed-portrait-v3"');
-    expect(svg).toContain('data-content-version="fd-20260715-r3"');
-    expect(svg).toContain('data-source-asset-id="reviewed-look-01"');
-    expect(svg).toContain(expectedImageData);
-    expect(svg).not.toContain("https://cdn.example.com/reviewed-look-01.webp");
-    expect(svg).toContain("庚寅日");
-    expect(svg).toContain("木日");
-    expect(svg).toContain("大吉");
-    expect(svg).toContain("次吉");
-    expect(svg).toContain("平");
-    expect(svg).toContain("较差");
-    expect(svg).toContain("不利");
-    expect(svg).toContain("今日通勤三色搭配");
-    expect(svg).toContain("主色 60% · 大吉 · 绿色 · 上衣");
-    expect(svg).toContain("内容基于传统文化规则整理，仅供穿搭参考。");
-    expect(svg).toContain("AI 生成穿搭示意图");
-    expect(qrData).toBeDefined();
-
-    const qrSvg = Buffer.from(qrData ?? "", "base64").toString("utf8");
-    expect(qrSvg).toMatch(/<svg[^>]+viewBox="0 0 \d+ \d+"[^>]*>.*<path/u);
-    expect(qrSvg).toMatch(/<path stroke="#000000" d="M4 4\.5/u);
   });
 
-  // A layout change must deliberately update both this golden and the published template version.
   it.each([
     {
-      expectedHash: "1e02b1771857e187645ab00ce83c4a4682905630fc779fdcb824e5cc22f0fba4",
-      layoutIdentity: "five-fixed-portrait-v3",
       posterTemplateVersion: "poster-template-v3",
     },
     {
-      expectedHash: "f8e30db22d10a11046c17e134a4d3ea0497971ac60889cf8ee24a91405cd9c86",
-      layoutIdentity: "five-demo-portrait-v1",
       posterTemplateVersion: "demo-poster-v1",
     },
+    {
+      posterTemplateVersion: LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+    },
   ])(
-    "dispatches the supported $posterTemplateVersion template with a frozen layout",
-    async ({ expectedHash, layoutIdentity, posterTemplateVersion }) => {
+    "dispatches the supported $posterTemplateVersion template as the fixed portrait PNG",
+    async ({ posterTemplateVersion }) => {
       const content = fixtureContent({
         share: { ...fixtureContent().share, posterTemplateVersion },
         versions: { ...fixtureContent().versions, posterTemplateVersion },
@@ -286,10 +271,54 @@ describe("FixedSvgPosterRenderer", () => {
         posterTemplateVersion,
       });
 
-      expect(rendered.body.toString("utf8")).toContain(`data-template-layout="${layoutIdentity}"`);
-      expect(createHash("sha256").update(rendered.body).digest("hex")).toBe(expectedHash);
+      expect(rendered.mediaType).toBe("image/png");
+      await expect(sharp(rendered.body).metadata()).resolves.toMatchObject({
+        format: "png",
+        height: 1440,
+        width: 1080,
+      });
     },
   );
+
+  it("maps the legacy automatic snapshot version to the contract layout pixels", async () => {
+    const renderer = createRenderer();
+    const contract = await renderer.render({ content: fixtureContent(), ...input });
+    const legacyContent = fixtureContent({
+      share: {
+        ...fixtureContent().share,
+        posterTemplateVersion: LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+      },
+      versions: {
+        ...fixtureContent().versions,
+        posterTemplateVersion: LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+      },
+    });
+    const legacy = await renderer.render({
+      ...input,
+      content: legacyContent,
+      posterTemplateVersion: LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+    });
+
+    const [contractPixels, legacyPixels] = await Promise.all([
+      sharp(contract.body).raw().toBuffer(),
+      sharp(legacy.body).raw().toBuffer(),
+    ]);
+    expect(legacyPixels).toEqual(contractPixels);
+  }, 15_000);
+
+  it("fails closed when a legacy job does not match the frozen content template", async () => {
+    const fetchImage = vi.fn(async () => reviewedImageResponse());
+    const renderer = createRenderer(fetchImage);
+
+    await expect(
+      renderer.render({
+        ...input,
+        content: fixtureContent(),
+        posterTemplateVersion: LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+      }),
+    ).rejects.toThrow("Poster source version does not match the frozen published content");
+    expect(fetchImage).not.toHaveBeenCalled();
+  });
 
   it("rejects an unknown template before fetching any image", async () => {
     const fetchImage = vi.fn(async () => reviewedImageResponse());
@@ -317,6 +346,52 @@ describe("FixedSvgPosterRenderer", () => {
       "origin is not allowed",
     );
     expect(fetchImage).not.toHaveBeenCalled();
+  });
+
+  it("renders a reviewed relative image through the trusted public image endpoint", async () => {
+    const publicImageUrl = "http://127.0.0.1:3000/api/v1/image-assets/asset-reviewed-01";
+    const fetchImage = vi.fn(async () =>
+      reviewedImageResponse(
+        SOURCE_IMAGE_BYTES,
+        {
+          "content-length": String(SOURCE_IMAGE_BYTES.byteLength),
+          "content-type": "image/webp",
+        },
+        publicImageUrl,
+      ),
+    );
+    const base = fixtureContent();
+    const firstLook = base.looks[0];
+    if (firstLook === undefined) {
+      throw new Error("Fixture must contain a reviewed look");
+    }
+    const renderer = new FixedSvgPosterRenderer(
+      fetchImage,
+      new PublicWebPosterImageOriginPolicy("http://127.0.0.1:3000", ["https://cdn.example.com"]),
+    );
+
+    const rendered = await renderer.render({
+      ...input,
+      content: fixtureContent({
+        looks: [
+          {
+            ...firstLook,
+            coverImage: {
+              ...firstLook.coverImage,
+              assetId: "asset-reviewed-01",
+              url: "/api/v1/image-assets/asset-reviewed-01",
+            },
+          },
+        ],
+      }),
+    });
+
+    expect(fetchImage).toHaveBeenCalledWith(
+      publicImageUrl,
+      expect.objectContaining({ redirect: "error" }),
+    );
+    expect(rendered.mediaType).toBe("image/png");
+    expect(rendered.body.subarray(0, PNG_SIGNATURE.byteLength)).toEqual(PNG_SIGNATURE);
   });
 
   it.each([
@@ -423,7 +498,7 @@ describe("FixedSvgPosterRenderer", () => {
     expect(rendered.body.byteLength).toBeLessThan(10 * 1024 * 1024);
   });
 
-  it("wraps and truncates long published copy without emitting unsafe or overlapping raw text", async () => {
+  it("renders bounded PNG output when published copy requires wrapping and escaping", async () => {
     const longSummary = `<unsafe>${"很长的摘要内容".repeat(45)}</unsafe>`;
     const longDisclaimer = `传统文化参考${"请理性阅读".repeat(60)}`;
     const longAiDisclosure = `AI 图片说明${"仅为穿搭示意".repeat(30)}`;
@@ -446,16 +521,9 @@ describe("FixedSvgPosterRenderer", () => {
         share: { ...base.share, summaryText: longSummary },
       }),
     });
-    const svg = rendered.body.toString("utf8");
+    const metadata = await sharp(rendered.body).metadata();
 
-    expect(svg).not.toContain(longSummary);
-    expect(svg).not.toContain(longDisclaimer);
-    expect(svg).not.toContain(longAiDisclosure);
-    expect(svg).not.toContain("<unsafe>");
-    expect(svg).toContain("&lt;unsafe&gt;");
-    expect(svg).toContain("…");
-    expect(svg.match(/data-text-block="summary"/gu)).toHaveLength(1);
-    expect(svg.match(/data-text-block="disclaimer"/gu)).toHaveLength(1);
-    expect(svg.match(/data-text-block="ai-disclosure"/gu)).toHaveLength(1);
+    expect(metadata).toMatchObject({ format: "png", height: 1440, width: 1080 });
+    expect(rendered.body.byteLength).toBeLessThan(10 * 1024 * 1024);
   });
 });

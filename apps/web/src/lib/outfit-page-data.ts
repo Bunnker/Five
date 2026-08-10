@@ -1,4 +1,5 @@
 import { loadLookDetail, type LookDetailData, type LookDetailLoadResult } from "./look-detail";
+import { parsePublicChannelId } from "./channel-links";
 import {
   loadToday,
   resolveOutfitPreviewImages,
@@ -11,11 +12,14 @@ export type OutfitSearchParamValue = string | string[] | undefined;
 
 export interface SelectedOutfit {
   cards: OutfitPreviewCardData[];
+  channelId: string;
   contentVersion: string;
+  effectiveTo?: string;
   fortuneDate: string;
   imagesByFormula: ReadonlyMap<string, TodayImagePreviewCardData>;
   selectedCard: OutfitPreviewCardData;
   shareHref: string | null;
+  responseGeneratedAt?: string;
   view: "all" | "plan";
 }
 
@@ -70,11 +74,14 @@ function selectOutfit(
   params: Record<string, OutfitSearchParamValue>,
 ): OutfitSelectionResult {
   const expectedContentVersion = getSingleSearchParam(params.expectedContentVersion);
+  const carriesChannelId = params.channelId !== undefined;
+  const channelId = carriesChannelId ? parsePublicChannelId(params.channelId) : "organic";
   const formulaId = getSingleSearchParam(params.formulaId);
   const fortuneDate = getSingleSearchParam(params.fortuneDate);
   const view = params.view === undefined ? "all" : getSingleSearchParam(params.view);
 
   if (
+    channelId === null ||
     expectedContentVersion === null ||
     formulaId === null ||
     fortuneDate === null ||
@@ -103,7 +110,9 @@ function selectOutfit(
   return {
     selection: {
       cards: section.cards,
+      channelId,
       contentVersion: section.contentVersion,
+      effectiveTo: today.content.effectiveTo,
       fortuneDate,
       imagesByFormula: resolveOutfitPreviewImages(section, today.imagePreviewSection),
       selectedCard,
@@ -111,6 +120,7 @@ function selectOutfit(
         today.nextSteps?.contentVersion === section.contentVersion
           ? today.nextSteps.shareHref
           : null,
+      responseGeneratedAt: today.requestContext.responseGeneratedAt,
       view,
     },
     status: "selected",

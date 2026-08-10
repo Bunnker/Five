@@ -15,4 +15,6 @@ coverage/
 *.tsbuildinfo
 .pnpm-debug.log
 .playwright-cli/
+.playwright-mcp/
 apps/backend/.five-assets/
+.gstack/

@@ -15,6 +15,7 @@ import {
   isImageAssetReviewRequest,
   isImageAssetUploadMetadata,
   isImageAssetWithdrawalResult,
+  isPublicContentContext,
   isWithdrawImageAssetRequest,
 } from "./runtime";
 
@@ -28,6 +29,22 @@ describe("isErrorCode", () => {
     expect(isErrorCode("PUBLISH_PRECHECK_FAILED")).toBe(true);
     expect(isErrorCode("NOT_IN_THE_CONTRACT")).toBe(false);
     expect(isErrorCode(null)).toBe(false);
+  });
+});
+
+describe("isPublicContentContext", () => {
+  it("accepts only the explicit Beijing 18:00 serving context", () => {
+    const context = {
+      advancedFromCivilDate: true,
+      servedFortuneDate: "2026-08-07",
+      switchBoundary: "18:00",
+    };
+
+    expect(isPublicContentContext(context)).toBe(true);
+    expect(isPublicContentContext({ ...context, switchBoundary: "23:00" })).toBe(false);
+    expect(isPublicContentContext({ ...context, servedFortuneDate: "2026-02-30" })).toBe(false);
+    expect(isPublicContentContext({ ...context, advancedFromCivilDate: "true" })).toBe(false);
+    expect(isPublicContentContext({ ...context, unexpected: true })).toBe(false);
   });
 });
 
@@ -276,6 +293,18 @@ describe("generated contract runtime guards", () => {
     }
   });
 
+  it("accepts a bounded operator correction for the non-algorithm balance suggestion", () => {
+    const copy = structuredClone(modules.copy_and_formula) as Record<string, unknown>;
+    const balanceSuggestion = copy.balanceSuggestion as Record<string, unknown>;
+    balanceSuggestion.description =
+      "已经穿好衣服时，可以用今日大吉色的普通配饰做少量点缀，不必整套更换。";
+
+    expect(isDraftModuleUpdate("copy_and_formula", copy)).toBe(true);
+
+    balanceSuggestion.description = " ";
+    expect(isDraftModuleUpdate("copy_and_formula", copy)).toBe(false);
+  });
+
   it("rejects a valid module under the wrong module code", () => {
     expect(isDraftModuleUpdate("poster_consistency", modules.calendar_algorithm)).toBe(false);
   });
@@ -340,7 +369,7 @@ describe("generated contract runtime guards", () => {
     expect(isDraftModuleUpdate("visual_and_rights", visual)).toBe(false);
   });
 
-  it("requires every required cover to freeze a distinct approved fallback from the same asset set", () => {
+  it("requires every required cover to freeze a distinct non-rejected fallback from the same asset set", () => {
     const missingFallback = structuredClone(modules.visual_and_rights) as Record<string, unknown>;
     const missingFallbackLooks = missingFallback.looks as Array<Record<string, unknown>>;
     missingFallbackLooks[0] = { ...missingFallbackLooks[0], fallbackAssetId: null };
@@ -380,7 +409,7 @@ describe("generated contract runtime guards", () => {
     expect(isDraftModuleUpdate("visual_and_rights", reusedCover)).toBe(false);
     expect(isDraftModuleUpdate("visual_and_rights", unknownFallback)).toBe(false);
     expect(isDraftModuleUpdate("visual_and_rights", rejectedFallback)).toBe(false);
-    expect(isDraftModuleUpdate("visual_and_rights", privateFallback)).toBe(false);
+    expect(isDraftModuleUpdate("visual_and_rights", privateFallback)).toBe(true);
   });
 
   it("validates upload metadata without trusting client file hashes or dimensions", () => {
@@ -516,8 +545,10 @@ describe("generated contract runtime guards", () => {
       draftId: "draft-1",
       draftRevision: 2,
       fortuneDate: "2026-08-02",
+      imageSlot: "required_primary",
       previewUrl: "/admin/api/v1/image-assets/asset-1/preview",
       reviewLocked: false,
+      selectedForSlot: true,
     };
 
     expect(isDraftImageAssetResult(result)).toBe(true);
@@ -525,6 +556,7 @@ describe("generated contract runtime guards", () => {
     delete missingReviewLock.reviewLocked;
     expect(isDraftImageAssetResult(missingReviewLock)).toBe(false);
     expect(isDraftImageAssetResult({ ...result, reviewLocked: "false" })).toBe(false);
+    expect(isDraftImageAssetResult({ ...result, imageSlot: "guessed_from_order" })).toBe(false);
     expect(isDraftImageAssetResult({ ...result, fortuneDate: "2026-02-30" })).toBe(false);
     expect(isDraftImageAssetResult({ ...result, unexpected: true })).toBe(false);
     expect(
@@ -556,8 +588,10 @@ describe("generated contract runtime guards", () => {
       items: [
         {
           asset: approvedAssets[0],
+          imageSlot: null,
           previewUrl: "/admin/api/v1/image-assets/asset-1/preview",
           reviewLocked: true,
+          selectedForSlot: false,
         },
       ],
     };
@@ -566,7 +600,13 @@ describe("generated contract runtime guards", () => {
     expect(
       isDraftImageAssetList({
         ...list,
-        items: [{ asset: list.items[0].asset, previewUrl: list.items[0].previewUrl }],
+        items: [
+          {
+            asset: list.items[0].asset,
+            imageSlot: list.items[0].imageSlot,
+            previewUrl: list.items[0].previewUrl,
+          },
+        ],
       }),
     ).toBe(false);
     expect(
@@ -810,7 +850,7 @@ describe("generated contract runtime guards", () => {
     expect(isAdminDailyImageSet(optionalOmitted)).toBe(true);
   });
 
-  it("never treats an approved asset without a public URL as deliverable", () => {
+  it("serves an approved asset through the immutable public asset route when fileUrl is absent", () => {
     const privateFallback = cloneAdminDailyImageSet();
     const requiredCover = privateFallback.assets.find((asset) => asset.assetId === "asset-1");
     const fallback = privateFallback.assets.find((asset) => asset.assetId === "fallback-1");
@@ -825,7 +865,7 @@ describe("generated contract runtime guards", () => {
       servedCoverAssetId: "fallback-1",
     };
 
-    expect(isAdminDailyImageSet(privateFallback)).toBe(false);
+    expect(isAdminDailyImageSet(privateFallback)).toBe(true);
   });
 
   it("represents a required slot as unavailable only when neither frozen image can be served", () => {

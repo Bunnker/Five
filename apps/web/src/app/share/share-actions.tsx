@@ -2,29 +2,33 @@
 
 import { useState } from "react";
 
-import { FoundationButton } from "../../components/visual-foundation";
+import { FoundationAction, FoundationButton } from "../../components/visual-foundation";
+import { generateAnalyticsReferralId, trackAnalyticsEvent } from "../../lib/analytics";
 import type { FiveApiPaths } from "../../lib/api-contract";
-import type { TodayShareData } from "../../lib/today";
 
 type PosterJobRequest =
   FiveApiPaths["/api/v1/poster-jobs"]["post"]["requestBody"]["content"]["application/json"];
 
 type ShareActionsProps = Pick<PosterJobRequest, "channelId" | "fortuneDate"> & {
   contentVersion: PosterJobRequest["expectedContentVersion"];
-  copyText: TodayShareData["copyText"];
-  copyTextControlId: string;
-  summaryText: TodayShareData["summaryText"];
 };
 
 function buildDailyLandingPath({
   channelId,
   contentVersion,
   fortuneDate,
-}: Pick<ShareActionsProps, "channelId" | "contentVersion" | "fortuneDate">): string {
+  referralId,
+}: Pick<ShareActionsProps, "contentVersion" | "fortuneDate"> & {
+  channelId: string;
+  referralId: string | null;
+}): string {
   const searchParams = new URLSearchParams({
     channelId,
     expectedContentVersion: contentVersion,
   });
+  if (referralId !== null) {
+    searchParams.set("referralId", referralId);
+  }
 
   return `/daily/${encodeURIComponent(fortuneDate)}?${searchParams.toString()}`;
 }
@@ -67,26 +71,42 @@ async function copyToClipboard(value: string): Promise<boolean> {
   return copyWithSelectableControl(value);
 }
 
-export function ShareActions({
-  channelId,
-  contentVersion,
-  copyText,
-  copyTextControlId,
-  fortuneDate,
-  summaryText,
-}: ShareActionsProps) {
-  const landingPath = buildDailyLandingPath({ channelId, contentVersion, fortuneDate });
+function isWechatBrowser(): boolean {
+  return /MicroMessenger/iu.test(navigator.userAgent);
+}
+
+export function ShareActions({ contentVersion, fortuneDate }: ShareActionsProps) {
   const [manualLandingUrl, setManualLandingUrl] = useState<string | null>(null);
+  const [wechatDailyPath, setWechatDailyPath] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  function getLandingUrl(): string {
+  function createShareIntent(): string {
+    const referralId = generateAnalyticsReferralId();
+    const landingPath = buildDailyLandingPath({
+      channelId: "user_share",
+      contentVersion,
+      fortuneDate,
+      referralId,
+    });
+    trackAnalyticsEvent({
+      channelId: "user_share",
+      contentVersion,
+      eventName: "share_summary_initiated",
+      fortuneDate,
+      referralId,
+    });
+    return landingPath;
+  }
+
+  function getLandingUrl(landingPath: string): string {
     return new URL(landingPath, window.location.origin).toString();
   }
 
-  async function copyLandingUrl(message: string): Promise<void> {
-    const landingUrl = getLandingUrl();
+  async function copyLandingUrl(message: string, landingPath = createShareIntent()): Promise<void> {
+    const landingUrl = getLandingUrl(landingPath);
     if (await copyToClipboard(landingUrl)) {
       setManualLandingUrl(null);
+      setWechatDailyPath(null);
       setStatusMessage(message);
       return;
     }
@@ -95,57 +115,49 @@ export function ShareActions({
     setStatusMessage("自动复制失败，请长按下方链接手动复制。");
   }
 
-  async function copyDailyText(): Promise<void> {
-    if (await copyToClipboard(copyText)) {
-      setStatusMessage("今日文字已复制，可直接粘贴到微信群。");
+  async function shareDailyPage(): Promise<void> {
+    const landingPath = createShareIntent();
+    if (isWechatBrowser()) {
+      setManualLandingUrl(null);
+      setWechatDailyPath(landingPath);
+      setStatusMessage(
+        "微信右上角会分享当前引导页。要让好友直接看到完整五行内容，请先打开当日页面，再使用右上角分享。",
+      );
       return;
     }
+    setWechatDailyPath(null);
 
-    const selectableCopy = document.getElementById(copyTextControlId);
-    if (selectableCopy instanceof HTMLTextAreaElement) {
-      selectableCopy.focus();
-      selectableCopy.select();
-    }
-    setStatusMessage("自动复制失败，请长按上方文字手动复制。");
-  }
-
-  async function shareWithSystem(): Promise<void> {
     if (typeof navigator.share !== "function") {
-      await copyLandingUrl("当前浏览器不支持系统分享，链接已复制。");
+      await copyLandingUrl("当前浏览器无法直接分享，页面链接已复制。", landingPath);
       return;
     }
 
     try {
-      await navigator.share({
-        text: summaryText,
-        title: `Five · ${fortuneDate} 今日穿衣参考`,
-        url: getLandingUrl(),
+      const shareResult = navigator.share({
+        title: `Five · ${fortuneDate} 五行穿衣`,
+        url: getLandingUrl(landingPath),
       });
+      await shareResult;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        setStatusMessage("已取消系统分享，你仍可复制链接。");
+        setStatusMessage("已取消分享，你仍可复制页面链接。");
         return;
       }
 
-      await copyLandingUrl("系统分享未完成，链接已复制。");
+      await copyLandingUrl("页面分享未完成，链接已复制。", landingPath);
     }
   }
 
   return (
     <section aria-labelledby="share-actions-title" className="share-actions">
       <div className="share-actions__intro">
-        <p>分享方式</p>
-        <h2 id="share-actions-title">把今天的参考发给朋友</h2>
-        <span>链接会固定到这一天，不会包含个人信息。</span>
+        <p>转发完整页面</p>
+        <h2 id="share-actions-title">发给微信好友或更多应用</h2>
+        <span>对方打开后会看到这一天完整的五档颜色、穿搭和模特图。</span>
       </div>
       <div className="share-actions__buttons">
-        <div className="share-actions__copy-text">
-          <FoundationButton fullWidth indicator="⧉" onClick={copyDailyText}>
-            复制今日文字
-          </FoundationButton>
-        </div>
-        <FoundationButton fullWidth indicator="↗" onClick={shareWithSystem} tone="secondary">
-          系统分享
+        <FoundationButton fullWidth indicator="↗" onClick={shareDailyPage}>
+          分享到微信或更多应用
         </FoundationButton>
         <FoundationButton
           fullWidth
@@ -156,6 +168,11 @@ export function ShareActions({
           复制链接
         </FoundationButton>
       </div>
+      {wechatDailyPath === null ? null : (
+        <FoundationAction fullWidth href={wechatDailyPath} indicator="→">
+          打开完整当日页面
+        </FoundationAction>
+      )}
       {manualLandingUrl === null ? null : (
         <label className="share-actions__manual-link">
           <span>指定日期分享链接</span>

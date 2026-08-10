@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { adminApi, describeAdminApiError, type SecurityEvent } from "../admin-api";
+import {
+  adminApi,
+  describeAdminApiError,
+  type AdminSession,
+  type SecurityEvent,
+} from "../admin-api";
 import { AdminSessionGate } from "../admin-session-gate";
 import { useAdminSession } from "../admin-session-context";
 
@@ -11,14 +16,11 @@ const actionLabels: Record<SecurityEvent["action"], string> = {
   csrf_rejected: "安全校验拒绝",
   emergency_resume: "恢复公开内容",
   emergency_stop: "停止公开内容",
-  login_password: "密码核验",
-  login_totp: "动态码登录",
+  login_password: "账号密码登录",
   logout_all: "注销全部会话",
   logout_current: "退出当前会话",
   offline_reset: "离线重置",
   rate_limited: "触发限流",
-  recovery_code: "恢复码核验",
-  recovery_completed: "完成控制权恢复",
 };
 
 type LoadingState =
@@ -26,6 +28,8 @@ type LoadingState =
   | { kind: "ready" }
   | { kind: "loading-more" }
   | { kind: "error"; message: string };
+type LogoutAllState =
+  { kind: "error"; message: string } | { kind: "idle" } | { kind: "submitting" };
 
 const occurredAtFormat = new Intl.DateTimeFormat("zh-CN", {
   day: "2-digit",
@@ -78,11 +82,26 @@ function SecurityEventCard({ event }: { event: SecurityEvent }) {
   );
 }
 
-function SecurityEventsContent() {
+function SecurityEventsContent({ session }: { session: AdminSession }) {
   const { clearSession } = useAdminSession();
   const [events, setEvents] = useState<SecurityEvent[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingState, setLoadingState] = useState<LoadingState>({ kind: "loading" });
+  const [logoutAllState, setLogoutAllState] = useState<LogoutAllState>({ kind: "idle" });
+
+  async function logoutAll(): Promise<void> {
+    if (logoutAllState.kind === "submitting") return;
+    setLogoutAllState({ kind: "submitting" });
+    const result = await adminApi.logoutAll(session.csrfToken);
+    if (result.ok || result.error.status === 401) {
+      clearSession();
+      return;
+    }
+    setLogoutAllState({
+      kind: "error",
+      message: describeAdminApiError(result.error, true),
+    });
+  }
 
   const loadEvents = useCallback(
     async (cursor: string | null, append: boolean) => {
@@ -123,6 +142,27 @@ function SecurityEventsContent() {
         <p>这里只显示单向来源指纹与受限浏览器摘要，不返回地址、凭据或令牌原文。</p>
       </header>
 
+      <section className="admin-signout" aria-labelledby="security-session-title">
+        <div>
+          <p className="admin-kicker">会话安全</p>
+          <h2 id="security-session-title">注销所有已登录设备</h2>
+          <p>仅在怀疑账号泄露或遗失设备时使用；操作后当前浏览器也需要重新登录。</p>
+        </div>
+        <button
+          className="admin-button admin-button--danger-outline"
+          disabled={logoutAllState.kind === "submitting"}
+          onClick={() => void logoutAll()}
+          type="button"
+        >
+          {logoutAllState.kind === "submitting" ? "正在注销…" : "注销全部会话"}
+        </button>
+        {logoutAllState.kind === "error" ? (
+          <p className="admin-message admin-message--error" role="alert">
+            {logoutAllState.message}
+          </p>
+        ) : null}
+      </section>
+
       {loadingState.kind === "loading" ? (
         <p className="admin-loading" role="status">
           正在读取安全记录…
@@ -132,7 +172,7 @@ function SecurityEventsContent() {
       {events.length === 0 && loadingState.kind === "ready" ? (
         <section className="admin-state-card">
           <h2>还没有安全记录</h2>
-          <p>完成登录、恢复或紧急控制后，相关结果会出现在这里。</p>
+          <p>完成登录、离线重置或紧急控制后，相关结果会出现在这里。</p>
         </section>
       ) : null}
 
@@ -172,5 +212,7 @@ function SecurityEventsContent() {
 }
 
 export function SecurityEventsPanel() {
-  return <AdminSessionGate>{() => <SecurityEventsContent />}</AdminSessionGate>;
+  return (
+    <AdminSessionGate>{(session) => <SecurityEventsContent session={session} />}</AdminSessionGate>
+  );
 }

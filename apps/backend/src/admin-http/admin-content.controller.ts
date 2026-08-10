@@ -15,26 +15,37 @@ import {
 
 import type { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
 import type {
+  ContentProductionService,
+  DailyContentProduction,
+} from "../content-production/content-production.service";
+import type {
   ContentReleaseActionResult,
   ContentReleaseService,
 } from "../content-release/content-release.service";
 import { isFortuneDate } from "../today/public-route-params";
 import {
   isCreateDraftRequest,
+  isDailyImageSlot,
   isDraftModuleUpdate,
   isExpectedActiveVersionRequest,
+  isGenerateDailyContentRequest,
   isIdempotencyKey,
   isMasterReviewEvidenceRequest,
   isModuleCode,
   isOpaqueAdminId,
   isRollbackRequest,
   isReviewDecisionRequest,
+  isRequestImageSlotGenerationRequest,
   isScheduleRequest,
   isWithdrawRequest,
   parseStrongRevisionEtag,
 } from "./admin-content.validation";
 import { adminErrorEnvelope, type AdminHttpReply } from "./admin-http";
-import { CONTENT_LIFECYCLE_SERVICE, CONTENT_RELEASE_SERVICE } from "./admin-http.providers";
+import {
+  CONTENT_LIFECYCLE_SERVICE,
+  CONTENT_PRODUCTION_SERVICE,
+  CONTENT_RELEASE_SERVICE,
+} from "./admin-http.providers";
 import type { AdminProtectionRequest } from "./admin-request-protection";
 
 type ContentDraftList = components["schemas"]["ContentDraftList"];
@@ -215,9 +226,111 @@ export class AdminContentController {
   constructor(
     @Inject(CONTENT_LIFECYCLE_SERVICE)
     private readonly lifecycleService: ContentLifecycleService,
+    @Inject(CONTENT_PRODUCTION_SERVICE)
+    private readonly productionService: ContentProductionService,
     @Inject(CONTENT_RELEASE_SERVICE)
     private readonly releaseService: ContentReleaseService,
   ) {}
+
+  @Get("daily-content-productions")
+  async listProductions(
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<{ readonly items: DailyContentProduction[] } | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    return this.productionService.list();
+  }
+
+  @Post("daily-content-productions")
+  @HttpCode(202)
+  async generateDailyContent(
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<DailyContentProduction | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (!isGenerateDailyContentRequest(body) || !isIdempotencyKey(idempotencyKey)) {
+      return failure(request, reply, 400, "INVALID_ARGUMENT", "自动生成日期或幂等键格式无效。");
+    }
+    const result = await this.productionService.ensureDay({
+      actorId: request.adminPrincipal.accountId,
+      fortuneDate: body.fortuneDate,
+      idempotencyKey,
+      requestId: requestId(request),
+    });
+    if (result.kind === "accepted" || result.kind === "existing") return result.production;
+    if (result.kind === "idempotency_conflict") return idempotencyConflict(request, reply);
+    return failure(request, reply, 400, "INVALID_ARGUMENT", "无法自动生成这个日期的内容。");
+  }
+
+  @Post("daily-content-productions/:fortuneDate/drafts/:draftId/image-slots/:imageSlot/regenerate")
+  @HttpCode(202)
+  async requestImageSlotGeneration(
+    @Param("fortuneDate") fortuneDate: string,
+    @Param("draftId") draftId: string,
+    @Param("imageSlot") imageSlot: string,
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<DailyContentProduction | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) return unauthenticated(request, reply);
+    const idempotencyKey = request.headers["idempotency-key"];
+    const expectedDraftRevision = parseStrongRevisionEtag(request.headers["if-match"], "draft");
+    if (request.headers["if-match"] === undefined) {
+      return failure(
+        request,
+        reply,
+        428,
+        "PRECONDITION_REQUIRED",
+        "缺少当前草稿修订号，请刷新后重试。",
+      );
+    }
+    if (
+      !isFortuneDate(fortuneDate) ||
+      !isOpaqueAdminId(draftId) ||
+      !isDailyImageSlot(imageSlot) ||
+      !isRequestImageSlotGenerationRequest(body) ||
+      !isIdempotencyKey(idempotencyKey) ||
+      expectedDraftRevision === null
+    ) {
+      return failure(
+        request,
+        reply,
+        400,
+        "INVALID_ARGUMENT",
+        "图片槽位、草稿修订号、操作原因或幂等键格式无效。",
+      );
+    }
+    const result = await this.productionService.requestImageSlotGeneration({
+      actorId: request.adminPrincipal.accountId,
+      draftId,
+      expectedDraftRevision,
+      fortuneDate,
+      idempotencyKey,
+      imageSlot,
+      reason: body.reason,
+      requestId: requestId(request),
+    });
+    if (result.kind === "accepted" || result.kind === "existing") return result.production;
+    if (result.kind === "revision_mismatch") {
+      return revisionMismatch(request, reply, "draft", result.currentRevision);
+    }
+    if (result.kind === "idempotency_conflict") return idempotencyConflict(request, reply);
+    if (result.kind === "not_found") {
+      return failure(request, reply, 404, "RESOURCE_NOT_FOUND", "自动内容草稿或图片槽位不存在。");
+    }
+    if (result.kind === "invalid_state") {
+      return failure(
+        request,
+        reply,
+        409,
+        "INVALID_STATE_TRANSITION",
+        "这个图片槽位已有生成任务正在处理，请等待完成后再重新生成。",
+      );
+    }
+    return failure(request, reply, 400, "INVALID_ARGUMENT", "无法为这个图片槽位创建生成任务。");
+  }
 
   @Get("daily-content-drafts")
   async listDrafts(

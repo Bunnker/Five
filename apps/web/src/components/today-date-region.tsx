@@ -81,14 +81,16 @@ function InkLandscape() {
 }
 
 export function TodayDateRegion({ today }: TodayDateRegionProps) {
-  const { calendar } = today.content;
-  const { crossedDayBoundary, fortuneDate, shichen } = today.requestContext;
+  const { calendar, fortuneDate } = today.content;
+  const { crossedDayBoundary, shichen } = today.requestContext;
+  const { advancedFromCivilDate } = today.publicContentContext;
   const formattedDate = formatPublicFortuneDate(fortuneDate);
   const dateParts = splitPublicFortuneDate(fortuneDate);
 
   return (
     <section
       className="today-date-card"
+      data-admin-selection-key="calendar.summary"
       data-day-element={calendar.dayElement}
       data-day-element-label={calendar.dayElementLabel}
       aria-labelledby="today-element-heading"
@@ -137,13 +139,16 @@ export function TodayDateRegion({ today }: TodayDateRegionProps) {
           </dl>
 
           <h1 id="today-element-heading" aria-label={`今日${calendar.dayElementLabel}日`}>
-            今日<span>{calendar.dayElementLabel}</span>日
+            今日<strong>{calendar.dayElementLabel}</strong>日
           </h1>
         </div>
       </div>
 
       <InkLandscape />
 
+      {advancedFromCivilDate ? (
+        <p className="today-date-card__boundary-note">明日建议已更新</p>
+      ) : null}
       {crossedDayBoundary ? <p className="today-date-card__boundary-note">已进入次日子时</p> : null}
     </section>
   );

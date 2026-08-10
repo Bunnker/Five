@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { components } from "@five/api-contract";
 
+import { PublicContentContextResolver } from "../public-content/public-content-context-resolver";
 import { RequestContextResolver } from "../request-context/request-context-resolver";
 import type {
   DailyContentResolutionReader,
@@ -77,6 +78,7 @@ function createResolution(
 export class DailyContentService {
   constructor(
     private readonly requestContextResolver: RequestContextResolver,
+    private readonly publicContentContextResolver: PublicContentContextResolver,
     private readonly dailyContentResolutionReader: DailyContentResolutionReader,
     private readonly cachePolicy: TodayCachePolicy,
   ) {}
@@ -86,7 +88,8 @@ export class DailyContentService {
     fortuneDate,
   }: ReadDailyContentInput): Promise<DailyContentResult> {
     const requestContext = this.requestContextResolver.resolve();
-    if (isOutsidePublicRetention(fortuneDate, requestContext.fortuneDate)) {
+    const publicContentContext = this.publicContentContextResolver.resolve(requestContext);
+    if (isOutsidePublicRetention(fortuneDate, publicContentContext.servedFortuneDate)) {
       return { kind: "expired" };
     }
 

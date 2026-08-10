@@ -39,10 +39,10 @@ describe("OutfitDetailImage", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByText("通勤主图")).toBeVisible();
     const fallback = screen.getByRole("status");
-    expect(within(fallback).getByRole("list", { name: "审核配色" })).toBeVisible();
-    const metadata = within(fallback).getByRole("group", { name: "图片失败信息" });
-    expect(metadata).toHaveTextContent("原图说明 · AI 生成穿搭示意图");
-    expect(metadata).toHaveTextContent("内容版本 · fd-20260715-r1");
-    expect(fallback).toHaveTextContent("当前仅显示已审核配色，未使用替换图片");
+    expect(within(fallback).getByRole("list", { name: "参考配色" })).toBeVisible();
+    const metadata = within(fallback).getByRole("group", { name: "图片说明" });
+    expect(metadata).toHaveTextContent("AI 生成穿搭示意图");
+    expect(fallback).not.toHaveTextContent("fd-20260715-r1");
+    expect(fallback).toHaveTextContent("图片暂时无法显示，请参考下方配色");
   });
 });

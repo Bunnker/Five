@@ -1,11 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
-import { isDeliverableAdminImageAsset } from "@five/api-contract/runtime";
-
-import { CalendarRuleEngine } from "../calendar/calendar-rule-engine";
+import { PublicContentWindowResolver } from "../public-content/public-content-window-resolver";
 import { evaluateContentPreflight } from "./content-preflight";
-import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
+import { prepareImmediatePublicationModules } from "./immediate-publication-modules";
+import type {
+  StoredDailyImageSet,
+  StoredDraftImageAsset,
+  StoredDraftImageSelectionSource,
+} from "../daily-images/daily-image-asset.store";
 import {
   CONTENT_LIFECYCLE_IDEMPOTENCY_KEY_PATTERN,
   isStrictRfc3339DateTime,
@@ -44,7 +47,6 @@ const SYSTEM_IDENTIFIERS: ContentLifecycleIdentifiers = {
   nextDraftId: () => `draft-${randomUUID()}`,
   nextEvidenceId: () => `evidence-${randomUUID()}`,
 };
-const CALENDAR = new CalendarRuleEngine();
 
 const EMPTY_MODULES: DraftModules = {
   calendar_algorithm: null,
@@ -69,11 +71,7 @@ function deliverableSnapshotAsset(
   asset: NonNullable<DraftModules["visual_and_rights"]>["assets"][number] | undefined,
   rights: ReadonlySet<string>,
 ): boolean {
-  return (
-    asset !== undefined &&
-    isDeliverableAdminImageAsset(asset) &&
-    asset.rightsRecordIds.every((rightId) => rights.has(rightId))
-  );
+  return asset !== undefined && asset.rightsRecordIds.every((rightId) => rights.has(rightId));
 }
 
 function initialImageSlot(
@@ -162,11 +160,43 @@ function visualAssetsAreAuthoritative(
   );
 }
 
+function selectedCandidatesForCopy(
+  modules: DraftModules,
+  candidates: readonly StoredDraftImageAsset[],
+): StoredDraftImageAsset[] {
+  const selectedBySlot = new Map<
+    NonNullable<StoredDraftImageAsset["imageSlot"]>,
+    StoredDraftImageAsset
+  >();
+  for (const candidate of candidates) {
+    if (candidate.imageSlot !== null && candidate.selectedForSlot) {
+      selectedBySlot.set(candidate.imageSlot, candidate);
+    }
+  }
+  for (const look of modules.visual_and_rights?.looks ?? []) {
+    const candidate = candidates.find(
+      (item) => item.asset.assetId === look.coverAssetId && item.imageSlot === look.imageSlot,
+    );
+    if (candidate !== undefined) selectedBySlot.set(look.imageSlot, candidate);
+  }
+  return [...selectedBySlot.values()];
+}
+
 export type CreateDraftResult =
   | { readonly draft: ContentDraft; readonly kind: "created" }
   | { readonly kind: "invalid_argument" }
   | { readonly kind: "source_not_found" }
   | { readonly kind: "source_date_mismatch" };
+
+export interface SubmitDraftInput {
+  readonly actorId: string;
+  readonly draftId: string;
+  readonly expectedDraftRevision: number;
+  readonly idempotencyKey: string;
+  readonly requestId: string;
+}
+
+type DraftSubmissionMode = "automatic_production" | "ordinary_correction" | "standard";
 
 export type UpdateDraftModuleResult =
   | {
@@ -187,7 +217,7 @@ interface SubmitDraftResultBody {
   readonly contentVersion: string;
   readonly draftId: string;
   readonly lifecycleRevision: number;
-  readonly state: "in_review";
+  readonly state: "approved" | "in_review";
 }
 
 export type SubmitDraftResult =
@@ -247,19 +277,43 @@ export class ContentLifecycleService {
     private readonly store: ContentLifecycleStore,
     private readonly clock: ContentLifecycleClock = SYSTEM_CLOCK,
     private readonly identifiers: ContentLifecycleIdentifiers = SYSTEM_IDENTIFIERS,
+    private readonly publicContentWindowResolver = new PublicContentWindowResolver(),
   ) {}
 
   async createDraft(input: {
     readonly actorId: string;
     readonly copyFromContentVersion: string | null;
+    readonly copyFromDraftId?: string | null;
+    /** Reserved by a durable caller intent so a crash resumes the same draft. */
+    readonly draftId?: string;
     readonly fortuneDate: string;
     readonly requestId: string;
   }): Promise<CreateDraftResult> {
-    if (!validFortuneDate(input.fortuneDate)) return { kind: "invalid_argument" };
+    if (
+      !validFortuneDate(input.fortuneDate) ||
+      (input.draftId !== undefined && !validReservedDraftId(input.draftId)) ||
+      (input.copyFromContentVersion !== null && input.copyFromDraftId != null)
+    ) {
+      return { kind: "invalid_argument" };
+    }
 
     return this.store.transaction(async (transaction) => {
+      if (input.draftId !== undefined) {
+        const recovered = await transaction.findDraftForUpdate(input.draftId);
+        if (recovered !== null) {
+          return recovered.submittedContentVersion === null &&
+            recovered.draft.state === "draft" &&
+            recovered.draft.fortuneDate === input.fortuneDate
+            ? ({ draft: recovered.draft, kind: "created" } as const)
+            : ({ kind: "invalid_argument" } as const);
+        }
+      }
       let modules = structuredClone(EMPTY_MODULES);
       let copiedCandidates: Awaited<ReturnType<typeof transaction.listDraftImageAssets>> = [];
+      let copySelectionSource: Extract<
+        StoredDraftImageSelectionSource,
+        "correction_draft_copy" | "version_copy"
+      > | null = null;
       if (input.copyFromContentVersion !== null) {
         const source = await transaction.findVersion(input.copyFromContentVersion);
         if (source === null) return { kind: "source_not_found" } as const;
@@ -268,12 +322,24 @@ export class ContentLifecycleService {
         }
         modules = structuredClone(source.snapshot);
         copiedCandidates = await transaction.listDraftImageAssets(source.draftId);
+        copySelectionSource = "version_copy";
+      } else if (input.copyFromDraftId != null) {
+        const source = await transaction.findDraftForUpdate(input.copyFromDraftId);
+        if (source === null || source.submittedContentVersion !== null) {
+          return { kind: "source_not_found" } as const;
+        }
+        if (source.draft.fortuneDate !== input.fortuneDate) {
+          return { kind: "source_date_mismatch" } as const;
+        }
+        modules = structuredClone(source.draft.modules);
+        copiedCandidates = await transaction.listDraftImageAssets(source.draft.draftId);
+        copySelectionSource = "correction_draft_copy";
       }
 
       const now = this.clock.now().toISOString();
       const draft: ContentDraft = {
         createdAt: now,
-        draftId: this.identifiers.nextDraftId(),
+        draftId: input.draftId ?? this.identifiers.nextDraftId(),
         draftRevision: 1,
         fortuneDate: input.fortuneDate,
         modules,
@@ -281,13 +347,35 @@ export class ContentLifecycleService {
         updatedAt: now,
       };
       await transaction.insertDraft({ draft, submittedContentVersion: null });
+      const copiedSelections =
+        copySelectionSource === null ? [] : selectedCandidatesForCopy(modules, copiedCandidates);
       for (const candidate of copiedCandidates) {
         await transaction.insertDraftImageAsset({
           ...candidate,
           draftId: draft.draftId,
           fortuneDate: draft.fortuneDate,
           reviewLocked: true,
+          selectedForSlot: false,
+          selectionSource: null,
         });
+      }
+      if (copySelectionSource !== null) {
+        for (const candidate of copiedSelections) {
+          if (candidate.imageSlot === null) continue;
+          await transaction.selectDraftImageAssetForSlot({
+            actorId: input.actorId,
+            assetId: candidate.asset.assetId,
+            draftId: draft.draftId,
+            imageSlot: candidate.imageSlot,
+            reason:
+              copySelectionSource === "version_copy"
+                ? "从同日内容版本复制显式图片选择。"
+                : "从同日自动生产草稿复制显式图片选择。",
+            requestId: input.requestId,
+            selectedAt: now,
+            selectionSource: copySelectionSource,
+          });
+        }
       }
       return { draft, kind: "created" } as const;
     });
@@ -356,19 +444,29 @@ export class ContentLifecycleService {
     });
   }
 
-  async submitDraft(input: {
-    readonly actorId: string;
-    readonly draftId: string;
-    readonly expectedDraftRevision: number;
-    readonly idempotencyKey: string;
-    readonly requestId: string;
-  }): Promise<SubmitDraftResult> {
+  async submitDraft(input: SubmitDraftInput): Promise<SubmitDraftResult> {
+    return this.freezeDraft(input, "standard");
+  }
+
+  async submitCorrectionDraft(input: SubmitDraftInput): Promise<SubmitDraftResult> {
+    return this.freezeDraft(input, "ordinary_correction");
+  }
+
+  async submitAutomaticProductionDraft(input: SubmitDraftInput): Promise<SubmitDraftResult> {
+    return this.freezeDraft(input, "automatic_production");
+  }
+
+  private async freezeDraft(
+    input: SubmitDraftInput,
+    submissionMode: DraftSubmissionMode,
+  ): Promise<SubmitDraftResult> {
     if (!validIdempotencyKey(input.idempotencyKey) || !validRevision(input.expectedDraftRevision)) {
       return { kind: "invalid_argument" };
     }
     const requestHash = contentLifecycleRequestHash({
       draftId: input.draftId,
       expectedDraftRevision: input.expectedDraftRevision,
+      submissionMode,
     });
 
     return this.store.transaction(async (transaction) => {
@@ -394,11 +492,25 @@ export class ContentLifecycleService {
         } as const;
       }
 
-      const visual = stored.draft.modules.visual_and_rights;
+      const candidates = await transaction.listDraftImageAssets(input.draftId);
+      const automaticallyPrepared = prepareImmediatePublicationModules(
+        stored.draft.modules,
+        candidates,
+      );
+      const publicationSubmission = submissionMode !== "standard";
       if (
-        visual !== null &&
-        !visualAssetsAreAuthoritative(visual, await transaction.listDraftImageAssets(input.draftId))
+        publicationSubmission &&
+        (automaticallyPrepared === null ||
+          Object.values(automaticallyPrepared).some((module) => module === null))
       ) {
+        return { kind: "invalid_state" } as const;
+      }
+      const preparedModules = publicationSubmission
+        ? (automaticallyPrepared as DraftModules)
+        : stored.draft.modules;
+      const targetState = publicationSubmission ? "approved" : "in_review";
+      const visual = preparedModules.visual_and_rights;
+      if (visual !== null && !visualAssetsAreAuthoritative(visual, candidates)) {
         return { kind: "invalid_asset_reference" } as const;
       }
       const projection = await transaction.getOrCreateProjectionForUpdate(stored.draft.fortuneDate);
@@ -413,7 +525,7 @@ export class ContentLifecycleService {
       const lifecycleRevision = projection.revision + 1;
       const contentVersion = this.identifiers.nextContentVersion();
       const now = this.clock.now().toISOString();
-      const releaseWindow = CALENDAR.evaluate(stored.draft.fortuneDate);
+      const releaseWindow = this.publicContentWindowResolver.resolve(stored.draft.fortuneDate);
       const version: StoredContentVersion = {
         contentVersion,
         createdAt: now,
@@ -421,19 +533,15 @@ export class ContentLifecycleService {
         effectiveFrom: releaseWindow.effectiveFrom,
         effectiveTo: releaseWindow.effectiveTo,
         fortuneDate: stored.draft.fortuneDate,
-        preflightChecks: evaluateContentPreflight(
-          stored.draft.modules,
-          [],
-          stored.draft.fortuneDate,
-        ),
-        snapshot: structuredClone(stored.draft.modules),
-        state: "in_review",
+        preflightChecks: evaluateContentPreflight(preparedModules, [], stored.draft.fortuneDate),
+        snapshot: structuredClone(preparedModules),
+        state: targetState,
       };
       const result: SubmitDraftResultBody = {
         contentVersion,
         draftId: stored.draft.draftId,
         lifecycleRevision,
-        state: "in_review",
+        state: targetState,
       };
       await transaction.insertVersion(version);
       if (visual !== null) {
@@ -448,6 +556,10 @@ export class ContentLifecycleService {
           withdrawalEvents: [],
         });
       }
+      await transaction.updateDraft({
+        draft: { ...stored.draft, modules: structuredClone(preparedModules), updatedAt: now },
+        submittedContentVersion: null,
+      });
       await transaction.markDraftSubmitted(stored.draft.draftId, contentVersion, now);
       await transaction.updateProjection({
         ...projection,
@@ -462,9 +574,14 @@ export class ContentLifecycleService {
         fromState: "draft",
         idempotencyKey: input.idempotencyKey,
         occurredAt: now,
-        reason: "提交草稿并冻结为待大师核对版本。",
+        reason:
+          submissionMode === "ordinary_correction"
+            ? "提交普通订正工作副本并冻结为可立即发布版本。"
+            : submissionMode === "automatic_production"
+              ? "自动生产内容已满足完整性门槛，冻结为可排期发布版本。"
+              : "提交草稿并冻结为待补充内容版本。",
         requestId: input.requestId,
-        toState: "in_review",
+        toState: targetState,
       });
       await transaction.insertIdempotency({
         idempotencyKey: input.idempotencyKey,
@@ -518,7 +635,9 @@ export class ContentLifecycleService {
       );
       const version = await transaction.findVersion(input.contentVersion);
       if (version === null) return { kind: "not_found" } as const;
-      if (version.state !== "in_review") return { kind: "invalid_state" } as const;
+      if (version.state === "changes_requested" || version.state === "withdrawn") {
+        return { kind: "invalid_state" } as const;
+      }
       if (projection.revision !== input.expectedLifecycleRevision) {
         return { currentRevision: projection.revision, kind: "revision_mismatch" } as const;
       }
@@ -540,12 +659,12 @@ export class ContentLifecycleService {
         auditEventId: this.identifiers.nextAuditEventId(),
         contentVersion: input.contentVersion,
         fortuneDate: version.fortuneDate,
-        fromState: "in_review",
+        fromState: version.state,
         idempotencyKey: input.idempotencyKey,
         occurredAt: now,
         reason: `登记大师核对依据：${evidence.conclusion}。`,
         requestId: input.requestId,
-        toState: "in_review",
+        toState: version.state,
       });
       const allEvidence = [...(await transaction.listEvidence(input.contentVersion))];
       const currentImageSet = await transaction.findDailyImageSetForUpdate(input.contentVersion);
@@ -651,7 +770,7 @@ export class ContentLifecycleService {
         fromState: "in_review",
         idempotencyKey: input.idempotencyKey,
         occurredAt: now,
-        reason: normalizedReason ?? "全部必审检查和大师确认依据已经通过，内容可以发布。",
+        reason: normalizedReason ?? "发布后检查记录已更新。",
         requestId: input.requestId,
         toState: input.decision,
       });
@@ -762,6 +881,18 @@ export function contentLifecycleRequestHash(value: unknown): string {
 
 function validIdempotencyKey(value: string): boolean {
   return CONTENT_LIFECYCLE_IDEMPOTENCY_KEY_PATTERN.test(value);
+}
+
+function validReservedDraftId(value: string): boolean {
+  return (
+    value.length >= 1 &&
+    value.length <= 80 &&
+    value.trim() === value &&
+    ![...value].some((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+    })
+  );
 }
 
 function validMasterEvidence(value: AddMasterReviewEvidenceRequest): boolean {

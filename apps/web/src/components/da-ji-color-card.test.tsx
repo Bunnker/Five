@@ -28,8 +28,9 @@ describe("DaJiColorCard", () => {
     expect(screen.getByText("01")).toBeVisible();
     expect(screen.getByText("大吉")).toBeVisible();
     expect(screen.getByText("今日优先")).toBeVisible();
-    expect(screen.getByText("火")).toBeVisible();
-    expect(screen.getByText("木生火")).toBeVisible();
+    expect(screen.getByText("火", { selector: "strong" })).toBeVisible();
+    expect(screen.queryByText("木生火")).not.toBeInTheDocument();
+    expect(screen.getByText("今日木日，木生火，火为大吉。")).toBeVisible();
 
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "紫色",

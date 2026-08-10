@@ -24,7 +24,8 @@ const SYSTEM_IDENTITY: ContentReleaseWorkerIdentity = {
 const CLAIM_LEASE_MILLISECONDS = 5 * 60 * 1_000;
 const MAX_RETRY_DELAY_SECONDS = 15 * 60;
 
-export type ContentReleaseWorkerRunResult = "idle" | "published" | "retrying" | "stale";
+export type ContentReleaseWorkerRunResult =
+  "idle" | "published" | "retrying" | "stale" | "terminated";
 
 export class ContentReleaseWorker {
   constructor(
@@ -52,6 +53,7 @@ export class ContentReleaseWorker {
         workerId: this.identity.workerId,
       });
       if (result.kind === "published") return "published";
+      if (result.kind === "terminated") return "terminated";
       if (result.kind === "window_invalid") {
         await this.retry(task.taskId, attemptToken, task.attempts, "排期任务已不在内容有效窗口内");
         return "retrying";

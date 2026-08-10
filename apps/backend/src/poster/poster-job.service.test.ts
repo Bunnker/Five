@@ -78,6 +78,33 @@ describe("PosterJobService", () => {
     expect(replay).toEqual({ ...first, kind: "existing" });
   });
 
+  it("puts the public poster job id in the QR landing URL as an independent referral", async () => {
+    const repository = new InMemoryPosterJobRepository();
+    const service = serviceWith(publishedContent(), repository);
+
+    await service.create(
+      {
+        channelId: "user_share",
+        expectedContentVersion: "fd-20260715-r3",
+        fortuneDate: "2026-07-15",
+      },
+      "018f9d15-7c70-7bb2-8f9d-poster-referral",
+    );
+
+    const record = await repository.findById("poster-job-01");
+    expect(record).not.toBeNull();
+    const landingUrl = new URL(record?.landingUrl ?? "");
+    expect(Object.fromEntries(landingUrl.searchParams)).toEqual({
+      channelId: "user_share",
+      expectedContentVersion: "fd-20260715-r3",
+      referralId: "poster-job-01",
+      referralKind: "poster",
+    });
+    expect(landingUrl.searchParams.get("referralId")).not.toBe(
+      landingUrl.searchParams.get("anonymousId"),
+    );
+  });
+
   it("rejects a changed request that reuses an idempotency key", async () => {
     const service = serviceWith(publishedContent());
     const idempotencyKey = "018f9d15-7c70-7bb2-8f9d-123456789abc";

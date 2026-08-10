@@ -64,12 +64,7 @@ type ProtectionService = Pick<
   "authenticateSession" | "preflight" | "recordCsrfRejected"
 >;
 
-const PUBLIC_AUTH_POST_PATHS = new Set([
-  "/admin/api/v1/auth/password-challenges",
-  "/admin/api/v1/auth/recovery-challenges",
-  "/admin/api/v1/auth/recovery-completions",
-  "/admin/api/v1/auth/sessions",
-]);
+const PUBLIC_AUTH_POST_PATHS = new Set(["/admin/api/v1/auth/sessions"]);
 const ADMIN_READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const ADMIN_BODY_ERROR_CODES = new Set([
   "FST_ERR_CTP_BODY_TOO_LARGE",
@@ -81,14 +76,8 @@ const ADMIN_BODY_ERROR_CODES = new Set([
 
 function authActionForPath(path: string): AdminSourceRateLimitPermit["action"] | null {
   switch (path) {
-    case "/admin/api/v1/auth/password-challenges":
-      return "login";
     case "/admin/api/v1/auth/sessions":
-      return "login_totp";
-    case "/admin/api/v1/auth/recovery-challenges":
-      return "recovery";
-    case "/admin/api/v1/auth/recovery-completions":
-      return "recovery_complete";
+      return "login";
     default:
       return null;
   }

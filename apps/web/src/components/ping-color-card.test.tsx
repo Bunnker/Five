@@ -33,8 +33,8 @@ describe("PingColorCard", () => {
     expect(screen.getByText("03")).toBeVisible();
     expect(screen.getByText("平")).toBeVisible();
     expect(screen.getByText("日常可穿")).toBeVisible();
-    expect(screen.getByText("金")).toBeVisible();
-    expect(screen.getByText("金克木")).toBeVisible();
+    expect(screen.getByText("金", { selector: "strong" })).toBeVisible();
+    expect(screen.queryByText("金克木")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "白色",
       "乳白",

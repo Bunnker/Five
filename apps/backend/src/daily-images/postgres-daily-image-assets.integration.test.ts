@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
 import { PostgresContentLifecycleStore } from "../content-lifecycle/postgres-content-lifecycle.store";
+import { StructuredDailyContentGenerator } from "../content-production/structured-daily-content.generator";
 import { DailyImageAssetService } from "./daily-image-asset.service";
 import type { StoredDailyImageSet } from "./daily-image-asset.store";
 import type { BinaryImageAssetStore } from "./local-binary-image-asset.store";
@@ -140,6 +141,8 @@ describeDatabase("Postgres daily image assets", () => {
         draftId: draft.draft.draftId,
         expectedDraftRevision: draftRevision,
         idempotencyKey: opaque(`upload-pg-image-${index}`),
+        imageSlot:
+          index === 0 ? "required_primary" : index === 1 ? "required_alternative" : "optional",
         metadata: { ...metadata, altText: `PostgreSQL 图片素材 ${index + 1}` },
         requestId: opaque(`request-upload-pg-image-${index}`),
       });
@@ -202,6 +205,60 @@ describeDatabase("Postgres daily image assets", () => {
     };
     await store.transaction((transaction) => transaction.insertDailyImageSet(imageSet));
 
+    await expect(images.readPublicAssetBinary(assetIds[0]!)).resolves.toBeNull();
+    const originalState = await pool.query<{ state: string }>(
+      "SELECT state FROM content_versions WHERE content_version = $1",
+      [submitted.result.contentVersion],
+    );
+    const publicationClient = await pool.connect();
+    try {
+      await publicationClient.query("BEGIN");
+      await publicationClient.query(
+        "UPDATE content_versions SET state = 'published' WHERE content_version = $1",
+        [submitted.result.contentVersion],
+      );
+      await publicationClient.query(
+        `UPDATE content_lifecycle_days
+            SET active_content_version = $1
+          WHERE fortune_date = $2::date`,
+        [submitted.result.contentVersion, imageSet.fortuneDate],
+      );
+      await publicationClient.query("COMMIT");
+    } catch (error) {
+      await publicationClient.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      publicationClient.release();
+    }
+    await expect(images.readPublicAssetBinary(assetIds[0]!)).resolves.toMatchObject({
+      bytes: PNG,
+      mediaType: "image/png",
+    });
+    await expect(
+      store.transaction((transaction) =>
+        transaction.listActiveDailyImageSetsReferencingAssetForUpdate(assetIds[0]!),
+      ),
+    ).resolves.toMatchObject([{ contentVersion: submitted.result.contentVersion }]);
+    const resetClient = await pool.connect();
+    try {
+      await resetClient.query("BEGIN");
+      await resetClient.query(
+        "UPDATE content_lifecycle_days SET active_content_version = NULL WHERE fortune_date = $1::date",
+        [imageSet.fortuneDate],
+      );
+      await resetClient.query("UPDATE content_versions SET state = $2 WHERE content_version = $1", [
+        submitted.result.contentVersion,
+        originalState.rows[0]!.state,
+      ]);
+      await resetClient.query("COMMIT");
+    } catch (error) {
+      await resetClient.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      resetClient.release();
+    }
+    await expect(images.readPublicAssetBinary(assetIds[0]!)).resolves.toBeNull();
+
     const withdrawalInput = {
       actorId: "operator-integration",
       assetId: assetIds[0]!,
@@ -239,6 +296,11 @@ describeDatabase("Postgres daily image assets", () => {
     expect(persisted).toMatchObject({
       lifecycleRevision: 2,
       withdrawalEvents: [{ assetId: assetIds[0] }],
+    });
+    await expect(images.readPublicAssetBinary(assetIds[0]!)).resolves.toBeNull();
+    await expect(images.readAssetBinary(assetIds[0]!)).resolves.toMatchObject({
+      bytes: PNG,
+      mediaType: "image/png",
     });
     const persistedRows = await pool.query<{ audits: string; purges: string; withdrawals: string }>(
       `SELECT
@@ -588,5 +650,119 @@ describeDatabase("Postgres daily image assets", () => {
       [assetIds[1]],
     );
     expect(globalRows.rows[0]).toEqual({ purges: "1", withdrawals: "1" });
+  });
+
+  it("clones explicit production and immutable-version selections with truthful provenance", async () => {
+    const source = await lifecycle.createDraft({
+      actorId: "operator-integration",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-10-09",
+      requestId: opaque("request-create-pg-clone-source"),
+    });
+    if (source.kind !== "created") throw new Error("PostgreSQL clone source was not created");
+    await store.transaction((transaction) =>
+      transaction.updateDraft({
+        draft: {
+          ...source.draft,
+          modules: new StructuredDailyContentGenerator().generate(source.draft.fortuneDate),
+        },
+        submittedContentVersion: null,
+      }),
+    );
+    for (const [index, imageSlot] of ["required_primary", "required_alternative"].entries()) {
+      const uploaded = await images.uploadDraftAsset({
+        actorId: "operator-integration",
+        bytes: index === 0 ? PNG : Buffer.concat([PNG, Buffer.from([1])]),
+        declaredMediaType: "image/png",
+        draftId: source.draft.draftId,
+        expectedDraftRevision: index + 1,
+        idempotencyKey: opaque(`upload-pg-clone-${index}`),
+        imageSlot: imageSlot as "required_alternative" | "required_primary",
+        materializeImmediateVisual: true,
+        metadata: {
+          ...metadata,
+          altText: `PostgreSQL clone image ${index + 1}`,
+          rightsRecordIds: [`rights-postgres-clone-${index}`],
+        },
+        reason: "准备订正克隆测试图片。",
+        requestId: opaque(`request-upload-pg-clone-${index}`),
+      });
+      expect(uploaded).toMatchObject({ kind: "uploaded" });
+    }
+
+    const draftCopy = await lifecycle.createDraft({
+      actorId: "operator-integration",
+      copyFromContentVersion: null,
+      copyFromDraftId: source.draft.draftId,
+      fortuneDate: source.draft.fortuneDate,
+      requestId: opaque("request-pg-production-draft-copy"),
+    });
+    if (draftCopy.kind !== "created") throw new Error("PostgreSQL draft clone was not created");
+    const draftSources = await pool.query<{ image_slot: string; selection_source: string }>(
+      `SELECT image_slot, selection_source
+         FROM draft_image_slot_selections
+        WHERE draft_id = $1
+        ORDER BY CASE image_slot
+          WHEN 'required_primary' THEN 1
+          WHEN 'required_alternative' THEN 2
+          ELSE 3 END`,
+      [draftCopy.draft.draftId],
+    );
+    expect(draftSources.rows).toEqual([
+      { image_slot: "required_primary", selection_source: "correction_draft_copy" },
+      { image_slot: "required_alternative", selection_source: "correction_draft_copy" },
+    ]);
+
+    const submitted = await lifecycle.submitCorrectionDraft({
+      actorId: "operator-integration",
+      draftId: source.draft.draftId,
+      expectedDraftRevision: 3,
+      idempotencyKey: opaque("submit-pg-clone-source"),
+      requestId: opaque("request-submit-pg-clone-source"),
+    });
+    if (submitted.kind !== "submitted") throw new Error("PostgreSQL clone source did not submit");
+    const versionCopy = await lifecycle.createDraft({
+      actorId: "operator-integration",
+      copyFromContentVersion: submitted.result.contentVersion,
+      fortuneDate: source.draft.fortuneDate,
+      requestId: opaque("request-pg-version-copy"),
+    });
+    if (versionCopy.kind !== "created") throw new Error("PostgreSQL version clone was not created");
+    const versionSources = await pool.query<{
+      cover_asset_id: string;
+      image_slot: string;
+      selected_asset_id: string;
+      selection_source: string;
+    }>(
+      `SELECT selection.image_slot,
+              selection.asset_id AS selected_asset_id,
+              selection.selection_source,
+              look ->> 'coverAssetId' AS cover_asset_id
+         FROM draft_image_slot_selections AS selection
+         JOIN content_drafts AS draft ON draft.draft_id = selection.draft_id
+         CROSS JOIN LATERAL jsonb_array_elements(draft.modules -> 'visual_and_rights' -> 'looks') AS look
+        WHERE selection.draft_id = $1
+          AND look ->> 'imageSlot' = selection.image_slot
+        ORDER BY CASE selection.image_slot
+          WHEN 'required_primary' THEN 1
+          WHEN 'required_alternative' THEN 2
+          ELSE 3 END`,
+      [versionCopy.draft.draftId],
+    );
+    expect(versionSources.rows).toEqual([
+      expect.objectContaining({
+        image_slot: "required_primary",
+        selection_source: "version_copy",
+        selected_asset_id: expect.any(String),
+      }),
+      expect.objectContaining({
+        image_slot: "required_alternative",
+        selection_source: "version_copy",
+        selected_asset_id: expect.any(String),
+      }),
+    ]);
+    expect(versionSources.rows.every((row) => row.cover_asset_id === row.selected_asset_id)).toBe(
+      true,
+    );
   });
 });

@@ -1,6 +1,8 @@
 declare module "lunar-javascript" {
   interface Lunar {
+    getDayInChinese(): string;
     getDayInGanZhi(): string;
+    getMonthInChinese(): string;
   }
 
   interface SolarDate {

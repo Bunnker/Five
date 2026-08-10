@@ -38,15 +38,19 @@ describe("AdminDashboard", () => {
     );
 
     expect(await screen.findByText("maintainer")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "今天要做什么" })).toBeInTheDocument();
+    expect(screen.getByText("当前本地公开页读取真实已发布内容")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "本次会话" })).not.toBeInTheDocument();
+    expect(screen.queryByText("凭据修订")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /安全记录/ })).toHaveAttribute(
       "href",
       "/admin/security",
     );
-    expect(screen.getByRole("link", { name: /紧急控制/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /紧急停止公开页/ })).toHaveAttribute(
       "href",
       "/admin/emergency",
     );
-    expect(screen.getByRole("link", { name: /内容工作台/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /管理今天的内容/ })).toHaveAttribute(
       "href",
       "/admin/content",
     );

@@ -4,6 +4,7 @@ import type {
   StoredCachePurgeIntent,
   StoredDailyImageSet,
   StoredDraftImageAsset,
+  StoredDraftImageSlotSelection,
   StoredImageAssetWithdrawalEvent,
 } from "../daily-images/daily-image-asset.store";
 
@@ -84,6 +85,7 @@ export interface DailyImageSetReadView {
 export type IdempotencyOperation =
   | "add_master_review_evidence"
   | "image_review"
+  | "image_selection"
   | "image_upload"
   | "image_withdrawal"
   | "review_decision"
@@ -122,6 +124,9 @@ export interface ContentLifecycleTransaction {
   ): Promise<StoredLifecycleIdempotency | null>;
   findVersion(contentVersion: string): Promise<StoredContentVersion | null>;
   findDailyImageSetForUpdate(contentVersion: string): Promise<StoredDailyImageSet | null>;
+  listActiveDailyImageSetsReferencingAssetForUpdate(
+    assetId: string,
+  ): Promise<StoredDailyImageSet[]>;
   listGloballyWithdrawnAssetIds(assetIds: readonly string[]): Promise<string[]>;
   listDraftImageAssets(draftId: string): Promise<StoredDraftImageAsset[]>;
   getOrCreateProjectionForUpdate(fortuneDate: string): Promise<LifecycleProjection>;
@@ -142,6 +147,7 @@ export interface ContentLifecycleTransaction {
   ): Promise<void>;
   lockImageAssetWithdrawal(assetId: string): Promise<void>;
   markDraftSubmitted(draftId: string, contentVersion: string, submittedAt: string): Promise<void>;
+  selectDraftImageAssetForSlot(selection: StoredDraftImageSlotSelection): Promise<void>;
   updateDraft(draft: StoredDraft): Promise<void>;
   updateDraftImageAsset(asset: StoredDraftImageAsset): Promise<void>;
   updateDailyImageSet(imageSet: StoredDailyImageSet): Promise<void>;
@@ -156,6 +162,7 @@ export interface ContentLifecycleStore {
   readDailyImageSet(contentVersion: string): Promise<StoredDailyImageSet | null>;
   readDailyImageSetView(contentVersion: string): Promise<DailyImageSetReadView | null>;
   readImageAsset(assetId: string): Promise<StoredDraftImageAsset | null>;
+  readPublicImageAsset(assetId: string): Promise<StoredDraftImageAsset | null>;
   listAuditEvents(input: {
     readonly contentVersion: string | null;
     readonly cursor: AuditCursor | null;

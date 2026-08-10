@@ -74,6 +74,23 @@ describe("real application admin HTTP boundary", () => {
     expect(response.json()).toMatchObject({ error: { code: "UNAUTHENTICATED" } });
   });
 
+  it("registers the analytics overview behind the same protected admin boundary", async () => {
+    const response = await app.inject({
+      headers: { "x-request-id": "registered-analytics-boundary" },
+      method: "GET",
+      url: "/admin/api/v1/analytics/overview?from=2026-08-01&to=2026-08-09",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.headers).toMatchObject({
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-request-id": "registered-analytics-boundary",
+    });
+    expect(response.json()).toMatchObject({ error: { code: "UNAUTHENTICATED" } });
+  });
+
   it("fails a real persistent login preflight closed without leaking the connection", async () => {
     const response = await app.inject({
       headers: {
@@ -82,7 +99,7 @@ describe("real application admin HTTP boundary", () => {
       },
       method: "POST",
       payload: { password: "correct horse battery staple", username: "Operator" },
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.statusCode).toBe(503);

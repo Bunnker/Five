@@ -45,7 +45,7 @@ export function ReviewedImageFallback({
 }: ReviewedImageFallbackProps) {
   return (
     <div className="reviewed-image-fallback" data-content-version={contentVersion} role="status">
-      <ul className="reviewed-image-fallback__colors" aria-label="审核配色">
+      <ul className="reviewed-image-fallback__colors" aria-label="参考配色">
         {items.map((item, index) => {
           const color = reviewedColorPalette[item.color.colorCode];
           const style = {
@@ -74,13 +74,12 @@ export function ReviewedImageFallback({
       </ul>
       <strong>已切换为配色示意</strong>
       <span className="reviewed-image-fallback__note">{note}</span>
-      <div aria-label="图片失败信息" className="reviewed-image-fallback__meta" role="group">
-        {aiDisclosure === null ? null : <span>原图说明 · {aiDisclosure}</span>}
-        <span>内容版本 · {contentVersion}</span>
-      </div>
-      <span className="reviewed-image-fallback__source">
-        当前仅显示已审核配色，未使用替换图片。
-      </span>
+      {aiDisclosure === null ? null : (
+        <div aria-label="图片说明" className="reviewed-image-fallback__meta" role="group">
+          <span>{aiDisclosure}</span>
+        </div>
+      )}
+      <span className="reviewed-image-fallback__source">图片暂时无法显示，请参考下方配色。</span>
     </div>
   );
 }

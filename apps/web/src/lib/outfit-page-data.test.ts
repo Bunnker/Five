@@ -43,6 +43,7 @@ const preview = {
 
 const selection = {
   cards: [card],
+  channelId: "organic",
   contentVersion: "fd-20260715-r1",
   fortuneDate: "2026-07-15",
   imagesByFormula: new Map([[card.formulaId, preview]]),

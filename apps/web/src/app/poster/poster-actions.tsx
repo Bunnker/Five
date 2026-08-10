@@ -1,9 +1,9 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { FoundationAction, FoundationButton } from "../../components/visual-foundation";
-import type { TodayShareData } from "../../lib/today";
+import { trackAnalyticsEvent } from "../../lib/analytics";
 import {
   buildDailyLandingPath,
   isPosterVersionChangedError,
@@ -12,8 +12,9 @@ import {
   type PosterJobData,
 } from "../../lib/poster-job";
 
-interface PosterActionsProps extends Omit<PosterIntent, "expectedContentVersion"> {
-  copyText: TodayShareData["copyText"];
+interface PosterActionsProps extends Omit<PosterIntent, "channelId" | "expectedContentVersion"> {
+  autoStart?: boolean;
+  channelId: "user_share";
   pollIntervalMs?: number;
   sourceContentVersion: PosterIntent["expectedContentVersion"];
 }
@@ -25,6 +26,8 @@ type PosterViewState =
   | { job: PosterJobData; kind: "delayed" }
   | { kind: "failed"; retryIntent: "replace" | "reuse" }
   | { kind: "version_changed" };
+
+type SharePreparationState = "idle" | "preparing" | "ready" | "url_only";
 
 // The backend worker checks for work every 30 seconds by default. Keep polling long enough for
 // a request created just after one worker cycle to be picked up by the next cycle.
@@ -103,6 +106,21 @@ function posterDownloadName(assetUrl: string, fortuneDate: string): string {
   return extension === undefined ? `five-${fortuneDate}` : `five-${fortuneDate}.${extension}`;
 }
 
+function posterShareFileName(mediaType: string, fortuneDate: string): string {
+  const extensionByMediaType: Record<string, string> = {
+    "image/avif": "avif",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/svg+xml": "svg",
+    "image/webp": "webp",
+  };
+  return `five-${fortuneDate}.${extensionByMediaType[mediaType] ?? "img"}`;
+}
+
+function isWechatBrowser(): boolean {
+  return typeof navigator !== "undefined" && /MicroMessenger/iu.test(navigator.userAgent);
+}
+
 async function readPosterDownloadBody(response: Response, mediaType: string): Promise<Blob> {
   if (response.body === null) {
     throw new Error("Poster download has no body");
@@ -145,9 +163,30 @@ async function readPosterDownloadBody(response: Response, mediaType: string): Pr
   return new Blob(chunks, { type: mediaType });
 }
 
+async function fetchPosterAsset(assetUrl: string, signal: AbortSignal): Promise<Blob> {
+  const response = await fetch(assetUrl, {
+    cache: "no-store",
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+    signal,
+  });
+  const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    !response.ok ||
+    mediaType === undefined ||
+    !POSTER_DOWNLOAD_MEDIA_TYPES.has(mediaType) ||
+    (Number.isFinite(declaredLength) && declaredLength > MAX_POSTER_DOWNLOAD_BYTES)
+  ) {
+    throw new Error("Unexpected poster download response");
+  }
+
+  return readPosterDownloadBody(response, mediaType);
+}
+
 export function PosterActions({
+  autoStart = false,
   channelId,
-  copyText,
   fortuneDate,
   pollIntervalMs = 1_200,
   posterJobEndpoint,
@@ -164,12 +203,17 @@ export function PosterActions({
   const dailyPath = buildDailyLandingPath(intent);
   const posterIntentFingerprint = JSON.stringify(intent);
   const activeIntentFingerprintRef = useRef(posterIntentFingerprint);
+  const autoStartedFingerprintRef = useRef<string | null>(null);
   const idempotencyKeyRef = useRef<{ fingerprint: string; value: string } | null>(null);
   const operationControllersRef = useRef(new Set<AbortController>());
   const stateIntentFingerprintRef = useRef(posterIntentFingerprint);
   const [showDownloadFallback, setShowDownloadFallback] = useState(false);
   const [manualValue, setManualValue] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [preparedShareFile, setPreparedShareFile] = useState<File | null>(null);
+  const [sharePreparation, setSharePreparation] = useState<SharePreparationState>("idle");
+  const [saveConfirmationPosterId, setSaveConfirmationPosterId] = useState<string | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [viewState, setViewState] = useState<PosterViewState>({ kind: "idle" });
@@ -201,7 +245,11 @@ export function PosterActions({
       idempotencyKeyRef.current = null;
       setShowDownloadFallback(false);
       setIsDownloading(false);
+      setIsSharing(false);
       setManualValue(null);
+      setPreparedShareFile(null);
+      setSharePreparation("idle");
+      setSaveConfirmationPosterId(null);
       setPreviewFailed(false);
       setStatusMessage(null);
       setViewState({ kind: "idle" });
@@ -314,38 +362,25 @@ export function PosterActions({
     }
   }
 
-  async function downloadPoster(assetUrl: string): Promise<void> {
+  async function downloadPoster(assetUrl: string, posterInstanceId: string | null): Promise<void> {
     if (isDownloading) {
       return;
     }
     const operationFingerprint = posterIntentFingerprint;
     const controller = beginOperation();
+    trackAnalyticsEvent({
+      channelId,
+      contentVersion: sourceContentVersion,
+      eventName: "poster_save_requested",
+      fortuneDate,
+      posterInstanceId,
+    });
     setIsDownloading(true);
     setShowDownloadFallback(false);
+    setSaveConfirmationPosterId(null);
     setStatusMessage(null);
     try {
-      const response = await fetch(assetUrl, {
-        cache: "no-store",
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
-        signal: controller.signal,
-      });
-      const mediaType = response.headers
-        .get("content-type")
-        ?.split(";", 1)[0]
-        ?.trim()
-        .toLowerCase();
-      const declaredLength = Number(response.headers.get("content-length"));
-      if (
-        !response.ok ||
-        mediaType === undefined ||
-        !POSTER_DOWNLOAD_MEDIA_TYPES.has(mediaType) ||
-        (Number.isFinite(declaredLength) && declaredLength > MAX_POSTER_DOWNLOAD_BYTES)
-      ) {
-        throw new Error("Unexpected poster download response");
-      }
-
-      const body = await readPosterDownloadBody(response, mediaType);
+      const body = await fetchPosterAsset(assetUrl, controller.signal);
       if (!operationIsCurrent(operationFingerprint, controller)) {
         return;
       }
@@ -369,12 +404,21 @@ export function PosterActions({
       // Browsers do not expose whether a programmatic download was accepted. Keep the copy
       // fallbacks available even after click() so a silently ignored download never traps users.
       setShowDownloadFallback(true);
-      setStatusMessage("已尝试开始下载；如果浏览器没有响应，也可以复制今日文字或当日链接。");
+      setSaveConfirmationPosterId(posterInstanceId);
+      setStatusMessage("已尝试开始下载；如果浏览器没有响应，也可以复制当日链接。");
     } catch {
       if (!operationIsCurrent(operationFingerprint, controller)) {
         return;
       }
+      trackAnalyticsEvent({
+        channelId,
+        contentVersion: sourceContentVersion,
+        eventName: "poster_save_failed",
+        fortuneDate,
+        posterInstanceId,
+      });
       setShowDownloadFallback(true);
+      setSaveConfirmationPosterId(null);
       setStatusMessage("自动下载未成功，请长按上方海报保存。");
     } finally {
       finishOperation(controller);
@@ -382,6 +426,21 @@ export function PosterActions({
         setIsDownloading(false);
       }
     }
+  }
+
+  function confirmPosterSave(succeeded: boolean): void {
+    if (saveConfirmationPosterId === null) {
+      return;
+    }
+    trackAnalyticsEvent({
+      channelId,
+      contentVersion: sourceContentVersion,
+      eventName: succeeded ? "poster_save_succeeded" : "poster_save_failed",
+      fortuneDate,
+      posterInstanceId: saveConfirmationPosterId,
+    });
+    setSaveConfirmationPosterId(null);
+    setStatusMessage(succeeded ? "已记录你的确认，谢谢。" : "已记录保存失败，你仍可长按海报保存。");
   }
 
   async function createPoster(): Promise<void> {
@@ -453,18 +512,175 @@ export function PosterActions({
     }
   }
 
+  useEffect(() => {
+    if (!autoStart || autoStartedFingerprintRef.current === posterIntentFingerprint) {
+      return;
+    }
+    const startedFingerprint = posterIntentFingerprint;
+    autoStartedFingerprintRef.current = startedFingerprint;
+    void createPoster();
+    // createPoster intentionally reads the state captured for this immutable intent. The
+    // fingerprint guard prevents Strict Mode or a later render from submitting it twice.
+    return () => {
+      if (autoStartedFingerprintRef.current === startedFingerprint) {
+        autoStartedFingerprintRef.current = null;
+      }
+    };
+  }, [autoStart, posterIntentFingerprint]);
+
   const displayedViewState: PosterViewState = intentStateIsCurrent ? viewState : { kind: "idle" };
   const displayedDownloadFallback = intentStateIsCurrent && showDownloadFallback;
   const displayedIsDownloading = intentStateIsCurrent && isDownloading;
+  const displayedIsSharing = intentStateIsCurrent && isSharing;
+  const displayedSharePreparation: SharePreparationState = intentStateIsCurrent
+    ? sharePreparation
+    : "idle";
   const displayedManualValue = intentStateIsCurrent ? manualValue : null;
   const displayedPreviewFailed = intentStateIsCurrent && previewFailed;
   const displayedStatusMessage = intentStateIsCurrent ? statusMessage : null;
+  const displayedSaveConfirmationPosterId = intentStateIsCurrent ? saveConfirmationPosterId : null;
   const isBusy = displayedViewState.kind === "processing";
   const isFallback =
     displayedDownloadFallback ||
     displayedPreviewFailed ||
     displayedViewState.kind === "delayed" ||
     displayedViewState.kind === "failed";
+  const readyAssetUrl =
+    displayedViewState.kind === "ready" ? (displayedViewState.job.assetUrl ?? null) : null;
+
+  useEffect(() => {
+    setPreparedShareFile(null);
+    if (
+      readyAssetUrl === null ||
+      displayedPreviewFailed ||
+      isWechatBrowser() ||
+      typeof navigator.share !== "function" ||
+      typeof navigator.canShare !== "function" ||
+      typeof File !== "function"
+    ) {
+      setSharePreparation(readyAssetUrl === null ? "idle" : "url_only");
+      return;
+    }
+
+    setSharePreparation("preparing");
+    const operationFingerprint = posterIntentFingerprint;
+    const controller = new AbortController();
+    operationControllersRef.current.add(controller);
+    void fetchPosterAsset(readyAssetUrl, controller.signal)
+      .then((body) => {
+        if (!operationIsCurrent(operationFingerprint, controller)) {
+          return;
+        }
+        const file = new File([body], posterShareFileName(body.type, fortuneDate), {
+          type: body.type,
+        });
+        try {
+          if (navigator.canShare({ files: [file] })) {
+            setPreparedShareFile(file);
+            setSharePreparation("ready");
+            return;
+          }
+        } catch {
+          // File sharing support varies by browser and media type; URL sharing remains available.
+        }
+        setSharePreparation("url_only");
+      })
+      .catch(() => {
+        // Preloading only improves the native share payload. The page URL and save action remain.
+        if (operationIsCurrent(operationFingerprint, controller)) {
+          setSharePreparation("url_only");
+        }
+      })
+      .finally(() => {
+        operationControllersRef.current.delete(controller);
+      });
+
+    return () => {
+      controller.abort();
+      operationControllersRef.current.delete(controller);
+    };
+  }, [displayedPreviewFailed, fortuneDate, posterIntentFingerprint, readyAssetUrl]);
+
+  async function sharePoster(): Promise<void> {
+    if (
+      displayedIsSharing ||
+      displayedSharePreparation === "idle" ||
+      displayedSharePreparation === "preparing"
+    ) {
+      return;
+    }
+    const referralId = displayedViewState.kind === "ready" ? displayedViewState.job.jobId : null;
+    const shareBasePath = buildDailyLandingPath({
+      ...intent,
+      channelId: "user_share",
+    });
+    const shareDailyPath =
+      referralId === null
+        ? shareBasePath
+        : `${shareBasePath}&referralId=${encodeURIComponent(referralId)}&referralKind=poster`;
+    const posterInstanceId =
+      displayedViewState.kind === "ready" ? displayedViewState.job.posterInstanceId : null;
+    trackAnalyticsEvent({
+      channelId: "user_share",
+      contentVersion: sourceContentVersion,
+      eventName: "share_poster_initiated",
+      fortuneDate,
+      posterInstanceId,
+      referralId,
+    });
+    const landingUrl = new URL(shareDailyPath, window.location.origin).toString();
+    if (isWechatBrowser()) {
+      try {
+        window.history.pushState({}, "", shareDailyPath);
+        setStatusMessage(
+          "当日链接已准备好，请点微信右上角分享当前页面；要发送海报图片，请长按海报保存。",
+        );
+      } catch {
+        setShowDownloadFallback(true);
+        await copyValue(landingUrl, "当日链接已复制，请粘贴到微信；也可以长按海报保存。");
+      }
+      return;
+    }
+
+    const operationFingerprint = posterIntentFingerprint;
+    if (typeof navigator.share !== "function") {
+      setShowDownloadFallback(true);
+      await copyValue(
+        landingUrl,
+        "当前浏览器无法直接分享，当日链接已复制；也可以保存海报后在微信中发送。",
+      );
+      return;
+    }
+
+    const shareData: ShareData =
+      displayedSharePreparation !== "ready" || preparedShareFile === null || displayedPreviewFailed
+        ? { title: `Five · ${fortuneDate} 五行穿衣`, url: landingUrl }
+        : { files: [preparedShareFile], title: `Five · ${fortuneDate} 五行穿衣` };
+    setIsSharing(true);
+    setStatusMessage("正在打开系统分享，请选择微信或其他应用。");
+    try {
+      // Keep this call before the first await so browsers retain the click's transient activation.
+      const shareResult = navigator.share(shareData);
+      await shareResult;
+      if (operationIsCurrent(operationFingerprint)) {
+        setStatusMessage("系统分享已结束；如未完成，可以再次点击分享。");
+      }
+    } catch (error) {
+      if (!operationIsCurrent(operationFingerprint)) {
+        return;
+      }
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setStatusMessage("已取消分享，你仍可保存海报或复制当日链接。");
+        return;
+      }
+      setShowDownloadFallback(true);
+      await copyValue(landingUrl, "分享未完成，当日链接已复制。");
+    } finally {
+      if (operationIsCurrent(operationFingerprint)) {
+        setIsSharing(false);
+      }
+    }
+  }
 
   return (
     <section aria-labelledby="poster-action-title" className="poster-actions">
@@ -480,7 +696,7 @@ export function PosterActions({
           {displayedPreviewFailed ? (
             <>
               <p aria-live="polite" className="poster-state" role="status">
-                海报预览加载失败，今日文字和当日链接仍可使用。
+                海报预览加载失败，当日页面仍可正常分享。
               </p>
               <FoundationButton
                 fullWidth
@@ -522,15 +738,56 @@ export function PosterActions({
               <p aria-live="polite" role="status">
                 海报已经准备好，也可以长按上方海报保存到手机。
               </p>
+            </>
+          )}
+          <FoundationButton
+            disabled={
+              displayedIsSharing ||
+              displayedSharePreparation === "idle" ||
+              displayedSharePreparation === "preparing"
+            }
+            fullWidth
+            indicator="↗"
+            onClick={sharePoster}
+          >
+            {displayedIsSharing
+              ? "正在打开分享"
+              : displayedSharePreparation === "idle" || displayedSharePreparation === "preparing"
+                ? "正在准备分享"
+                : "分享到微信或更多应用"}
+          </FoundationButton>
+          {displayedPreviewFailed ? null : (
+            <>
               <FoundationButton
                 disabled={displayedIsDownloading}
                 fullWidth
                 indicator="↓"
-                onClick={() => downloadPoster(displayedViewState.job.assetUrl ?? "")}
+                onClick={() =>
+                  downloadPoster(
+                    displayedViewState.job.assetUrl ?? "",
+                    displayedViewState.job.posterInstanceId,
+                  )
+                }
               >
                 {displayedIsDownloading ? "正在准备下载" : "下载海报"}
               </FoundationButton>
             </>
+          )}
+          {displayedSaveConfirmationPosterId === null ? null : (
+            <div aria-label="确认海报保存结果" className="poster-save-confirmation" role="group">
+              <p>海报保存成功了吗？</p>
+              <FoundationButton fullWidth indicator="✓" onClick={() => confirmPosterSave(true)}>
+                已保存到手机
+              </FoundationButton>
+              <FoundationButton
+                fullWidth
+                indicator="↻"
+                onClick={() => confirmPosterSave(false)}
+                tone="secondary"
+              >
+                没有保存成功
+              </FoundationButton>
+            </div>
           )}
         </div>
       ) : (
@@ -544,7 +801,7 @@ export function PosterActions({
           ) : null}
           {displayedViewState.kind === "failed" ? (
             <p className="poster-state" role="status">
-              海报暂时没有生成成功，今日页面和分享文字仍可使用。
+              海报暂时没有生成成功，当日页面仍可正常分享。
             </p>
           ) : null}
           {displayedViewState.kind === "version_changed" ? (
@@ -554,7 +811,7 @@ export function PosterActions({
           ) : null}
           {displayedViewState.kind === "delayed" ? (
             <p className="poster-state" role="status">
-              海报仍在生成，可以继续查询进度；今日页面和分享文字仍可使用。
+              海报仍在生成，可以继续查询进度；当日页面仍可正常分享。
             </p>
           ) : null}
           {displayedViewState.kind === "delayed" ? (
@@ -574,14 +831,6 @@ export function PosterActions({
 
       {isFallback ? (
         <div className="poster-fallbacks">
-          <FoundationButton
-            fullWidth
-            indicator="⧉"
-            onClick={() => copyValue(copyText, "今日文字已复制。")}
-            tone="secondary"
-          >
-            复制今日文字
-          </FoundationButton>
           <FoundationButton
             fullWidth
             indicator="⧉"

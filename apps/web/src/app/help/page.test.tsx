@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TodayPageData } from "../../lib/today";
@@ -10,11 +11,19 @@ const { headersMock, loadTodayMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/headers", () => ({ headers: headersMock }));
+vi.mock("../../components/public-content-boundary-guard", () => ({
+  PublicContentBoundaryGuard: ({ children }: { children: ReactNode }) => children,
+}));
 vi.mock("../../lib/today", () => ({ loadToday: loadTodayMock }));
 
 const today = {
   content: { fortuneDate: "2026-07-15" },
   daJiCard: { contentVersion: "fd-20260715-r1" },
+  publicContentContext: {
+    advancedFromCivilDate: false,
+    servedFortuneDate: "2026-07-15",
+    switchBoundary: "18:00",
+  },
   requestContext: { fortuneDate: "2026-07-15" },
 } as TodayPageData;
 
@@ -46,8 +55,10 @@ describe("HelpPage", () => {
     expect(imageFeedbackLink).toHaveAttribute("href", expect.stringContaining("#feedback"));
 
     const privacySection = screen.getByRole("region", { name: "数据与隐私" });
-    expect(privacySection).toHaveTextContent("未接入第三方统计 SDK");
+    expect(privacySection).toHaveTextContent("不接入第三方统计 SDK");
     expect(privacySection).toHaveTextContent("不创建跨设备标识");
+    expect(privacySection).toHaveTextContent("最长保存 90 天");
+    expect(privacySection).toHaveTextContent("可在下方随时退出");
     expect(privacySection).toHaveTextContent("通用逐请求访问日志目前关闭");
     expect(privacySection).toHaveTextContent("IP 地址和浏览器请求头");
     expect(privacySection).toHaveTextContent("进程随机密钥");
@@ -85,7 +96,31 @@ describe("HelpPage", () => {
       "data-channel-id",
       "wechat_group",
     );
+    expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute(
+      "href",
+      "/?channelId=wechat_group",
+    );
     expect(screen.getByText(/2026-07-15.*fd-20260715-r1/u)).toBeVisible();
+  });
+
+  it("keeps feedback bound to servedFortuneDate between the 18:00 and 23:00 boundaries", async () => {
+    loadTodayMock.mockResolvedValue({
+      ...today,
+      content: { fortuneDate: "2026-07-16" },
+      daJiCard: { contentVersion: "fd-20260716-r1" },
+      publicContentContext: {
+        advancedFromCivilDate: true,
+        servedFortuneDate: "2026-07-16",
+        switchBoundary: "18:00",
+      },
+      requestContext: { fortuneDate: "2026-07-15" },
+    } as TodayPageData);
+
+    render(await HelpPage({ searchParams: Promise.resolve({}) }));
+
+    const feedback = screen.getByRole("form", { name: "匿名反馈" });
+    expect(feedback).toHaveAttribute("data-fortune-date", "2026-07-16");
+    expect(feedback).toHaveAttribute("data-content-version", "fd-20260716-r1");
   });
 
   it("preselects content correction from the problem-image entry", async () => {
@@ -131,6 +166,7 @@ describe("HelpPage", () => {
 
     expect(screen.queryByRole("form", { name: "匿名反馈" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("渠道信息与当前内容不一致");
+    expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
   });
 
   it("still explains the product when current version context is unavailable", async () => {

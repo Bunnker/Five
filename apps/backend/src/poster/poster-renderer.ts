@@ -1,6 +1,19 @@
 import type { components } from "@five/api-contract";
 import QRCode from "qrcode";
 import { BlockList, isIP } from "node:net";
+import sharp from "sharp";
+
+import {
+  CONTRACT_POSTER_TEMPLATE_VERSION,
+  DEMO_POSTER_TEMPLATE_VERSION,
+  LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+} from "./poster-template.values";
+
+export {
+  CONTRACT_POSTER_TEMPLATE_VERSION,
+  DEMO_POSTER_TEMPLATE_VERSION,
+  LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+} from "./poster-template.values";
 
 type DailyContent = components["schemas"]["DailyContent"];
 type OutfitFormula = components["schemas"]["OutfitFormula"];
@@ -9,8 +22,6 @@ type PublicLook = components["schemas"]["PublicLook"];
 type Tier = components["schemas"]["Tier"];
 
 export const POSTER_RENDERER = Symbol("POSTER_RENDERER");
-export const CONTRACT_POSTER_TEMPLATE_VERSION = "poster-template-v3";
-export const DEMO_POSTER_TEMPLATE_VERSION = "demo-poster-v1";
 
 const MAX_REVIEWED_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_RENDERED_POSTER_BYTES = 10 * 1024 * 1024;
@@ -68,9 +79,14 @@ const DEMO_POSTER_TEMPLATE: Readonly<PosterTemplateDefinition> = Object.freeze({
   layoutIdentity: "five-demo-portrait-v1",
   version: DEMO_POSTER_TEMPLATE_VERSION,
 });
+const LEGACY_AUTOMATIC_POSTER_TEMPLATE: Readonly<PosterTemplateDefinition> = Object.freeze({
+  layoutIdentity: CONTRACT_POSTER_TEMPLATE.layoutIdentity,
+  version: LEGACY_AUTOMATIC_POSTER_TEMPLATE_VERSION,
+});
 const POSTER_TEMPLATES = new Map<string, Readonly<PosterTemplateDefinition>>([
   [CONTRACT_POSTER_TEMPLATE.version, CONTRACT_POSTER_TEMPLATE],
   [DEMO_POSTER_TEMPLATE.version, DEMO_POSTER_TEMPLATE],
+  [LEGACY_AUTOMATIC_POSTER_TEMPLATE.version, LEGACY_AUTOMATIC_POSTER_TEMPLATE],
 ]);
 
 export interface RenderPosterInput {
@@ -82,7 +98,7 @@ export interface RenderPosterInput {
 
 export interface RenderedPoster {
   body: Buffer;
-  mediaType: "image/svg+xml";
+  mediaType: "image/png";
 }
 
 export interface PosterRenderer {
@@ -159,6 +175,62 @@ export class StrictPosterImageOriginPolicy implements PosterImageOriginPolicy {
       throw new RangeError("Published reviewed image origin is not allowed");
     }
     return url;
+  }
+}
+
+const PUBLIC_IMAGE_ASSET_PATH = /^\/api\/v1\/image-assets\/[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/u;
+
+function trustedPublicWebOrigin(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new RangeError("Public web origin is invalid");
+  }
+  const isLocalDevelopmentOrigin =
+    url.protocol === "http:" && isPrivateOrLocalHostname(url.hostname);
+  if (
+    (url.protocol !== "https:" && !isLocalDevelopmentOrigin) ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.pathname !== "/" ||
+    url.search.length > 0 ||
+    url.hash.length > 0
+  ) {
+    throw new RangeError("Public web origin must be a credential-free origin");
+  }
+  return url;
+}
+
+export class PublicWebPosterImageOriginPolicy implements PosterImageOriginPolicy {
+  private readonly externalPolicy: StrictPosterImageOriginPolicy;
+  private readonly publicWebOrigin: URL;
+
+  constructor(publicWebOrigin: string, externalOrigins: readonly string[]) {
+    this.publicWebOrigin = trustedPublicWebOrigin(publicWebOrigin);
+    this.externalPolicy = new StrictPosterImageOriginPolicy(externalOrigins);
+  }
+
+  assertAllowed(value: string): URL {
+    let candidate: URL;
+    try {
+      candidate = new URL(value, this.publicWebOrigin);
+    } catch {
+      throw new RangeError("Published reviewed image URL is invalid");
+    }
+    if (candidate.origin === this.publicWebOrigin.origin) {
+      if (
+        candidate.username.length > 0 ||
+        candidate.password.length > 0 ||
+        candidate.search.length > 0 ||
+        candidate.hash.length > 0 ||
+        !PUBLIC_IMAGE_ASSET_PATH.test(candidate.pathname)
+      ) {
+        throw new RangeError("Published reviewed image path is not allowed");
+      }
+      return candidate;
+    }
+    return this.externalPolicy.assertAllowed(value);
   }
 }
 
@@ -551,10 +623,15 @@ export class FixedSvgPosterRenderer implements PosterRenderer {
       template,
       tiers,
     });
-    const body = Buffer.from(svg, "utf8");
+    const body = await sharp(Buffer.from(svg, "utf8"), {
+      failOn: "error",
+      limitInputPixels: 1080 * 1440,
+    })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
     if (body.byteLength >= MAX_RENDERED_POSTER_BYTES) {
       throw new RangeError("Rendered poster exceeds the downloadable artifact size limit");
     }
-    return { body, mediaType: "image/svg+xml" };
+    return { body, mediaType: "image/png" };
   }
 }

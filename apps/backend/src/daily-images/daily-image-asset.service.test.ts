@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 import { isAdminDailyImageSet } from "@five/api-contract/runtime";
 
 import { ContentLifecycleService } from "../content-lifecycle/content-lifecycle.service";
 import { InMemoryContentLifecycleStore } from "../content-lifecycle/in-memory-content-lifecycle.store";
+import { StructuredDailyContentGenerator } from "../content-production/structured-daily-content.generator";
 import { DailyImageAssetService } from "./daily-image-asset.service";
 import type { StoredDailyImageSet } from "./daily-image-asset.store";
 import type { BinaryImageAssetStore } from "./local-binary-image-asset.store";
@@ -11,6 +14,22 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonical(item)]),
+  );
+}
+
+function requestHash(value: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(canonical(value)))
+    .digest("hex");
+}
 
 class MemoryBinaryStore implements BinaryImageAssetStore {
   readonly bytes = new Map<string, Buffer>();
@@ -110,6 +129,23 @@ function safeAsset(assetId: string) {
   };
 }
 
+function publicationCandidateAsset(assetId: string) {
+  return {
+    ...safeAsset(assetId),
+    aiLabelStatus: "pending" as const,
+    declaredModel: "gpt-image-2",
+    fileUrl: null,
+    generatedAt: "2026-08-02T06:00:00.000Z",
+    generationMethod: "external_tool" as const,
+    manualReview: null,
+    promptVersion: "five-look-v1",
+    reproductionReference: `request-${assetId}`,
+    reviewStatus: "pending" as const,
+    rightsStatus: "pending" as const,
+    sourceType: "ai_generated" as const,
+  };
+}
+
 function requiredImageSet(contentVersion: string): StoredDailyImageSet {
   return {
     assets: [
@@ -148,6 +184,111 @@ function requiredImageSet(contentVersion: string): StoredDailyImageSet {
 }
 
 describe("DailyImageAssetService draft candidate seam", () => {
+  it("keeps the first correction image pending and materializes the canonical visual after 2/2", async () => {
+    const { images, lifecycle, store } = services();
+    const created = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-03",
+      requestId: "request-create-correction-image-draft",
+    });
+    if (created.kind !== "created") throw new Error("correction draft fixture was not created");
+    const modules = new StructuredDailyContentGenerator().generate(created.draft.fortuneDate);
+    await store.transaction((transaction) =>
+      transaction.updateDraft({
+        draft: { ...created.draft, modules },
+        submittedContentVersion: null,
+      }),
+    );
+
+    const primary = await images.uploadDraftAsset({
+      actorId: "operator-1",
+      bytes: PNG,
+      declaredMediaType: "image/png",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey: "correction-primary-upload-0001",
+      imageSlot: "required_primary",
+      materializeImmediateVisual: true,
+      metadata,
+      reason: "补齐主图。",
+      requestId: "request-correction-primary-upload",
+    });
+    expect(primary).toMatchObject({ kind: "uploaded", result: { draftRevision: 2 } });
+    expect((await lifecycle.getDraft(created.draft.draftId))?.modules.visual_and_rights).toBeNull();
+
+    const alternative = await images.uploadDraftAsset({
+      actorId: "operator-1",
+      bytes: Buffer.concat([PNG, Buffer.from([0])]),
+      declaredMediaType: "image/png",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 2,
+      idempotencyKey: "correction-alternative-upload-0001",
+      imageSlot: "required_alternative",
+      materializeImmediateVisual: true,
+      metadata: { ...metadata, altText: "白色通勤备选搭配", rightsRecordIds: ["rights-2"] },
+      reason: "补齐备选图。",
+      requestId: "request-correction-alternative-upload",
+    });
+    expect(alternative).toMatchObject({ kind: "uploaded", result: { draftRevision: 3 } });
+    const ready = await lifecycle.getDraft(created.draft.draftId);
+    expect(ready?.modules.visual_and_rights?.looks.map((look) => look.imageSlot)).toEqual([
+      "required_primary",
+      "required_alternative",
+    ]);
+    const draftClone = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      copyFromDraftId: created.draft.draftId,
+      fortuneDate: created.draft.fortuneDate,
+      requestId: "request-correction-production-draft-clone",
+    });
+    if (draftClone.kind !== "created") throw new Error("production draft clone was not created");
+    expect(
+      (await store.listDraftImageAssets(draftClone.draft.draftId)).map((item) => ({
+        selected: item.selectedForSlot,
+        slot: item.imageSlot,
+        source: item.selectionSource,
+      })),
+    ).toEqual([
+      {
+        selected: true,
+        slot: "required_primary",
+        source: "correction_draft_copy",
+      },
+      {
+        selected: true,
+        slot: "required_alternative",
+        source: "correction_draft_copy",
+      },
+    ]);
+
+    const submitted = await lifecycle.submitCorrectionDraft({
+      actorId: "operator-1",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 3,
+      idempotencyKey: "correction-submit-after-images-0001",
+      requestId: "request-correction-submit-after-images",
+    });
+    expect(submitted).toMatchObject({ kind: "submitted", result: { state: "approved" } });
+    if (submitted.kind !== "submitted") return;
+    const versionClone = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: submitted.result.contentVersion,
+      fortuneDate: created.draft.fortuneDate,
+      requestId: "request-correction-version-clone",
+    });
+    if (versionClone.kind !== "created") throw new Error("version clone was not created");
+    const versionSelections = await store.listDraftImageAssets(versionClone.draft.draftId);
+    expect(versionSelections.map((item) => item.selectionSource)).toEqual([
+      "version_copy",
+      "version_copy",
+    ]);
+    expect(
+      versionClone.draft.modules.visual_and_rights?.looks.map((look) => look.coverAssetId),
+    ).toEqual(versionSelections.map((item) => item.asset.assetId));
+  });
+
   it("uploads real bytes as a server-managed draft candidate and resumes it from the draft", async () => {
     const { images, lifecycle } = services();
     const created = await lifecycle.createDraft({
@@ -166,6 +307,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
       draftId: created.draft.draftId,
       expectedDraftRevision: 1,
       idempotencyKey: "upload-image-intent-0001",
+      imageSlot: "required_primary",
       metadata,
       requestId: "request-upload-image-1",
     });
@@ -175,6 +317,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
       result: {
         draftRevision: 2,
         fortuneDate: "2026-08-03",
+        imageSlot: "required_primary",
         previewUrl: "/admin/api/v1/image-assets/asset-1/preview",
         asset: {
           assetId: "asset-1",
@@ -190,11 +333,160 @@ describe("DailyImageAssetService draft candidate seam", () => {
     const listed = await images.listDraftAssets(created.draft.draftId);
     expect(listed?.items).toEqual([
       expect.objectContaining({
+        imageSlot: "required_primary",
         previewUrl: "/admin/api/v1/image-assets/asset-1/preview",
         asset: expect.objectContaining({ assetId: "asset-1" }),
       }),
     ]);
     expect((await lifecycle.getDraft(created.draft.draftId))?.modules.visual_and_rights).toBeNull();
+  });
+
+  it("requires a slot for every new upload while preserving null only for legacy replay", async () => {
+    const { binary, images, lifecycle } = services();
+    const created = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-03",
+      requestId: "request-create-reject-unassigned-upload",
+    });
+    if (created.kind !== "created") return;
+
+    await expect(
+      images.uploadDraftAsset({
+        actorId: "operator-1",
+        bytes: PNG,
+        declaredMediaType: "image/png",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: 1,
+        idempotencyKey: "upload-unassigned-image-intent-0001",
+        imageSlot: null,
+        metadata,
+        requestId: "request-upload-unassigned-image",
+      }),
+    ).resolves.toEqual({ kind: "invalid_metadata" });
+    expect(binary.putCalls).toBe(0);
+  });
+
+  it("selects an optional manual upload explicitly and can switch a slot candidate with ETag revision", async () => {
+    const { images, lifecycle } = services();
+    const created = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-03",
+      requestId: "request-create-manual-slot-selection",
+    });
+    if (created.kind !== "created") return;
+    const uploaded = await images.uploadDraftAsset({
+      actorId: "operator-1",
+      bytes: PNG,
+      declaredMediaType: "image/png",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey: "upload-optional-image-intent-0001",
+      imageSlot: "optional",
+      metadata,
+      requestId: "request-upload-optional-image",
+    });
+    expect(uploaded).toMatchObject({
+      kind: "uploaded",
+      result: { draftRevision: 2, imageSlot: "optional", selectedForSlot: true },
+    });
+    if (uploaded.kind !== "uploaded") return;
+
+    const second = await images.uploadDraftAsset({
+      actorId: "operator-1",
+      bytes: PNG,
+      declaredMediaType: "image/png",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 2,
+      idempotencyKey: "upload-optional-history-intent-0002",
+      imageSlot: "optional",
+      metadata: { ...metadata, altText: "可选槽位第二候选" },
+      requestId: "request-upload-optional-history",
+      selectForSlot: false,
+    });
+    if (second.kind !== "uploaded") return;
+    const selected = await images.selectDraftAssetForSlot({
+      actorId: "operator-1",
+      assetId: second.result.asset.assetId,
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 3,
+      idempotencyKey: "select-optional-image-intent-0001",
+      imageSlot: "optional",
+      reason: "切换到人工确认的可选候选。",
+      requestId: "request-select-optional-image",
+    });
+    expect(selected).toMatchObject({
+      kind: "selected",
+      result: { draftRevision: 4, imageSlot: "optional", selectedForSlot: true },
+    });
+    const listed = await images.listDraftAssets(created.draft.draftId);
+    expect(listed?.draftRevision).toBe(4);
+    expect(
+      listed?.items
+        .filter(({ selectedForSlot }) => selectedForSlot)
+        .map(({ asset }) => asset.assetId),
+    ).toEqual([second.result.asset.assetId]);
+  });
+
+  it("advances the revision when explicitly freezing the same automatically selected asset", async () => {
+    const { images, lifecycle, store } = services();
+    const created = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-03",
+      requestId: "request-create-freeze-automatic-selection",
+    });
+    if (created.kind !== "created") return;
+    const uploaded = await images.uploadDraftAsset({
+      actorId: "system:image-worker",
+      bytes: PNG,
+      declaredMediaType: "image/png",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey: "upload-automatic-candidate-intent-0001",
+      imageSlot: "required_primary",
+      metadata,
+      requestId: "request-upload-automatic-candidate",
+      selectForSlot: false,
+    });
+    if (uploaded.kind !== "uploaded") return;
+    await store.transaction(async (transaction) => {
+      const candidate = await transaction.findDraftImageAssetForUpdate(
+        created.draft.draftId,
+        uploaded.result.asset.assetId,
+      );
+      if (candidate === null) throw new Error("automatic candidate fixture disappeared");
+      await transaction.updateDraftImageAsset({
+        ...candidate,
+        selectedForSlot: true,
+        selectionSource: "automatic_generation",
+      });
+    });
+
+    const frozen = await images.selectDraftAssetForSlot({
+      actorId: "operator-1",
+      assetId: uploaded.result.asset.assetId,
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 2,
+      idempotencyKey: "freeze-automatic-selection-intent-0001",
+      imageSlot: "required_primary",
+      reason: "维护者确认保留当前自动生成图片。",
+      requestId: "request-freeze-automatic-selection",
+    });
+    expect(frozen).toMatchObject({ kind: "selected", result: { draftRevision: 3 } });
+    await expect(
+      images.selectDraftAssetForSlot({
+        actorId: "operator-1",
+        assetId: uploaded.result.asset.assetId,
+        draftId: created.draft.draftId,
+        expectedDraftRevision: 3,
+        idempotencyKey: "freeze-manual-selection-intent-0002",
+        imageSlot: "required_primary",
+        reason: "再次确认同一张人工选定图片。",
+        requestId: "request-freeze-manual-selection",
+      }),
+    ).resolves.toMatchObject({ kind: "selected", result: { draftRevision: 3 } });
   });
 
   it("does not persist binary bytes when the draft revision is already stale", async () => {
@@ -215,6 +507,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
         draftId: created.draft.draftId,
         expectedDraftRevision: 2,
         idempotencyKey: "upload-stale-image-intent-0001",
+        imageSlot: "required_primary",
         metadata,
         requestId: "request-upload-stale-image",
       }),
@@ -229,6 +522,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
         draftId: "draft-does-not-exist",
         expectedDraftRevision: 1,
         idempotencyKey: "upload-missing-image-intent-0001",
+        imageSlot: "required_primary",
         metadata,
         requestId: "request-upload-missing-image",
       }),
@@ -271,7 +565,10 @@ describe("DailyImageAssetService draft candidate seam", () => {
         },
         draftId: created.draft.draftId,
         fortuneDate: created.draft.fortuneDate,
+        imageSlot: null,
         reviewLocked: false,
+        selectionSource: null,
+        selectedForSlot: false,
         storageKey: `cc/${"c".repeat(64)}.png`,
         uploadedAt: "2026-08-02T06:05:00.000Z",
       });
@@ -364,6 +661,158 @@ describe("DailyImageAssetService draft candidate seam", () => {
     await expect(
       images.withdrawVersionAsset({ ...input, reason: "different payload" }),
     ).resolves.toEqual({ kind: "idempotency_conflict" });
+  });
+
+  it("withdraws one pending automatic cover by activating the other publication candidate", async () => {
+    const { images, lifecycle, store } = services();
+    const created = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-04",
+      requestId: "request-create-pending-withdrawal",
+    });
+    if (created.kind !== "created") throw new Error("pending withdrawal draft was not created");
+    const submitted = await lifecycle.submitDraft({
+      actorId: "operator-1",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey: "submit-pending-withdrawal-0001",
+      requestId: "request-submit-pending-withdrawal",
+    });
+    if (submitted.kind !== "submitted") throw new Error("pending withdrawal draft was not frozen");
+    const primary = publicationCandidateAsset("asset-pending-1");
+    const alternative = publicationCandidateAsset("asset-pending-2");
+    store.seedDailyImageSetForTest({
+      assets: [primary, alternative],
+      contentVersion: submitted.result.contentVersion,
+      fortuneDate: created.draft.fortuneDate,
+      lifecycleRevision: 1,
+      slots: [
+        {
+          coverAssetId: primary.assetId,
+          deliveryStatus: "active",
+          detailAssetIds: [],
+          fallbackAssetId: alternative.assetId,
+          imageSlot: "required_primary",
+          lookId: "look-pending-primary",
+          servedCoverAssetId: primary.assetId,
+          servedDetailAssetIds: [],
+        },
+        {
+          coverAssetId: alternative.assetId,
+          deliveryStatus: "active",
+          detailAssetIds: [],
+          fallbackAssetId: primary.assetId,
+          imageSlot: "required_alternative",
+          lookId: "look-pending-alternative",
+          servedCoverAssetId: alternative.assetId,
+          servedDetailAssetIds: [],
+        },
+      ],
+      withdrawalEvents: [],
+    });
+    store.publishVersionForTest(submitted.result.contentVersion);
+
+    await expect(
+      images.withdrawVersionAsset({
+        actorId: "operator-1",
+        assetId: primary.assetId,
+        contentVersion: submitted.result.contentVersion,
+        expectedActiveContentVersion: submitted.result.contentVersion,
+        expectedLifecycleRevision: 1,
+        idempotencyKey: "withdraw-pending-primary-0001", // gitleaks:allow -- deterministic test fixture
+        reason: "自动生成主图存在问题。",
+        requestId: "request-withdraw-pending-primary",
+      }),
+    ).resolves.toMatchObject({
+      kind: "withdrawn",
+      result: {
+        deliveryAction: "fallback_activated",
+        dailyImageSet: {
+          slots: [
+            expect.objectContaining({
+              deliveryStatus: "fallback",
+              servedCoverAssetId: alternative.assetId,
+            }),
+            expect.objectContaining({
+              deliveryStatus: "active",
+              servedCoverAssetId: alternative.assetId,
+            }),
+          ],
+        },
+      },
+    });
+
+    await expect(
+      images.withdrawVersionAsset({
+        actorId: "operator-1",
+        assetId: alternative.assetId,
+        contentVersion: submitted.result.contentVersion,
+        expectedActiveContentVersion: submitted.result.contentVersion,
+        expectedLifecycleRevision: 2,
+        idempotencyKey: "withdraw-last-pending-fallback-0001",
+        reason: "尝试下线最后一张安全图。",
+        requestId: "request-withdraw-last-pending-fallback",
+      }),
+    ).resolves.toEqual({ kind: "withdrawal_blocked" });
+  });
+
+  it("blocks a global withdrawal that would break another date's active required slot", async () => {
+    const { images, lifecycle, store } = services();
+    const targetDraft = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-04",
+      requestId: "request-create-shared-withdrawal-target",
+    });
+    if (targetDraft.kind !== "created") throw new Error("target draft was not created");
+    const targetVersion = await lifecycle.submitDraft({
+      actorId: "operator-1",
+      draftId: targetDraft.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey: "submit-shared-withdrawal-target-0001",
+      requestId: "request-submit-shared-withdrawal-target",
+    });
+    if (targetVersion.kind !== "submitted") throw new Error("target version was not frozen");
+    store.seedDailyImageSetForTest(requiredImageSet(targetVersion.result.contentVersion));
+
+    const activeDraft = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-05",
+      requestId: "request-create-shared-withdrawal-active",
+    });
+    if (activeDraft.kind !== "created") throw new Error("active draft was not created");
+    const activeVersion = await lifecycle.submitDraft({
+      actorId: "operator-1",
+      draftId: activeDraft.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey: "submit-shared-withdrawal-active-0001",
+      requestId: "request-submit-shared-withdrawal-active",
+    });
+    if (activeVersion.kind !== "submitted") throw new Error("active version was not frozen");
+    const activeImageSet = requiredImageSet(activeVersion.result.contentVersion);
+    store.seedDailyImageSetForTest({
+      ...activeImageSet,
+      assets: activeImageSet.assets.map((asset) =>
+        asset.assetId === "asset-3" ? { ...asset, reviewStatus: "rejected" as const } : asset,
+      ),
+      fortuneDate: activeDraft.draft.fortuneDate,
+    });
+    store.publishVersionForTest(activeVersion.result.contentVersion);
+
+    await expect(
+      images.withdrawVersionAsset({
+        actorId: "operator-1",
+        assetId: "asset-1",
+        contentVersion: targetVersion.result.contentVersion,
+        expectedActiveContentVersion: null,
+        expectedLifecycleRevision: 1,
+        idempotencyKey: "withdraw-shared-asset-target-0001",
+        reason: "共享素材权利材料失效。",
+        requestId: "request-withdraw-shared-asset-target",
+      }),
+    ).resolves.toEqual({ kind: "active_version_asset_reference" });
   });
 
   it("reads the frozen set and lifecycle revision through one committed store view", async () => {
@@ -1036,6 +1485,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
       draftId: created.draft.draftId,
       expectedDraftRevision: 1,
       idempotencyKey: "upload-image-intent-0002",
+      imageSlot: "required_primary",
       metadata,
       requestId: "request-upload-image-retry",
     } as const;
@@ -1056,6 +1506,126 @@ describe("DailyImageAssetService draft candidate seam", () => {
     expect(binary.putCalls).toBe(1);
   });
 
+  it("replays a legacy null-slot upload record and rejects using it for a named slot", async () => {
+    const { binary, images, lifecycle, store } = services();
+    const created = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-03",
+      requestId: "request-create-legacy-upload-retry",
+    });
+    if (created.kind !== "created") return;
+    const sha256 = createHash("sha256").update(PNG).digest("hex");
+    const idempotencyKey = "legacy-upload-image-intent-0001";
+    const legacyResponse = {
+      asset: {
+        ...metadata,
+        assetId: "asset-legacy-upload",
+        fileUrl: null,
+        height: 1,
+        manualReview: null,
+        mediaType: "image/png",
+        reviewStatus: "pending",
+        rightsStatus: "pending",
+        sha256,
+        width: 1,
+      },
+      draftId: created.draft.draftId,
+      draftRevision: 2,
+      fortuneDate: "2026-08-03",
+      previewUrl: "/admin/api/v1/image-assets/asset-legacy-upload/preview",
+      reviewLocked: false,
+    };
+    await store.transaction((transaction) =>
+      transaction.insertIdempotency({
+        idempotencyKey,
+        operation: "image_upload",
+        requestHash: requestHash({
+          draftId: created.draft.draftId,
+          expectedDraftRevision: 1,
+          metadata,
+          sha256,
+        }),
+        resourceId: created.draft.draftId,
+        response: legacyResponse,
+      }),
+    );
+    const baseInput = {
+      actorId: "operator-1",
+      bytes: PNG,
+      declaredMediaType: "image/png",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey,
+      metadata,
+      requestId: "request-replay-legacy-upload",
+    } as const;
+
+    await expect(images.uploadDraftAsset({ ...baseInput, imageSlot: null })).resolves.toEqual({
+      kind: "existing",
+      result: { ...legacyResponse, imageSlot: null, selectedForSlot: false },
+    });
+    await expect(
+      images.uploadDraftAsset({ ...baseInput, imageSlot: "required_primary" }),
+    ).resolves.toEqual({ kind: "idempotency_conflict" });
+    expect(binary.putCalls).toBe(0);
+  });
+
+  it("normalizes a legacy image review response with a null image slot", async () => {
+    const { images, lifecycle, store } = services();
+    const created = await lifecycle.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-03",
+      requestId: "request-create-legacy-review-retry",
+    });
+    if (created.kind !== "created") return;
+    const uploaded = await images.uploadDraftAsset({
+      actorId: "operator-1",
+      bytes: PNG,
+      declaredMediaType: "image/png",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: 1,
+      idempotencyKey: "upload-before-legacy-review-0001",
+      imageSlot: null,
+      metadata,
+      requestId: "request-upload-before-legacy-review",
+    });
+    if (uploaded.kind !== "uploaded") return;
+    const legacyResponse = structuredClone(uploaded.result) as Record<string, unknown>;
+    delete legacyResponse.imageSlot;
+    const idempotencyKey = "legacy-image-review-intent-0001";
+    await store.transaction((transaction) =>
+      transaction.insertIdempotency({
+        idempotencyKey,
+        operation: "image_review",
+        requestHash: requestHash({
+          assetId: uploaded.result.asset.assetId,
+          draftId: created.draft.draftId,
+          expectedDraftRevision: 2,
+          review: passedReview,
+        }),
+        resourceId: uploaded.result.asset.assetId,
+        response: legacyResponse,
+      }),
+    );
+
+    await expect(
+      images.reviewDraftAsset({
+        actorId: "operator-1",
+        assetId: uploaded.result.asset.assetId,
+        draftId: created.draft.draftId,
+        expectedDraftRevision: 2,
+        idempotencyKey,
+        requestId: "request-replay-legacy-review",
+        review: passedReview,
+      }),
+    ).resolves.toEqual({
+      kind: "existing",
+      result: { ...legacyResponse, imageSlot: null },
+    });
+  });
+
   it("records server-owned review identity and only approves all-pass, rights-cleared assets", async () => {
     const { images, lifecycle } = services();
     const created = await lifecycle.createDraft({
@@ -1072,6 +1642,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
       draftId: created.draft.draftId,
       expectedDraftRevision: 1,
       idempotencyKey: "upload-image-intent-0003",
+      imageSlot: "required_primary",
       metadata,
       requestId: "request-upload-image-review",
     });
@@ -1138,6 +1709,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
       draftId: created.draft.draftId,
       expectedDraftRevision: 1,
       idempotencyKey: "upload-unconfigured-assets-0001",
+      imageSlot: "required_primary",
       metadata,
       requestId: "request-upload-unconfigured-assets",
     });
@@ -1173,6 +1745,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
       draftId: source.draft.draftId,
       expectedDraftRevision: 1,
       idempotencyKey: "upload-review-lock-source-0001",
+      imageSlot: "required_primary",
       metadata,
       requestId: "request-upload-review-lock-source",
     });
@@ -1248,6 +1821,7 @@ describe("DailyImageAssetService draft candidate seam", () => {
         draftId: created.draft.draftId,
         expectedDraftRevision: 1,
         idempotencyKey: "upload-image-intent-0004",
+        imageSlot: "required_primary",
         metadata: { ...metadata, rightsRecordIds: [] },
         requestId: "request-upload-invalid-image",
       }),

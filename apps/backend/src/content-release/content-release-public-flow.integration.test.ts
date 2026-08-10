@@ -452,8 +452,8 @@ async function seedApprovedVersion(pool: Pool, contentVersion: string): Promise<
      ) VALUES (
        $1, $2, $3::date, 'approved', $4::jsonb, '[]'::jsonb,
        '2026-08-07T12:00:00.000Z'::timestamptz,
-       '2026-08-07T15:00:00.000Z'::timestamptz,
-       '2026-08-08T15:00:00.000Z'::timestamptz
+       '2026-08-07T10:00:00.000Z'::timestamptz,
+       '2026-08-08T10:00:00.000Z'::timestamptz
      )`,
     [contentVersion, draftId, fortuneDate, JSON.stringify(snapshot)],
   );

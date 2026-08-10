@@ -1,6 +1,7 @@
 import type { components } from "@five/api-contract";
 import { describe, expect, it } from "vitest";
 
+import { PublicContentContextResolver } from "../public-content/public-content-context-resolver";
 import { RequestContextResolver, type Clock } from "../request-context/request-context-resolver";
 import { type PublishedContentReader, TodayContentService } from "./today-content.service";
 import { TodayCachePolicy } from "./today-cache-policy";
@@ -239,8 +240,8 @@ function publishedContent(overrides: Partial<DailyContent> = {}): DailyContent {
       lunarDateText: "六月十一",
       weekdayText: "星期五",
     },
-    effectiveFrom: "2026-07-23T23:00:00+08:00",
-    effectiveTo: "2026-07-24T23:00:00+08:00",
+    effectiveFrom: "2026-07-23T18:00:00+08:00",
+    effectiveTo: "2026-07-24T18:00:00+08:00",
     fortuneDate: "2026-07-24",
     looks,
     outfitFormulas: formulas,
@@ -288,6 +289,7 @@ function serviceAt(
     clockCalls: () => calls,
     service: new TodayContentService(
       new RequestContextResolver(clock),
+      new PublicContentContextResolver(),
       reader,
       new TodayCachePolicy(),
     ),
@@ -295,6 +297,53 @@ function serviceAt(
 }
 
 describe("TodayContentService", () => {
+  it("switches served content exactly at 18:00 while the internal fortune date waits until 23:00", async () => {
+    const lookedUpDates: string[] = [];
+    const nextContent = publishedContent({
+      effectiveFrom: "2026-07-24T18:00:00+08:00",
+      effectiveTo: "2026-07-25T18:00:00+08:00",
+      fortuneDate: "2026-07-25",
+    });
+
+    const before = await serviceAt("2026-07-24T17:59:59+08:00", publishedContent(), (date) =>
+      lookedUpDates.push(date),
+    ).service.read();
+    const atSwitch = await serviceAt("2026-07-24T18:00:00+08:00", nextContent, (date) =>
+      lookedUpDates.push(date),
+    ).service.read();
+    const beforeInternalBoundary = await serviceAt(
+      "2026-07-24T22:59:59+08:00",
+      nextContent,
+      (date) => lookedUpDates.push(date),
+    ).service.read();
+    const atInternalBoundary = await serviceAt("2026-07-24T23:00:00+08:00", nextContent, (date) =>
+      lookedUpDates.push(date),
+    ).service.read();
+
+    expect(lookedUpDates).toEqual(["2026-07-24", "2026-07-25", "2026-07-25", "2026-07-25"]);
+    expect(atSwitch).toMatchObject({
+      body: {
+        content: { fortuneDate: "2026-07-25" },
+        publicContentContext: {
+          advancedFromCivilDate: true,
+          servedFortuneDate: "2026-07-25",
+          switchBoundary: "18:00",
+        },
+        requestContext: { fortuneDate: "2026-07-24" },
+      },
+      kind: "ready",
+    });
+    expect(beforeInternalBoundary).toMatchObject({ kind: "ready" });
+    expect(atInternalBoundary).toMatchObject({
+      body: {
+        content: { fortuneDate: "2026-07-25" },
+        requestContext: { fortuneDate: "2026-07-25" },
+      },
+      kind: "ready",
+    });
+    expect(before).toMatchObject({ kind: "ready" });
+  });
+
   it("returns one request context and the matching immutable content version", async () => {
     const lookedUpDates: string[] = [];
     const fixture = publishedContent();
@@ -349,6 +398,13 @@ describe("TodayContentService", () => {
     {
       content: publishedContent({ effectiveFrom: "2026-07-24T10:00:00.001+08:00" }),
       name: "the content is not effective yet",
+    },
+    {
+      content: publishedContent({
+        effectiveFrom: "2026-07-23T23:00:00+08:00",
+        effectiveTo: "2026-07-24T23:00:00+08:00",
+      }),
+      name: "the content still uses the legacy 23:00 public window",
     },
   ])("fails closed when $name", async ({ content }) => {
     const { service } = serviceAt("2026-07-24T10:00:00+08:00", content);

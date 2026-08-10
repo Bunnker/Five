@@ -43,6 +43,7 @@ function isGatedPublicPath(path: string | null): boolean {
   return (
     path === "/api/v1/today" ||
     path?.startsWith("/api/v1/daily/") === true ||
+    path?.startsWith("/api/v1/image-assets/") === true ||
     path === "/api/v1/poster-jobs" ||
     path?.startsWith("/api/v1/poster-jobs/") === true ||
     path?.startsWith("/api/v1/poster-assets/") === true

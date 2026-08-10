@@ -62,6 +62,9 @@ importers:
       '@nestjs/platform-fastify':
         specifier: ^11.1.28
         version: 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))
+      lunar-javascript:
+        specifier: 1.7.7
+        version: 1.7.7
       pg:
         specifier: ^8.22.0
         version: 8.22.0
@@ -87,9 +90,6 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
-      lunar-javascript:
-        specifier: 1.7.7
-        version: 1.7.7
       node-pg-migrate:
         specifier: ^9.0.0
         version: 9.0.0(@types/pg@8.20.0)(pg@8.22.0)

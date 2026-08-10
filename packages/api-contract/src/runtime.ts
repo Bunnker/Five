@@ -9,18 +9,22 @@ export type DraftImageAssetList = components["schemas"]["DraftImageAssetList"];
 export type AdminDailyImageSet = components["schemas"]["AdminDailyImageSet"];
 export type WithdrawImageAssetRequest = components["schemas"]["WithdrawImageAssetRequest"];
 export type ImageAssetWithdrawalResult = components["schemas"]["ImageAssetWithdrawalResult"];
+export type PublicContentContext = components["schemas"]["PublicContentContext"];
 export type ErrorCode = components["schemas"]["ErrorCode"];
 type AdminImageAsset = components["schemas"]["AdminImageAsset"];
 
 const ERROR_CODE_RECORD = {
   ACTIVE_CONTENT_VERSION_CHANGED: true,
   ADMIN_SERVICE_UNAVAILABLE: true,
+  ANALYTICS_UNAVAILABLE: true,
+  ALGORITHM_FIELD_READ_ONLY: true,
   AUTHENTICATION_FAILED: true,
-  AUTH_CHALLENGE_EXPIRED: true,
   CONTENT_NOT_FOUND: true,
   CONTENT_NOT_READY: true,
   CONTENT_VERSION_CHANGED: true,
   CSRF_VALIDATION_FAILED: true,
+  DAY_CORRECTION_PAST_DATE: true,
+  DAY_CORRECTION_RELEASE_UNAVAILABLE: true,
   EMERGENCY_CONTROL_CONFLICT: true,
   FEEDBACK_UNAVAILABLE: true,
   FORBIDDEN: true,
@@ -42,12 +46,10 @@ const ERROR_CODE_RECORD = {
   PUBLIC_ACCESS_STOPPED: true,
   PUBLISH_PRECHECK_FAILED: true,
   RATE_LIMITED: true,
-  RECOVERY_CHALLENGE_EXPIRED: true,
   REQUIRED_REVIEW_MISSING: true,
   RESOURCE_NOT_FOUND: true,
   REVISION_MISMATCH: true,
   SCHEDULE_TIME_INVALID: true,
-  TOTP_REPLAYED: true,
   UNAUTHENTICATED: true,
   VERSION_WITHDRAWN: true,
 } as const satisfies Record<ErrorCode, true>;
@@ -279,6 +281,16 @@ function isFortuneDate(value: unknown): value is string {
   return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= (daysInMonth[month - 1] ?? 0);
 }
 
+export function isPublicContentContext(value: unknown): value is PublicContentContext {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["advancedFromCivilDate", "servedFortuneDate", "switchBoundary"]) &&
+    typeof value.advancedFromCivilDate === "boolean" &&
+    isFortuneDate(value.servedFortuneDate) &&
+    value.switchBoundary === "18:00"
+  );
+}
+
 function adminPreviewAssetId(value: unknown): string | null {
   if (!isBoundedString(value, 1, 2048)) return null;
   const match = /^\/admin\/api\/v1\/image-assets\/([^/?#]+)\/preview$/u.exec(value);
@@ -371,7 +383,7 @@ function isBalanceSuggestion(value: unknown): boolean {
     isRecord(value) &&
     hasExactKeys(value, ["accessoryExamples", "description", "preferredTierCode", "title"]) &&
     value.title === "已经穿了注意色" &&
-    value.description === "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。" &&
+    isNonBlankBoundedString(value.description, 300) &&
     value.preferredTierCode === "da_ji" &&
     isUniqueStringArray(
       value.accessoryExamples,
@@ -694,14 +706,20 @@ export function isDraftImageAssetResult(value: unknown): value is DraftImageAsse
       "draftId",
       "draftRevision",
       "fortuneDate",
+      "imageSlot",
       "previewUrl",
       "reviewLocked",
+      "selectedForSlot",
     ]) &&
     isOpaqueId(value.draftId) &&
     isFortuneDate(value.fortuneDate) &&
     isSafeInteger(value.draftRevision, 1) &&
+    (value.imageSlot === null ||
+      (typeof value.imageSlot === "string" && IMAGE_SLOT_SET.has(value.imageSlot))) &&
     isAdminPreviewUriReference(value.previewUrl) &&
     typeof value.reviewLocked === "boolean" &&
+    typeof value.selectedForSlot === "boolean" &&
+    (value.imageSlot !== null || value.selectedForSlot === false) &&
     adminPreviewAssetId(value.previewUrl) === value.asset.assetId
   );
 }
@@ -709,9 +727,13 @@ export function isDraftImageAssetResult(value: unknown): value is DraftImageAsse
 function isDraftImageCandidate(value: unknown): boolean {
   if (!isRecord(value) || !isAdminImageAsset(value.asset)) return false;
   return (
-    hasExactKeys(value, ["asset", "previewUrl", "reviewLocked"]) &&
+    hasExactKeys(value, ["asset", "imageSlot", "previewUrl", "reviewLocked", "selectedForSlot"]) &&
+    (value.imageSlot === null ||
+      (typeof value.imageSlot === "string" && IMAGE_SLOT_SET.has(value.imageSlot))) &&
     isAdminPreviewUriReference(value.previewUrl) &&
     typeof value.reviewLocked === "boolean" &&
+    typeof value.selectedForSlot === "boolean" &&
+    (value.imageSlot !== null || value.selectedForSlot === false) &&
     adminPreviewAssetId(value.previewUrl) === value.asset.assetId
   );
 }
@@ -773,6 +795,10 @@ function isImageAssetWithdrawalEvent(value: unknown): boolean {
 
 export function isDeliverableAdminImageAsset(value: unknown): boolean {
   return isAdminImageAsset(value) && value.fileUrl !== null && value.reviewStatus === "approved";
+}
+
+export function isPublicationCandidateAdminImageAsset(value: unknown): value is AdminImageAsset {
+  return isAdminImageAsset(value) && value.reviewStatus !== "rejected";
 }
 
 export function isAdminDailyImageSet(value: unknown): value is AdminDailyImageSet {
@@ -838,10 +864,10 @@ export function isAdminDailyImageSet(value: unknown): value is AdminDailyImageSe
     const required = imageSlot !== "optional";
     const coverAsset = assetsById.get(coverAssetId);
     const fallbackAsset = fallbackAssetId === null ? undefined : assetsById.get(fallbackAssetId);
-    const coverDeliverable = isDeliverableAdminImageAsset(coverAsset);
+    const coverDeliverable = isPublicationCandidateAdminImageAsset(coverAsset);
     const expectedServedDetailAssetIds = detailAssetIds.filter((assetId) => {
       const asset = assetsById.get(assetId);
-      return isDeliverableAdminImageAsset(asset) && !withdrawnAssetIds.has(assetId);
+      return isPublicationCandidateAdminImageAsset(asset) && !withdrawnAssetIds.has(assetId);
     });
 
     if (
@@ -855,7 +881,7 @@ export function isAdminDailyImageSet(value: unknown): value is AdminDailyImageSe
       (fallbackAssetId !== null &&
         (fallbackAssetId === coverAssetId ||
           fallbackAsset === undefined ||
-          !isDeliverableAdminImageAsset(fallbackAsset)))
+          !isPublicationCandidateAdminImageAsset(fallbackAsset)))
     ) {
       return false;
     }
@@ -882,7 +908,7 @@ export function isAdminDailyImageSet(value: unknown): value is AdminDailyImageSe
         (!coverDeliverable || withdrawnAssetIds.has(coverAssetId)) &&
         (fallbackAssetId === null ||
           fallbackAsset === undefined ||
-          !isDeliverableAdminImageAsset(fallbackAsset) ||
+          !isPublicationCandidateAdminImageAsset(fallbackAsset) ||
           withdrawnAssetIds.has(fallbackAssetId))
       );
     }
@@ -1055,7 +1081,7 @@ function isVisualAndRightsModule(value: unknown): boolean {
       return (
         fallbackAssetId !== coverAssetId &&
         fallbackAsset !== undefined &&
-        isDeliverableAdminImageAsset(fallbackAsset)
+        isPublicationCandidateAdminImageAsset(fallbackAsset)
       );
     })
   );

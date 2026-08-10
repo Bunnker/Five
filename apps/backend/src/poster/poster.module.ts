@@ -24,7 +24,7 @@ import { PostgresPosterJobRepository } from "./postgres-poster-job.repository";
 import {
   FixedSvgPosterRenderer,
   POSTER_RENDERER,
-  StrictPosterImageOriginPolicy,
+  PublicWebPosterImageOriginPolicy,
   type PosterRenderer,
 } from "./poster-renderer";
 import { PosterWorker } from "./poster-worker";
@@ -104,7 +104,7 @@ function workerInstanceId(): string {
       useFactory: (): PosterRenderer =>
         new FixedSvgPosterRenderer(
           undefined,
-          new StrictPosterImageOriginPolicy(publicAssetAllowedOrigins()),
+          new PublicWebPosterImageOriginPolicy(publicWebOrigin(), publicAssetAllowedOrigins()),
         ),
     },
     {

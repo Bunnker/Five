@@ -2,8 +2,10 @@ import { headers } from "next/headers";
 
 import { OutfitDetailImage } from "../../components/outfit-detail-image";
 import { OutfitOverviewImage } from "../../components/outfit-overview-image";
+import { PublicContentBoundaryGuard } from "../../components/public-content-boundary-guard";
 import { ColorSwatch, FoundationAction } from "../../components/visual-foundation";
 import { reviewedColorPalette } from "../../lib/color-palette";
+import { parsePublicChannelId, withPublicChannelId } from "../../lib/channel-links";
 import {
   loadOutfitPageData,
   type OutfitSearchParamValue,
@@ -11,6 +13,7 @@ import {
 } from "../../lib/outfit-page-data";
 import type { LookDetailData } from "../../lib/look-detail";
 import type { OutfitPreviewCardData } from "../../lib/today";
+import { OutfitAnalyticsReporter } from "./outfit-analytics-reporter";
 
 export const dynamic = "force-dynamic";
 
@@ -170,7 +173,13 @@ function OutfitPlan({ detail, selection }: { detail: LookDetailData; selection: 
   );
 }
 
-function OutfitOverview({ selection }: { selection: SelectedOutfit }) {
+function OutfitOverview({
+  channelId,
+  selection,
+}: {
+  channelId: string;
+  selection: SelectedOutfit;
+}) {
   const firstImageFormulaId = selection.cards.find((card) =>
     selection.imagesByFormula.has(card.formulaId),
   )?.formulaId;
@@ -215,7 +224,10 @@ function OutfitOverview({ selection }: { selection: SelectedOutfit }) {
               <a
                 aria-label={`查看${card.title}详情`}
                 className="outfit-overview__action"
-                href={`${card.href}&lookId=${encodeURIComponent(image.lookId)}&view=plan`}
+                href={withPublicChannelId(
+                  `${card.href}&lookId=${encodeURIComponent(image.lookId)}&view=plan`,
+                  channelId,
+                )}
               >
                 查看方案详情
                 <span aria-hidden="true">›</span>
@@ -230,6 +242,7 @@ function OutfitOverview({ selection }: { selection: SelectedOutfit }) {
 
 export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
   const [params, requestHeaders] = await Promise.all([searchParams, headers()]);
+  const requestedChannelId = parsePublicChannelId(params.channelId) ?? "organic";
   const resolution = await loadOutfitPageData({
     params,
     requestId: requestHeaders.get("x-request-id"),
@@ -258,7 +271,10 @@ export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
           <p className="outfit-page__eyebrow">今日怎么搭</p>
           <h1>{notice.title}</h1>
           <p>{notice.description}</p>
-          <a className="outfit-page__back outfit-page__back--button" href="/">
+          <a
+            className="outfit-page__back outfit-page__back--button"
+            href={withPublicChannelId("/", requestedChannelId)}
+          >
             {resolution.reason === "stale" ? "查看新的今日内容" : "返回今日颜色"}
           </a>
         </section>
@@ -295,7 +311,10 @@ export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
           <p>{notice.description}</p>
           <a
             className="outfit-page__back outfit-page__back--button"
-            href={resolution.reason === "stale" ? "/" : resolution.selection.selectedCard.href}
+            href={withPublicChannelId(
+              resolution.reason === "stale" ? "/" : resolution.selection.selectedCard.href,
+              resolution.selection.channelId,
+            )}
           >
             {resolution.reason === "stale" ? "查看新的今日内容" : "返回今日搭配"}
           </a>
@@ -305,55 +324,71 @@ export default async function OutfitsPage({ searchParams }: OutfitsPageProps) {
   }
 
   const { selection } = resolution;
+  const channelId = selection.channelId;
   const isPlanView = resolution.status === "detail";
   const lookDetail = isPlanView ? resolution.detail : null;
 
   return (
-    <main className="outfit-page">
-      <article
-        aria-labelledby={isPlanView ? "outfit-detail-title" : undefined}
-        className="outfit-page__sheet"
-        data-content-version={selection.contentVersion}
-      >
-        <a className="outfit-page__back" href="/">
-          <span aria-hidden="true">←</span>
-          返回今日颜色
-        </a>
-
-        <header className="outfit-page__header">
-          <p className="outfit-page__eyebrow">
-            {isPlanView ? "已发布搭配方案" : "当天已核对的颜色组合"}
-          </p>
-          <h1 id={isPlanView ? "outfit-detail-title" : undefined}>
-            {lookDetail?.title ?? "今日怎么搭"}
-          </h1>
-          <p>
-            {selection.fortuneDate} ·{" "}
-            {lookDetail === null ? "当天已审核方案" : lookDetail.scenarioLabel}
-          </p>
-        </header>
-
-        {isPlanView && lookDetail !== null ? (
-          <OutfitPlan detail={lookDetail} selection={selection} />
-        ) : (
-          <OutfitOverview selection={selection} />
-        )}
-        {isPlanView ? null : (
-          <p className="outfit-page__rule-note">比例为穿搭参考，不是五行推算规则。</p>
-        )}
-
-        {isPlanView && selection.shareHref !== null ? (
-          <FoundationAction fullWidth href={selection.shareHref} indicator="→">
-            分享这套搭配
-          </FoundationAction>
-        ) : null}
-        <a
-          className="outfit-page__back outfit-page__back--button"
-          href={isPlanView ? selection.selectedCard.href : "/"}
+    <PublicContentBoundaryGuard
+      effectiveTo={selection.effectiveTo}
+      responseGeneratedAt={selection.responseGeneratedAt}
+    >
+      <main className="outfit-page">
+        <OutfitAnalyticsReporter
+          channelId={channelId}
+          contentVersion={selection.contentVersion}
+          eventName={isPlanView ? "view_look_detail" : "open_outfit_hub"}
+          fortuneDate={selection.fortuneDate}
+        />
+        <article
+          aria-labelledby={isPlanView ? "outfit-detail-title" : undefined}
+          className="outfit-page__sheet"
+          data-content-version={selection.contentVersion}
         >
-          {isPlanView ? "查看其他搭配" : "回到今日首页"}
-        </a>
-      </article>
-    </main>
+          <a className="outfit-page__back" href={withPublicChannelId("/", channelId)}>
+            <span aria-hidden="true">←</span>
+            返回今日颜色
+          </a>
+
+          <header className="outfit-page__header">
+            <p className="outfit-page__eyebrow">
+              {isPlanView ? "已发布搭配方案" : "当天已核对的颜色组合"}
+            </p>
+            <h1 id={isPlanView ? "outfit-detail-title" : undefined}>
+              {lookDetail?.title ?? "今日怎么搭"}
+            </h1>
+            <p>
+              {selection.fortuneDate} ·{" "}
+              {lookDetail === null ? "当天已审核方案" : lookDetail.scenarioLabel}
+            </p>
+          </header>
+
+          {isPlanView && lookDetail !== null ? (
+            <OutfitPlan detail={lookDetail} selection={selection} />
+          ) : (
+            <OutfitOverview channelId={channelId} selection={selection} />
+          )}
+          {isPlanView ? null : (
+            <p className="outfit-page__rule-note">比例为穿搭参考，不是五行推算规则。</p>
+          )}
+
+          {isPlanView && selection.shareHref !== null ? (
+            <FoundationAction
+              fullWidth
+              href={withPublicChannelId(selection.shareHref, channelId)}
+              indicator="→"
+            >
+              分享这套搭配
+            </FoundationAction>
+          ) : null}
+          <a
+            className="outfit-page__back outfit-page__back--button"
+            href={withPublicChannelId(isPlanView ? selection.selectedCard.href : "/", channelId)}
+          >
+            {isPlanView ? "查看其他搭配" : "回到今日首页"}
+          </a>
+        </article>
+      </main>
+    </PublicContentBoundaryGuard>
   );
 }

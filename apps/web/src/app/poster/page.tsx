@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 
 import { buildSharePagePath } from "../../lib/poster-job";
+import { PublicContentBoundaryGuard } from "../../components/public-content-boundary-guard";
 import { loadToday } from "../../lib/today";
 import {
   resolveTodayEntry,
@@ -86,52 +87,46 @@ export default async function PosterPage({ searchParams }: PosterPageProps) {
   ];
 
   return (
-    <main className="outfit-page poster-page">
-      <article
-        aria-labelledby="poster-page-title"
-        className="outfit-page__sheet poster-page__sheet"
-        data-channel-id={resolution.channelId}
-        data-content-version={resolution.contentVersion}
-        data-poster-template-version={share.posterTemplateVersion}
-      >
-        <a className="outfit-page__back" href={shareHref}>
-          <span aria-hidden="true">←</span>
-          返回分享页
-        </a>
-        <header className="outfit-page__header poster-page__header">
-          <p className="outfit-page__eyebrow">固定模板 · 已审核素材</p>
-          <h1 id="poster-page-title">生成今日日签</h1>
-          <p>{resolution.fortuneDate}</p>
-        </header>
+    <PublicContentBoundaryGuard
+      effectiveTo={resolution.today.content.effectiveTo}
+      responseGeneratedAt={resolution.today.requestContext.responseGeneratedAt}
+    >
+      <main className="outfit-page poster-page">
+        <article
+          aria-labelledby="poster-page-title"
+          className="outfit-page__sheet poster-page__sheet"
+          data-channel-id={resolution.channelId}
+          data-content-version={resolution.contentVersion}
+          data-poster-template-version={share.posterTemplateVersion}
+        >
+          <a className="outfit-page__back" href={shareHref}>
+            <span aria-hidden="true">←</span>
+            返回分享页
+          </a>
+          <header className="outfit-page__header poster-page__header">
+            <p className="outfit-page__eyebrow">微信好友与朋友圈</p>
+            <h1 id="poster-page-title">分享日签海报</h1>
+            <p>{resolution.fortuneDate}</p>
+          </header>
 
-        <dl className="poster-version-lock" aria-label="海报版本锁定信息">
-          <div>
-            <dt>来源内容</dt>
-            <dd>{resolution.contentVersion}</dd>
-          </div>
-          <div>
-            <dt>海报模板</dt>
-            <dd>{share.posterTemplateVersion}</dd>
-          </div>
-        </dl>
+          <aside className="poster-safety-note">
+            <p>{basis.disclaimer}</p>
+            <p>海报使用当天已发布的穿搭图片，不会在访问时额外调用 AI 生图。</p>
+            {aiDisclosures.map((disclosure) => (
+              <p key={disclosure}>图片标识：{disclosure}</p>
+            ))}
+          </aside>
 
-        <aside className="poster-safety-note">
-          <p>{basis.disclaimer}</p>
-          <p>海报只使用当天已审核图片，不会在访问时额外调用 AI 生图。</p>
-          {aiDisclosures.map((disclosure) => (
-            <p key={disclosure}>图片标识：{disclosure}</p>
-          ))}
-        </aside>
-
-        <PosterActions
-          channelId={resolution.channelId}
-          copyText={share.copyText}
-          fortuneDate={resolution.fortuneDate}
-          posterJobEndpoint={share.posterJobEndpoint}
-          posterTemplateVersion={share.posterTemplateVersion}
-          sourceContentVersion={resolution.contentVersion}
-        />
-      </article>
-    </main>
+          <PosterActions
+            autoStart
+            channelId="user_share"
+            fortuneDate={resolution.fortuneDate}
+            posterJobEndpoint={share.posterJobEndpoint}
+            posterTemplateVersion={share.posterTemplateVersion}
+            sourceContentVersion={resolution.contentVersion}
+          />
+        </article>
+      </main>
+    </PublicContentBoundaryGuard>
   );
 }

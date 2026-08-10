@@ -20,10 +20,10 @@ export async function installAdminImageMultipart(instance: unknown): Promise<voi
   await registrar.register(multipart, {
     limits: {
       fieldSize: ADMIN_IMAGE_METADATA_MAXIMUM_BYTES,
-      fields: 1,
+      fields: 2,
       fileSize: ADMIN_IMAGE_MAXIMUM_BYTES,
       files: 1,
-      parts: 2,
+      parts: 3,
     },
   });
 }

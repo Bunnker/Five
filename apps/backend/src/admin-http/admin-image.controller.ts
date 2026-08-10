@@ -8,8 +8,10 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Req, Res } from "
 
 import type { DailyImageAssetService } from "../daily-images/daily-image-asset.service";
 import {
+  isDailyImageSlot,
   isIdempotencyKey,
   isOpaqueAdminId,
+  isSelectDraftImageAssetRequest,
   parseStrongRevisionEtag,
 } from "./admin-content.validation";
 import { adminErrorEnvelope, type AdminHttpReply } from "./admin-http";
@@ -131,6 +133,7 @@ export class AdminImageController {
     let bytes: Buffer | null = null;
     let mediaType: string | null = null;
     let metadata: unknown = null;
+    let imageSlot: unknown = null;
     try {
       for await (const part of request.parts()) {
         if (part.type === "file" && part.fieldname === "file" && bytes === null) {
@@ -147,6 +150,14 @@ export class AdminImageController {
         ) {
           metadata =
             typeof part.value === "string" ? (JSON.parse(part.value) as unknown) : part.value;
+        } else if (
+          part.type === "field" &&
+          part.fieldname === "imageSlot" &&
+          imageSlot === null &&
+          part.valueTruncated !== true &&
+          typeof part.value === "string"
+        ) {
+          imageSlot = part.value;
         } else {
           return fail(request, reply, 400, "IMAGE_FILE_INVALID", "multipart 结构无效。");
         }
@@ -158,8 +169,13 @@ export class AdminImageController {
       }
       return fail(request, reply, 400, "IMAGE_FILE_INVALID", "图片或 multipart 结构无效。");
     }
-    if (bytes === null || mediaType === null || !isImageAssetUploadMetadata(metadata)) {
-      return fail(request, reply, 400, "IMAGE_FILE_INVALID", "图片文件或元数据缺失。");
+    if (
+      bytes === null ||
+      mediaType === null ||
+      !isImageAssetUploadMetadata(metadata) ||
+      !isDailyImageSlot(imageSlot)
+    ) {
+      return fail(request, reply, 400, "IMAGE_FILE_INVALID", "图片文件、槽位或元数据缺失。");
     }
     const result = await this.images.uploadDraftAsset({
       actorId: request.adminPrincipal.accountId,
@@ -168,6 +184,7 @@ export class AdminImageController {
       draftId,
       expectedDraftRevision: revision,
       idempotencyKey,
+      imageSlot,
       metadata,
       requestId: requestId(request),
     });
@@ -197,6 +214,62 @@ export class AdminImageController {
       return fail(request, reply, 400, "IMAGE_FILE_INVALID", "图片文件损坏或无效。");
     }
     return fail(request, reply, 422, "IMAGE_REVIEW_INCOMPLETE", "图片来源或权利元数据不完整。");
+  }
+
+  @Post("daily-content-drafts/:draftId/image-assets/:assetId/selection")
+  @HttpCode(200)
+  async selectDraftAssetForSlot(
+    @Param("draftId") draftId: string,
+    @Param("assetId") assetId: string,
+    @Body() body: unknown,
+    @Req() request: AdminProtectionRequest,
+    @Res({ passthrough: true }) reply: AdminHttpReply,
+  ): Promise<DraftImageAssetResult | ErrorEnvelope> {
+    if (request.adminPrincipal === undefined) {
+      return fail(request, reply, 401, "UNAUTHENTICATED", "后台会话不存在或已失效。");
+    }
+    const ifMatch = singleHeader(request, "if-match");
+    if (ifMatch === undefined) {
+      return fail(request, reply, 428, "PRECONDITION_REQUIRED", "缺少当前草稿修订号。");
+    }
+    const revision = parseStrongRevisionEtag(ifMatch, "draft");
+    const idempotencyKey = singleHeader(request, "idempotency-key");
+    if (
+      revision === null ||
+      !isOpaqueAdminId(draftId) ||
+      !isOpaqueAdminId(assetId) ||
+      !isIdempotencyKey(idempotencyKey) ||
+      !isSelectDraftImageAssetRequest(body)
+    ) {
+      return fail(request, reply, 400, "INVALID_ARGUMENT", "图片槽位选择参数无效。");
+    }
+    const result = await this.images.selectDraftAssetForSlot({
+      actorId: request.adminPrincipal.accountId,
+      assetId,
+      draftId,
+      expectedDraftRevision: revision,
+      idempotencyKey,
+      imageSlot: body.imageSlot,
+      reason: body.reason,
+      requestId: requestId(request),
+    });
+    if (result.kind === "selected" || result.kind === "existing") {
+      reply.header("ETag", `"draft:${result.result.draftRevision}"`);
+      return result.result;
+    }
+    if (result.kind === "revision_mismatch") {
+      return revisionMismatch(request, reply, "draft", result.currentRevision);
+    }
+    if (result.kind === "idempotency_conflict") {
+      return fail(request, reply, 409, "IDEMPOTENCY_KEY_REUSED", "幂等键已用于另一请求。");
+    }
+    if (result.kind === "not_found") {
+      return fail(request, reply, 404, "RESOURCE_NOT_FOUND", "图片候选或目标槽位不存在。");
+    }
+    if (result.kind === "invalid_state") {
+      return fail(request, reply, 409, "INVALID_STATE_TRANSITION", "草稿已冻结。");
+    }
+    return fail(request, reply, 400, "INVALID_ARGUMENT", "图片槽位选择参数无效。");
   }
 
   @Post("daily-content-drafts/:draftId/image-assets/:assetId/review")

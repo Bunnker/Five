@@ -115,6 +115,7 @@ const defaultProps = {
   activeContentVersion: "2026-08-01.v1",
   contentVersion: "2026-08-01.v1",
   csrfToken,
+  onImageSetChange: vi.fn(),
   onLifecycleChange: vi.fn(),
   onUnauthorized: vi.fn(),
   versionState: "published" as const,
@@ -123,6 +124,7 @@ const defaultProps = {
 describe("AdminDailyImageSetPanel", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+    defaultProps.onImageSetChange.mockReset();
     defaultProps.onLifecycleChange.mockReset();
     defaultProps.onUnauthorized.mockReset();
   });

@@ -3,6 +3,14 @@ import { createHash } from "node:crypto";
 import type { components } from "@five/api-contract";
 
 import {
+  PublicContentContextResolver,
+  type PublicContentContext,
+} from "../public-content/public-content-context-resolver";
+import {
+  PublicContentWindowResolver,
+  type PublicContentWindow,
+} from "../public-content/public-content-window-resolver";
+import {
   RequestContextResolver,
   type RequestContext,
 } from "../request-context/request-context-resolver";
@@ -40,10 +48,11 @@ const NOT_READY_RETRY_SECONDS = 30;
 
 function isCurrentContent(
   content: DailyContent,
-  requestContext: RequestContext,
+  publicContentContext: PublicContentContext,
+  publicWindow: PublicContentWindow,
   generatedAt: number,
 ): boolean {
-  if (content.fortuneDate !== requestContext.fortuneDate) {
+  if (content.fortuneDate !== publicContentContext.servedFortuneDate) {
     return false;
   }
 
@@ -53,6 +62,8 @@ function isCurrentContent(
   return (
     effectiveFrom !== null &&
     effectiveTo !== null &&
+    effectiveFrom === parseZonedDateTime(publicWindow.effectiveFrom) &&
+    effectiveTo === parseZonedDateTime(publicWindow.effectiveTo) &&
     effectiveFrom <= generatedAt &&
     generatedAt < effectiveTo
   );
@@ -66,22 +77,28 @@ function createRepresentationEtag(body: TodayResponse): string {
 export class TodayContentService {
   constructor(
     private readonly requestContextResolver: RequestContextResolver,
+    private readonly publicContentContextResolver: PublicContentContextResolver,
     private readonly publishedContentReader: PublishedContentReader,
     private readonly cachePolicy: TodayCachePolicy,
+    private readonly publicContentWindowResolver: PublicContentWindowResolver = new PublicContentWindowResolver(),
   ) {}
 
   async read(): Promise<TodayContentResult> {
     // One resolver call keeps every returned date and time field tied to the same instant.
     const requestContext = this.requestContextResolver.resolve();
+    const publicContentContext = this.publicContentContextResolver.resolve(requestContext);
+    const publicWindow = this.publicContentWindowResolver.resolve(
+      publicContentContext.servedFortuneDate,
+    );
     const generatedAt = parseZonedDateTime(requestContext.responseGeneratedAt);
     const content = await this.publishedContentReader.findActiveByFortuneDate(
-      requestContext.fortuneDate,
+      publicContentContext.servedFortuneDate,
     );
 
     if (
       generatedAt === null ||
       content === null ||
-      !isCurrentContent(content, requestContext, generatedAt)
+      !isCurrentContent(content, publicContentContext, publicWindow, generatedAt)
     ) {
       return {
         kind: "not_ready",
@@ -92,9 +109,14 @@ export class TodayContentService {
 
     const body: TodayResponse = {
       content,
+      publicContentContext,
       requestContext,
     };
-    const cache = this.cachePolicy.calculate(requestContext, content.effectiveTo);
+    const cache = this.cachePolicy.calculate(
+      requestContext,
+      content.effectiveTo,
+      publicContentContext,
+    );
 
     return {
       body,

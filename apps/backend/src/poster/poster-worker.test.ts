@@ -56,7 +56,7 @@ describe("PosterWorker", () => {
     findActiveByFortuneDate.mockClear();
 
     const render = vi.fn<PosterRenderer["render"]>(() =>
-      Promise.resolve({ body: Buffer.from("<svg/>", "utf8"), mediaType: "image/svg+xml" }),
+      Promise.resolve({ body: Buffer.from("png", "utf8"), mediaType: "image/png" }),
     );
     const put = vi.fn<PosterAssetStore["put"]>(() => Promise.resolve());
     const store: PosterAssetStore = {
@@ -81,19 +81,19 @@ describe("PosterWorker", () => {
     expect(render).toHaveBeenCalledWith({
       content,
       landingUrl:
-        "https://five.example.com/daily/2026-07-15?channelId=organic&expectedContentVersion=fd-20260715-r3",
+        "https://five.example.com/daily/2026-07-15?channelId=organic&expectedContentVersion=fd-20260715-r3&referralId=poster-job-01&referralKind=poster",
       posterTemplateVersion: "poster-template-v3",
       sourceContentVersion: "fd-20260715-r3",
     });
-    expect(put).toHaveBeenCalledWith("poster-attempt-token-01.svg", Buffer.from("<svg/>", "utf8"));
+    expect(put).toHaveBeenCalledWith("poster-attempt-token-01.png", Buffer.from("png", "utf8"));
     expect(put).toHaveBeenCalledTimes(1);
     await expect(jobService.get("poster-job-01")).resolves.toEqual({
-      assetUrl: "https://assets.example.com/posters/poster-attempt-token-01.svg",
+      assetUrl: "https://assets.example.com/posters/poster-attempt-token-01.png",
       channelId: "organic",
       currentActiveContentVersion: "fd-20260715-r3",
       entry: {
         landingUrl:
-          "https://five.example.com/daily/2026-07-15?channelId=organic&expectedContentVersion=fd-20260715-r3",
+          "https://five.example.com/daily/2026-07-15?channelId=organic&expectedContentVersion=fd-20260715-r3&referralId=poster-job-01&referralKind=poster",
         type: "web_qr",
       },
       jobId: "poster-job-01",
@@ -137,8 +137,7 @@ describe("PosterWorker", () => {
       repository,
       reader,
       {
-        render: () =>
-          Promise.resolve({ body: Buffer.from("<svg/>", "utf8"), mediaType: "image/svg+xml" }),
+        render: () => Promise.resolve({ body: Buffer.from("png", "utf8"), mediaType: "image/png" }),
       },
       {
         delete: deleteAsset,
@@ -156,9 +155,9 @@ describe("PosterWorker", () => {
 
     await expect(worker.runOne()).resolves.toBe("ready");
     expect(deleteAsset).not.toHaveBeenCalled();
-    expect([...assets.keys()]).toEqual(["poster-attempt-ambiguous-completion.svg"]);
+    expect([...assets.keys()]).toEqual(["poster-attempt-ambiguous-completion.png"]);
     await expect(jobService.get("poster-job-ambiguous-completion")).resolves.toMatchObject({
-      assetUrl: "https://assets.example.com/posters/poster-attempt-ambiguous-completion.svg",
+      assetUrl: "https://assets.example.com/posters/poster-attempt-ambiguous-completion.png",
       status: "ready",
     });
   });
@@ -195,8 +194,7 @@ describe("PosterWorker", () => {
       repository,
       reader,
       {
-        render: () =>
-          Promise.resolve({ body: Buffer.from("<svg/>", "utf8"), mediaType: "image/svg+xml" }),
+        render: () => Promise.resolve({ body: Buffer.from("png", "utf8"), mediaType: "image/png" }),
       },
       {
         delete: deleteAsset,
@@ -210,7 +208,7 @@ describe("PosterWorker", () => {
     );
 
     expect(await worker.runOne()).toBe("version_changed");
-    expect(deleteAsset).toHaveBeenCalledWith("poster-attempt-token-version-change.svg");
+    expect(deleteAsset).toHaveBeenCalledWith("poster-attempt-token-version-change.png");
     await expect(jobService.get("poster-job-version-change")).resolves.toMatchObject({
       assetUrl: null,
       currentActiveContentVersion: "fd-20260715-r4",
@@ -242,8 +240,8 @@ describe("PosterWorker", () => {
       .fn<PosterRenderer["render"]>()
       .mockRejectedValueOnce(new Error("temporary renderer failure"))
       .mockResolvedValueOnce({
-        body: Buffer.from("<svg/>", "utf8"),
-        mediaType: "image/svg+xml",
+        body: Buffer.from("png", "utf8"),
+        mediaType: "image/png",
       });
     const put = vi.fn<PosterAssetStore["put"]>(() => Promise.resolve());
     const createAttemptToken = vi
@@ -272,12 +270,12 @@ describe("PosterWorker", () => {
     expect(render).toHaveBeenCalledTimes(2);
     expect(put).toHaveBeenCalledTimes(1);
     expect(put).toHaveBeenCalledWith(
-      "poster-attempt-token-retry-2.svg",
-      Buffer.from("<svg/>", "utf8"),
+      "poster-attempt-token-retry-2.png",
+      Buffer.from("png", "utf8"),
     );
     expect(createAttemptToken).toHaveBeenCalledTimes(3);
     await expect(jobService.get("poster-job-retry")).resolves.toMatchObject({
-      assetUrl: "https://assets.example.com/posters/poster-attempt-token-retry-2.svg",
+      assetUrl: "https://assets.example.com/posters/poster-attempt-token-retry-2.png",
       status: "ready",
     });
   });
@@ -337,8 +335,7 @@ describe("PosterWorker", () => {
       read: (assetKey) => Promise.resolve(assets.get(assetKey) ?? null),
     };
     const renderer: PosterRenderer = {
-      render: () =>
-        Promise.resolve({ body: Buffer.from("<svg/>", "utf8"), mediaType: "image/svg+xml" }),
+      render: () => Promise.resolve({ body: Buffer.from("png", "utf8"), mediaType: "image/png" }),
     };
     const oldWorker = new PosterWorker(
       repository,
@@ -366,9 +363,9 @@ describe("PosterWorker", () => {
     releaseOldRead?.(content);
     await expect(staleRun).resolves.toBe("lost");
 
-    expect([...assets.keys()]).toEqual(["poster-attempt-reclaimed-new.svg"]);
+    expect([...assets.keys()]).toEqual(["poster-attempt-reclaimed-new.png"]);
     await expect(jobService.get("poster-job-stale-worker")).resolves.toMatchObject({
-      assetUrl: "https://assets.example.com/posters/poster-attempt-reclaimed-new.svg",
+      assetUrl: "https://assets.example.com/posters/poster-attempt-reclaimed-new.png",
       posterInstanceId: "poster-attempt-reclaimed-new",
       status: "ready",
     });
@@ -402,7 +399,7 @@ describe("PosterWorker", () => {
     expect(crashedClaim).not.toBeNull();
     await expect(
       repository.reserveAsset({
-        assetKey: "poster-attempt-crashed-after-put.svg",
+        assetKey: "poster-attempt-crashed-after-put.png",
         attemptToken: "attempt-crashed-after-put",
         jobId: "poster-job-crashed-after-put",
         workerId: "host-crashed-worker",
@@ -410,7 +407,7 @@ describe("PosterWorker", () => {
     ).resolves.toBe(true);
 
     const assets = new Map<string, Buffer>();
-    assets.set("poster-attempt-crashed-after-put.svg", Buffer.from("orphaned", "utf8"));
+    assets.set("poster-attempt-crashed-after-put.png", Buffer.from("orphaned", "utf8"));
     const deleteAsset = vi.fn<PosterAssetStore["delete"]>((assetKey) => {
       assets.delete(assetKey);
       return Promise.resolve();
@@ -429,8 +426,7 @@ describe("PosterWorker", () => {
       repository,
       reader,
       {
-        render: () =>
-          Promise.resolve({ body: Buffer.from("<svg/>", "utf8"), mediaType: "image/svg+xml" }),
+        render: () => Promise.resolve({ body: Buffer.from("png", "utf8"), mediaType: "image/png" }),
       },
       store,
       "https://assets.example.com/posters/",
@@ -439,20 +435,20 @@ describe("PosterWorker", () => {
     );
 
     await expect(worker.runOne()).resolves.toBe("ready");
-    expect([...assets.keys()]).toEqual(["poster-attempt-reclaimed-after-crash.svg"]);
-    expect(deleteAsset).toHaveBeenCalledWith("poster-attempt-crashed-after-put.svg");
+    expect([...assets.keys()]).toEqual(["poster-attempt-reclaimed-after-crash.png"]);
+    expect(deleteAsset).toHaveBeenCalledWith("poster-attempt-crashed-after-put.png");
     now += 300_001;
     await expect(worker.runOne()).resolves.toBe("idle");
     expect(deleteAsset).toHaveBeenCalledTimes(1);
 
     // A stale process can resume after its reservation was acknowledged, write its old key,
     // and crash again before its own cleanup. Store reconciliation must still find that orphan.
-    assets.set("poster-attempt-crashed-after-put.svg", Buffer.from("late orphan", "utf8"));
+    assets.set("poster-attempt-crashed-after-put.png", Buffer.from("late orphan", "utf8"));
     await expect(worker.runOne()).resolves.toBe("idle");
     expect(deleteAsset).toHaveBeenCalledTimes(2);
-    expect([...assets.keys()]).toEqual(["poster-attempt-reclaimed-after-crash.svg"]);
+    expect([...assets.keys()]).toEqual(["poster-attempt-reclaimed-after-crash.png"]);
     await expect(jobService.get("poster-job-crashed-after-put")).resolves.toMatchObject({
-      assetUrl: "https://assets.example.com/posters/poster-attempt-reclaimed-after-crash.svg",
+      assetUrl: "https://assets.example.com/posters/poster-attempt-reclaimed-after-crash.png",
       posterInstanceId: "poster-attempt-reclaimed-after-crash",
       status: "ready",
     });

@@ -20,6 +20,8 @@ tags:
     description: 匿名用户读取已经发布的内容
   - name: Public sharing
     description: 海报、分享落地和反馈
+  - name: Public analytics
+    description: 不影响公共功能的第一方匿名使用事件
   - name: Admin authentication
     description: 单一维护者登录、会话与控制权恢复
   - name: Admin security
@@ -32,6 +34,10 @@ tags:
     description: 大师外部确认、检查、排期、发布、下线与恢复
   - name: Admin audit
     description: 单一维护者查看审计记录
+  - name: Admin operations
+    description: 单一维护者查看今日、月历、日期详情与可行动异常
+  - name: Admin analytics
+    description: 单一维护者查看匿名访问、搭配与分享反馈闭环
 security: []
 
 paths:
@@ -39,14 +45,18 @@ paths:
     get:
       operationId: getToday
       tags: [Public content]
-      summary: 获取服务端当前命理日的已发布内容
+      summary: 获取北京时间 18:00 公共切换后的已发布内容
       description: |
         服务端按 `Asia/Shanghai` 一次性计算完整 `requestContext`。
+        `publicContentContext.servedFortuneDate` 在北京时间 18:00 切换到下一日期；
+        命理计算使用的 `requestContext.fortuneDate` 仍在 23:00 切换，两者不得混用。
         网页不得使用设备时钟重新计算 `civilDate`、`fortuneDate` 或 `shichen`。
       responses:
         "200":
-          description: 当前命理日存在可以公开读取的内容
+          description: 当前公开交付日存在可以公开读取的内容
           headers:
+            Date:
+              $ref: "#/components/headers/RepresentationDate"
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
             X-Content-Version:
@@ -65,6 +75,8 @@ paths:
         "304":
           description: "`If-None-Match` 对应的完整响应表示仍有效"
           headers:
+            Date:
+              $ref: "#/components/headers/RepresentationDate"
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
             ETag:
@@ -73,6 +85,39 @@ paths:
               $ref: "#/components/headers/DynamicCacheControl"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/PublicContentUnavailable"
+
+  /api/v1/image-assets/{assetId}:
+    get:
+      operationId: getPublicImageAsset
+      tags: [Public content]
+      summary: 读取当前内容版本引用的不可变图片文件
+      description: 发布后检查不阻止首次交付；问题图片仍可通过单图下线停止公开。
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/OpaqueId"
+      responses:
+        "200":
+          description: 图片文件
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            image/avif:
+              schema: { type: string, format: binary }
+            image/webp:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        "404":
+          description: 图片不存在
         "503":
           $ref: "#/components/responses/PublicContentUnavailable"
 
@@ -271,27 +316,36 @@ paths:
         "503":
           $ref: "#/components/responses/FeedbackUnavailable"
 
-  /admin/api/v1/auth/password-challenges:
+  /api/v1/analytics-events:
     post:
-      operationId: createAdminPasswordChallenge
-      tags: [Admin authentication]
-      summary: 校验单一维护者账号与密码并创建一次性 TOTP 挑战
+      operationId: createAnalyticsEvent
+      tags: [Public analytics]
+      summary: 接收一条第一方匿名使用事件
       description: |
-        无论账号是否存在，失败时都执行等价密码哈希校验并返回同一错误。
-        请求在解析正文前先接受持久化的请求来源级限流；严格解析并规范化账号后、
-        执行昂贵密码哈希前，再接受持久化的账号级限流。
-        虽然此阶段尚无会话 CSRF 令牌，请求仍必须携带并通过可信同源 `Origin` 校验。
-        挑战只能使用一次，并在五分钟后失效。
-      security: []
+        事件写入是旁路能力，调用方不得等待它再执行导航、系统分享或海报保存。
+        `eventId` 与规范化请求共同提供幂等；相同载荷重放不会重复统计，不同载荷复用同一 ID 返回冲突。
+        服务端只保存独立 HMAC 后的 `anonymousId`，不保存原始标识、IP、完整 User-Agent、联系人、群或分享目标。
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreatePasswordChallengeRequest"
+              $ref: "#/components/schemas/CreateAnalyticsEventRequest"
+            examples:
+              pageView:
+                value:
+                  eventId: event-018f3a7d6c214ed4
+                  eventName: view_today_summary
+                  fortuneDate: "2026-08-10"
+                  contentVersion: fd-20260810-r2
+                  sourceContentVersion: null
+                  channelId: organic
+                  anonymousId: browser-018f3a7d6c214ed4
+                  referralId: null
+                  posterInstanceId: null
       responses:
-        "200":
-          description: 密码已校验，等待验证器动态码
+        "202":
+          description: 事件已接收或已按相同载荷幂等重放
           headers:
             X-Request-Id:
               $ref: "#/components/headers/XRequestId"
@@ -300,15 +354,102 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PasswordChallenge"
+                $ref: "#/components/schemas/CreateAnalyticsEventResponse"
         "400":
-          $ref: "#/components/responses/AuthInvalidArgument"
-        "401":
-          $ref: "#/components/responses/AuthenticationFailed"
-        "403":
-          $ref: "#/components/responses/CsrfValidationFailed"
+          $ref: "#/components/responses/InvalidArgument"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
-          $ref: "#/components/responses/AuthRateLimited"
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/AnalyticsUnavailable"
+
+  /admin/api/v1/analytics/overview:
+    get:
+      operationId: getAdminAnalyticsOverview
+      tags: [Admin analytics]
+      summary: 查看匿名访问、搭配、分享发起和分享回流
+      description: |
+        查询按公开内容 `fortuneDate` 分组，范围最多 31 日。匿名人数表示当前浏览器随机标识，
+        不代表真实个人或跨设备用户。分享数据只表示可观测的发起与回流，不表示微信实际发送成功。
+      security:
+        - AdminSession: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/FortuneDate"
+        - name: to
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/FortuneDate"
+        - name: channelId
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+        - name: contentVersion
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ContentVersion"
+      responses:
+        "200":
+          description: 返回统一口径的匿名使用摘要
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAnalyticsOverview"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/analytics/report:
+    get:
+      operationId: getAdminAnalyticsReport
+      tags: [Admin analytics]
+      summary: 查看最近 7 日或 30 日的匿名使用报表
+      description: |
+        报表结束日期由服务端当前公开 `servedFortuneDate` 决定，北京时间 18:00 随公开内容切换；
+        浏览器不得根据设备日期推算。每日序列按公开内容日期升序返回并补齐无事件日期。
+        匿名浏览器只表示当前浏览器随机标识，分享发起不表示微信等外部平台实际发送成功。
+      security:
+        - AdminSession: []
+      parameters:
+        - name: days
+          in: query
+          required: true
+          schema:
+            type: integer
+            enum: [7, 30]
+      responses:
+        "200":
+          description: 返回同一数据库快照中的区间汇总、每日趋势与渠道占比
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAnalyticsReport"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
         "503":
           $ref: "#/components/responses/AdminServiceUnavailable"
 
@@ -316,13 +457,13 @@ paths:
     post:
       operationId: createAdminSession
       tags: [Admin authentication]
-      summary: 使用密码挑战与 TOTP 动态码建立后台会话
+      summary: 使用账号与密码建立后台会话
       description: |
-        服务端在 PostgreSQL 中原子消费一次性密码挑战和 TOTP counter；允许的时钟偏差内，
-        已用于登录或其他高风险动作的同一 counter 也不能再次使用。成功后只通过同源
-        `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/admin` 且无 `Domain` 的 Cookie
-        返回随机会话令牌，响应正文只返回与该会话绑定的 CSRF 令牌和会话期限。此请求在
-        会话建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
+        服务端执行来源级和账号级持久化限流，并对不存在账号执行等价密码哈希工作量。
+        校验成功后只通过同源 `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/admin`
+        且无 `Domain` 的 Cookie 返回随机会话令牌，响应正文只返回与该会话绑定的 CSRF
+        令牌和会话期限。此请求在会话建立前没有 CSRF 令牌，但仍必须通过可信同源
+        `Origin` 校验。
       security: []
       requestBody:
         required: true
@@ -411,7 +552,7 @@ paths:
       summary: 原子注销单一维护者的全部后台会话
       description: |
         必须同时通过可信同源 `Origin` 与会话绑定的 CSRF 令牌校验。成功后原子撤销
-        全部现有会话并作废尚未消费的登录挑战，不能由操作前签发的挑战重新建立会话。
+        全部现有会话并使操作前取得的所有会话材料失效。
       security:
         - AdminSession: []
       parameters:
@@ -433,97 +574,13 @@ paths:
         "503":
           $ref: "#/components/responses/AdminServiceUnavailable"
 
-  /admin/api/v1/auth/recovery-challenges:
-    post:
-      operationId: createAdminRecoveryChallenge
-      tags: [Admin authentication]
-      summary: 原子消费一个恢复码并开始两阶段控制权恢复
-      description: |
-        正确恢复码在 PostgreSQL 中只消费一次，并立即提升凭据修订号、注销全部会话、
-        使旧验证器和全部旧恢复码失效。随后只签发十分钟有效、一次性的恢复挑战，
-        同时给出待启用的新 TOTP 配置。失败不暴露账号或恢复码是否存在；请求来源在正文解析前
-        限流，账号在严格解析并规范化后、校验恢复码前限流。此未登录请求仍必须通过可信同源
-        `Origin` 校验。
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateRecoveryChallengeRequest"
-      responses:
-        "200":
-          description: 恢复码已消费，等待设置新密码并验证新的 TOTP
-          headers:
-            X-Request-Id:
-              $ref: "#/components/headers/XRequestId"
-            Cache-Control:
-              $ref: "#/components/headers/NoStoreCacheControl"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RecoveryChallenge"
-        "400":
-          $ref: "#/components/responses/AuthInvalidArgument"
-        "401":
-          $ref: "#/components/responses/AuthenticationFailed"
-        "403":
-          $ref: "#/components/responses/CsrfValidationFailed"
-        "429":
-          $ref: "#/components/responses/AuthRateLimited"
-        "503":
-          $ref: "#/components/responses/AdminServiceUnavailable"
-
-  /admin/api/v1/auth/recovery-completions:
-    post:
-      operationId: completeAdminRecovery
-      tags: [Admin authentication]
-      summary: 完成新密码与新验证器设置并签发新的恢复码
-      description: |
-        原子消费十分钟恢复挑战并校验待启用 TOTP 的未使用 counter。成功后启用新凭据，
-        一次性返回恰好十个新恢复码并建立新会话；服务端只保存恢复码摘要。此请求在新会话
-        建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CompleteRecoveryRequest"
-      responses:
-        "201":
-          description: 已恢复控制权；新的恢复码只在本响应显示一次
-          headers:
-            X-Request-Id:
-              $ref: "#/components/headers/XRequestId"
-            Cache-Control:
-              $ref: "#/components/headers/NoStoreCacheControl"
-            Set-Cookie:
-              $ref: "#/components/headers/AdminSessionSetCookie"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RecoveryCompletion"
-        "400":
-          $ref: "#/components/responses/AuthInvalidArgument"
-        "401":
-          $ref: "#/components/responses/AuthenticationFailed"
-        "403":
-          $ref: "#/components/responses/CsrfValidationFailed"
-        "409":
-          $ref: "#/components/responses/AuthConflict"
-        "429":
-          $ref: "#/components/responses/AuthRateLimited"
-        "503":
-          $ref: "#/components/responses/AdminServiceUnavailable"
-
   /admin/api/v1/security-events:
     get:
       operationId: listSecurityEvents
       tags: [Admin security]
       summary: 查询至少保留 365 天的关键登录与安全记录
       description: |
-        只返回单向来源指纹和受限浏览器摘要，不返回 IP、密码、动态码、恢复码、挑战或会话原文。
+        只返回单向来源指纹和受限浏览器摘要，不返回 IP、密码或会话原文。
       security:
         - AdminSession: []
       parameters:
@@ -590,7 +647,7 @@ paths:
       tags: [Admin security]
       summary: 紧急停止全部公开内容
       description: |
-        必须重新校验当前 TOTP、精确短语“停止全部公开内容”和原因，并原子消费 TOTP counter。
+        必须提供精确短语“停止全部公开内容”和原因；会话、Origin、CSRF、并发与幂等保护仍全部生效。
         成功后源站立即 fail closed；已经下载或被外部转发的副本无法召回，正式 CDN 的
         `purge/deny` 联动由 Issue #34 在真实部署环境验收。
       security:
@@ -629,7 +686,7 @@ paths:
       tags: [Admin security]
       summary: 恢复全部公开内容
       description: |
-        必须重新校验当前 TOTP、精确短语“恢复全部公开内容”和原因，并原子消费 TOTP counter。
+        必须提供精确短语“恢复全部公开内容”和原因；会话、Origin、CSRF、并发与幂等保护仍全部生效。
         恢复只解除全局开关；每个内容版本仍须独立满足已发布、审核和素材安全条件。
       security:
         - AdminSession: []
@@ -660,6 +717,110 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "503":
           $ref: "#/components/responses/AdminServiceUnavailable"
+
+  /admin/api/v1/operations/overview:
+    get:
+      operationId: getAdminOperationsOverview
+      tags: [Admin operations]
+      summary: 查看当前 servedFortuneDate 用户正在看到的内容和下一公开交付日准备状态
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: 返回同一次服务端业务时间下的当前与下一公开交付日运营视图
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOperationsOverview"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /admin/api/v1/operations/calendar:
+    get:
+      operationId: getAdminOperationsCalendar
+      tags: [Admin operations]
+      summary: 查看由服务端日期关系生成的 42 格月历
+      security:
+        - AdminSession: []
+      parameters:
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+          example: "2026-08"
+      responses:
+        "200":
+          description: 返回月历窗口和统一日级摘要
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminCalendarMonth"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /admin/api/v1/operations/issues:
+    get:
+      operationId: listAdminOperationsIssues
+      tags: [Admin operations]
+      summary: 查看维护者现在可以处理的问题
+      description: 可选图片未请求、缺失或失败不会出现在此列表。
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: 返回人类语言的可行动异常，不返回堆栈或内部错误对象
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminActionableIssueList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
+  /admin/api/v1/operations/days/{fortuneDate}:
+    get:
+      operationId: getAdminOperationsDay
+      tags: [Admin operations]
+      summary: 查看某个命理日的真实用户端投影和订正能力
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/FortuneDate"
+      responses:
+        "200":
+          description: 返回日级摘要、共享公开展示投影与并发保护信息
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDayDetail"
+        "400":
+          $ref: "#/components/responses/InvalidFortuneDate"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+
 
   /admin/api/v1/daily-content-drafts:
     get:
@@ -733,6 +894,67 @@ paths:
           $ref: "#/components/responses/Conflict"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+
+  /admin/api/v1/daily-content-productions:
+    get:
+      operationId: listDailyContentProductions
+      tags: [Admin drafts]
+      summary: 查看自动生产与待检查队列
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: 按内容日期返回自动生产状态
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyContentProductionList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+    post:
+      operationId: generateDailyContent
+      tags: [Admin drafts]
+      summary: 自动生成指定日期的文字、穿搭与模特图任务
+      description: |
+        创建已经填好确定性日历结果、五档、文案和穿搭方案的草稿，并只为 2 张必备模特图建立自动生产任务。
+        可选图默认不请求；维护者可在需要时通过图片上传或后续可替换生成入口补充，它不阻塞发布。
+        同一命理日重复请求返回同一个仍可编辑的自动草稿，不重复创建图片任务。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateDailyContentRequest"
+      responses:
+        "202":
+          description: 草稿文字已生成，模特图任务正在处理或等待处理
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyContentProduction"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /admin/api/v1/daily-content-drafts/{draftId}:
     get:
@@ -848,6 +1070,8 @@ paths:
       description: |
         文件与 JSON 元数据使用两个 multipart part；metadata 必须是没有 filename 的普通表单字段，
         字段值是符合 ImageAssetUploadMetadata 的 UTF-8 JSON 文本。服务端计算文件校验值、尺寸和格式；
+        imageSlot 是新上传请求的必填字段；本次人工上传会原子成为该槽位的显式选择。
+        历史未分槽记录只允许通过原幂等键重放，不接受新的未分槽上传。
         用户访问时不会触发生图。网络重试必须复用同一个 `Idempotency-Key`。
       security:
         - AdminSession: []
@@ -866,6 +1090,7 @@ paths:
               aiGenerated:
                 value:
                   file: "(binary image bytes)"
+                  imageSlot: required_primary
                   metadata:
                     altText: 红色上衣和绿色下装的通勤穿搭
                     sourceType: ai_generated
@@ -1505,6 +1730,592 @@ paths:
         "428":
           $ref: "#/components/responses/PreconditionRequired"
 
+  /admin/api/v1/daily-content-productions/{fortuneDate}/drafts/{draftId}/image-slots/{imageSlot}/regenerate:
+    post:
+      operationId: requestDailyContentImageSlotGeneration
+      tags: [Admin drafts]
+      summary: 显式请求单个图片槽位的新 generation
+      description: |
+        对 failed 或已完成槽位创建新的 3 次尝试 generation，并原子切换 current job；生成中的槽位拒绝重复请求。
+        optional 首次生成也只能由本入口显式请求。旧 generation 随后完成时不得改变 current 状态或冻结素材选择。
+        可选图生成与失败均不阻塞两张必备图的生成完成状态或内容发布。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/FortuneDate"
+        - $ref: "#/components/parameters/DraftId"
+        - name: imageSlot
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/DailyImageSlot"
+        - $ref: "#/components/parameters/XCsrfToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestImageSlotGenerationRequest"
+      responses:
+        "202":
+          description: 槽位已重新进入生成队列
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyContentProduction"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /admin/api/v1/daily-content-drafts/{draftId}/image-assets/{assetId}/selection:
+    post:
+      operationId: selectDailyContentDraftImageAsset
+      tags: [Admin images]
+      summary: 显式选择一个候选作为草稿槽位素材
+      description: |
+        使用草稿修订号与幂等键原子更新槽位选择；同槽旧候选仍保留但不参与自动冻结。
+        冻结只读取显式选择，不按上传时间、数组顺序或提示词版本猜测。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+        - $ref: "#/components/parameters/AssetId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectDraftImageAssetRequest"
+      responses:
+        "200":
+          description: 候选已成为指定槽位的显式选择，并增加草稿修订号
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DraftETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DraftImageAssetResult"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /admin/api/v1/day-corrections:
+    post:
+      operationId: openDayCorrectionWorkingCopy
+      tags: [Admin lifecycle]
+      summary: 创建或复用某个命理日的可视化订正工作副本
+      description: |
+        服务端从该日当前排期版本、活跃版本或最新可用批准版本复制工作副本；同一命理日
+        同时只保留一个未完成订正。普通维护者不需要理解草稿或内容版本。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenDayCorrectionRequest"
+      responses:
+        "200":
+          description: 返回新建或既有订正工作副本
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionWorkingCopy"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /admin/api/v1/day-corrections/{correctionId}:
+    get:
+      operationId: getDayCorrectionWorkingCopy
+      tags: [Admin lifecycle]
+      summary: 读取订正工作副本与当前修订号
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+      responses:
+        "200":
+          description: 返回订正工作副本
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionWorkingCopy"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      operationId: patchDayCorrectionWorkingCopy
+      tags: [Admin lifecycle]
+      summary: 使用字段白名单命令订正文案、穿搭说明或指定图片槽
+      description: |
+        只接受契约列出的语义命令，不接受 JSON Pointer 或任意模块 JSON。fortuneDate、五档颜色、
+        五档顺序、五行结果、业务时间和时辰等算法字段在服务端硬拒绝。If-Match 必须原样回传
+        读取工作副本时收到的 opaque strong day-correction ETag；客户端不得自行拼接。成功后返回同时绑定 correction 与 draft revision 的新 ETag。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DayCorrectionCommand"
+      responses:
+        "200":
+          description: 字段已更新并增加草稿修订号
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionPatchResult"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidStateTransition"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/ImageSetInvalid"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /admin/api/v1/day-corrections/{correctionId}/apply:
+    post:
+      operationId: applyDayCorrection
+      tags: [Admin lifecycle]
+      summary: 保存订正并按当前公开交付日立即替换或按 18:00 公开边界排期
+      description: |
+        服务端从同一时刻解析 RequestContext 与 PublicContentContext。目标等于 servedFortuneDate 时
+        创建批准版本并立即替换；目标晚于 servedFortuneDate 时使用 PublicContentWindowResolver
+        给出的 effectiveFrom（目标日期前一日北京时间 18:00）排期；过去日期拒绝。23:00 命理
+        fortuneDate 只服务算法和时辰，不能用于选择立即替换或排期模式。
+        If-Match 必须原样回传最后一次读取或订正工作副本时收到的 opaque strong day-correction ETag；客户端不得自行拼接。
+        外部 Idempotency-Key 派生稳定且彼此隔离的 submit 与 publish/schedule 子键。若提交成功但
+        发布或排期暂时失败，批准版本与订正进度会保留，使用相同外部键重试只恢复发布步骤，
+        不创建第二个内容版本。发布与排期继续使用生命周期 revision、预期活跃版本、事务审计、
+        排期栅栏和公共缓存清理意图。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyDayCorrectionRequest"
+      responses:
+        "200":
+          description: 已立即替换或已安排在固定 18:00 公开内容边界生效
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionApplyResult"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          description: 图片集合不安全（IMAGE_SET_INVALID）或发布前检查未通过（PUBLISH_PRECHECK_FAILED）
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                invalidImageSet:
+                  value:
+                    error:
+                      code: IMAGE_SET_INVALID
+                      message: 当前图片集合不能安全发布。
+                      retryable: false
+                      requestId: req-correction-422-image
+                      details: {}
+                publishPrecheckFailed:
+                  value:
+                    error:
+                      code: PUBLISH_PRECHECK_FAILED
+                      message: 发布前检查未通过。
+                      retryable: false
+                      requestId: req-correction-422-preflight
+                      details:
+                        preflightChecks: []
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/AdminServiceUnavailable"
+  /admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}:
+    get:
+      operationId: getDayCorrectionImageStatus
+      tags: [Admin images]
+      summary: 查看订正工作副本某个图片槽的重生成状态和候选
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/ImageSlot"
+      responses:
+        "200":
+          description: 返回当前槽位任务和候选；不会自动选图或发布
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionImageStatus"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/regenerate:
+    post:
+      operationId: regenerateDayCorrectionImage
+      tags: [Admin images]
+      summary: 为订正工作副本异步重生成一个不自动选中的图片候选
+      description: |
+        任务与 correctionId、draftId 和 imageSlot 绑定，使用独立持久化队列。Worker 只上传
+        selectForSlot=false 的候选，不得修改自动生产任务、visual 模块、排期或公开版本。
+        If-Match 必须原样回传 day-correction ETag；幂等重试先恢复原任务再判断当前修订号。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/ImageSlot"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DayCorrectionImageActionRequest"
+      responses:
+        "202":
+          description: 已创建或恢复同一重生成任务
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionImageStatus"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/select:
+    post:
+      operationId: selectDayCorrectionImageCandidate
+      tags: [Admin images]
+      summary: 将当前草稿同槽位候选选入可视化订正
+      description: |
+        候选必须属于当前订正草稿、同一 fortuneDate 和同一 imageSlot。成功后服务端增加草稿
+        修订号并只替换对应 visual_and_rights 封面；不会提交、排期或发布订正。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/ImageSlot"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DayCorrectionImageSelectRequest"
+      responses:
+        "200":
+          description: 候选已选中并替换对应预览图片
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionImageSelectionResult"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/ImageSetInvalid"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/library:
+    get:
+      operationId: listReusableDayCorrectionImages
+      tags: [Admin images]
+      summary: 列出与当前槽位配色严格一致的安全历史模特图
+      description: |
+        仅返回 published 或 superseded 不可变快照中仍按原封面 active 交付、未全局下线、
+        人工检查通过、权利已清理且 AI 标识完整的图片。选择动作会重新在事务内检查这些条件。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/ImageSlot"
+      responses:
+        "200":
+          description: 返回安全且配色兼容的历史素材
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionImageLibraryPage"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/InvalidStateTransition"
+  /admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/library/select:
+    post:
+      operationId: reuseDayCorrectionImage
+      tags: [Admin images]
+      summary: 从安全搭配库复制图片并立即更新订正预览
+      description: |
+        在一个 PostgreSQL 事务内重新验证来源版本、全局下线状态、交付状态、检查与权利状态、
+        槽位和严格配色；随后创建目标草稿候选绑定、更新显式槽位选择和 visual 模块，并记录审计。
+        不允许让目标草稿直接引用外部草稿候选。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/ImageSlot"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DayCorrectionImageReuseRequest"
+      responses:
+        "200":
+          description: 图片已复制到当前草稿并成为该槽位的预览图片
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionImageSelectionResult"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "422":
+          $ref: "#/components/responses/ImageSetInvalid"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+  /admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/upload:
+    post:
+      operationId: uploadDayCorrectionImage
+      tags: [Admin images]
+      summary: 上传图片并由服务端完成槽位选择和可视化替换
+      description: |
+        文件、订正原因和可选替代文本使用 multipart part。来源、权利、AI 标识、校验值等
+        可信元数据全部由服务端根据上传事实生成；客户端不得自行声明。服务端上传并显式选择
+        当前槽位，随后在两张必备图齐全时物化 visual 模块并返回最新工作副本；客户端不得再发第二次 PATCH。
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/CorrectionId"
+        - $ref: "#/components/parameters/ImageSlot"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/XCsrfToken"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/DayCorrectionImageUploadMultipartRequest"
+            encoding:
+              file:
+                contentType: image/avif, image/webp, image/jpeg, image/png
+      responses:
+        "201":
+          description: 图片已上传、选择并替换当前预览
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/XRequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStoreCacheControl"
+            ETag:
+              $ref: "#/components/headers/DayCorrectionETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DayCorrectionImageSelectionResult"
+        "400":
+          $ref: "#/components/responses/ImageUploadInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/CsrfValidationFailed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/RevisionMismatch"
+        "413":
+          $ref: "#/components/responses/ImageFileTooLarge"
+        "415":
+          $ref: "#/components/responses/ImageMediaTypeUnsupported"
+        "422":
+          $ref: "#/components/responses/ImageSetInvalid"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+
   /admin/api/v1/audit-events:
     get:
       operationId: listAuditEvents
@@ -1607,6 +2418,18 @@ components:
       required: true
       schema:
         $ref: "#/components/schemas/ContentVersion"
+    CorrectionId:
+      name: correctionId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/OpaqueId"
+    ImageSlot:
+      name: imageSlot
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/DailyImageSlot"
     ModuleCode:
       name: moduleCode
       in: path
@@ -1659,6 +2482,13 @@ components:
         maxLength: 256
 
   headers:
+    RepresentationDate:
+      description: |
+        服务端观察到该响应的时间，采用 HTTP `Date` 格式。网页以此校准 18:00 公开切换，
+        不得用设备时钟自行推进 `servedFortuneDate`。
+      schema:
+        type: string
+        example: Fri, 07 Aug 2026 10:00:00 GMT
     XRequestId:
       description: 当前外部请求的追踪编号；缓存命中时也必须按请求生成。
       schema:
@@ -1683,6 +2513,13 @@ components:
       schema:
         type: string
         example: '"lifecycle:12"'
+    DayCorrectionETag:
+      description: |
+        同时绑定 correctionRevision 与 draftRevision 的不透明强 ETag。客户端只能原样保存和回传，
+        不得从响应体字段自行拼接。
+      schema:
+        type: string
+        example: '"dc:MTI6Nw"'
     EmergencyControlETag:
       description: 全局公开内容开关当前修订号的强 ETag，例如 `"emergency-control:4"`。
       schema:
@@ -1733,6 +2570,370 @@ components:
       minLength: 1
       maxLength: 128
       description: 不透明标识；调用方不得解析。
+    AnalyticsEventId:
+      type: string
+      minLength: 16
+      maxLength: 128
+      pattern: '^[-A-Za-z0-9_:.]{16,128}$'
+      description: 浏览器为一次事件生成的高熵幂等标识，不包含用户信息。
+    AnalyticsEventName:
+      type: string
+      enum:
+        - view_today_summary
+        - open_outfit_hub
+        - view_daily_look
+        - view_look_detail
+        - share_summary_initiated
+        - share_link_landing_view
+        - share_poster_initiated
+        - poster_save_requested
+        - poster_save_succeeded
+        - poster_save_failed
+        - poster_landing_view
+    AnalyticsAnonymousId:
+      type: string
+      minLength: 16
+      maxLength: 128
+      pattern: '^[-A-Za-z0-9_:.]{16,128}$'
+      description: 当前浏览器随机第一方标识；服务端只保存独立 HMAC 摘要。
+    AnalyticsReferralId:
+      type: string
+      minLength: 16
+      maxLength: 128
+      pattern: '^[-A-Za-z0-9_:.]{16,128}$'
+      description: 普通链接每次分享生成随机引用；海报使用公开任务 ID 作为二维码与分享共用的稳定引用；不得包含 anonymousId、联系人或分享目标。
+    CreateAnalyticsEventRequest:
+      description: |
+        事件字段按 `eventName` 使用下方 `oneOf` 约束。普通浏览事件不得携带分享或海报标识；
+        分享发起与落地必须携带回流引用；海报保存事件必须携带海报实例；落地事件必须同时声明来源版本。
+      unevaluatedProperties: false
+      oneOf:
+        - $ref: "#/components/schemas/AnalyticsPageViewEventFields"
+        - $ref: "#/components/schemas/AnalyticsSummaryShareEventFields"
+        - $ref: "#/components/schemas/AnalyticsLinkLandingEventFields"
+        - $ref: "#/components/schemas/AnalyticsPosterShareEventFields"
+        - $ref: "#/components/schemas/AnalyticsPosterSaveEventFields"
+        - $ref: "#/components/schemas/AnalyticsPosterLandingEventFields"
+    AnalyticsEventCommonFields:
+      type: object
+      required:
+        - eventId
+        - eventName
+        - fortuneDate
+        - contentVersion
+        - channelId
+        - anonymousId
+      properties:
+        eventId:
+          $ref: "#/components/schemas/AnalyticsEventId"
+        eventName:
+          $ref: "#/components/schemas/AnalyticsEventName"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        contentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+          description: 当前页面实际交付的内容版本。
+        channelId:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^(?!\s)(?!.*\s$)[^\u0000-\u001F\u007F]+$'
+        anonymousId:
+          $ref: "#/components/schemas/AnalyticsAnonymousId"
+    AnalyticsPageViewEventFields:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsEventCommonFields"
+        - type: object
+          required: [eventName, referralId, posterInstanceId, sourceContentVersion]
+          properties:
+            eventName:
+              type: string
+              enum: [view_today_summary, open_outfit_hub, view_daily_look, view_look_detail]
+            referralId:
+              type: "null"
+            posterInstanceId:
+              type: "null"
+            sourceContentVersion:
+              type: "null"
+    AnalyticsSummaryShareEventFields:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsEventCommonFields"
+        - type: object
+          required: [eventName, referralId, posterInstanceId, sourceContentVersion]
+          properties:
+            eventName:
+              type: string
+              const: share_summary_initiated
+            referralId:
+              $ref: "#/components/schemas/AnalyticsReferralId"
+            posterInstanceId:
+              type: "null"
+            sourceContentVersion:
+              type: "null"
+    AnalyticsLinkLandingEventFields:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsEventCommonFields"
+        - type: object
+          required: [eventName, referralId, posterInstanceId, sourceContentVersion]
+          properties:
+            eventName:
+              type: string
+              const: share_link_landing_view
+            referralId:
+              $ref: "#/components/schemas/AnalyticsReferralId"
+            posterInstanceId:
+              type: "null"
+            sourceContentVersion:
+              $ref: "#/components/schemas/ContentVersion"
+    AnalyticsPosterShareEventFields:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsEventCommonFields"
+        - type: object
+          required: [eventName, referralId, posterInstanceId, sourceContentVersion]
+          properties:
+            eventName:
+              type: string
+              const: share_poster_initiated
+            referralId:
+              $ref: "#/components/schemas/AnalyticsReferralId"
+            posterInstanceId:
+              $ref: "#/components/schemas/OpaqueId"
+            sourceContentVersion:
+              type: "null"
+    AnalyticsPosterSaveEventFields:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsEventCommonFields"
+        - type: object
+          required: [eventName, referralId, posterInstanceId, sourceContentVersion]
+          properties:
+            eventName:
+              type: string
+              enum: [poster_save_requested, poster_save_succeeded, poster_save_failed]
+            referralId:
+              type: "null"
+            posterInstanceId:
+              $ref: "#/components/schemas/OpaqueId"
+            sourceContentVersion:
+              type: "null"
+    AnalyticsPosterLandingEventFields:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsEventCommonFields"
+        - type: object
+          required: [eventName, referralId, posterInstanceId, sourceContentVersion]
+          properties:
+            eventName:
+              type: string
+              const: poster_landing_view
+            referralId:
+              $ref: "#/components/schemas/AnalyticsReferralId"
+            posterInstanceId:
+              type: "null"
+            sourceContentVersion:
+              $ref: "#/components/schemas/ContentVersion"
+    CreateAnalyticsEventResponse:
+      type: object
+      additionalProperties: false
+      required: [eventId, status]
+      properties:
+        eventId:
+          $ref: "#/components/schemas/AnalyticsEventId"
+        status:
+          type: string
+          enum: [accepted, duplicate]
+    AnalyticsRate:
+      type: object
+      additionalProperties: false
+      required: [numerator, denominator, ratio]
+      properties:
+        numerator:
+          type: integer
+          minimum: 0
+        denominator:
+          type: integer
+          minimum: 0
+        ratio:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: "null"
+    AdminAnalyticsOverview:
+      type: object
+      additionalProperties: false
+      required:
+        - fromFortuneDate
+        - toFortuneDate
+        - channelId
+        - contentVersion
+        - collectionStatus
+        - generatedAt
+        - pageViews
+        - anonymousBrowsers
+        - outfitHubVisitors
+        - outfitDetailVisitors
+        - shareInitiations
+        - sharingBrowsers
+        - referredBrowsers
+        - posterSaveRequests
+        - posterSaveSucceeded
+        - posterSaveFailed
+        - outfitDetailRate
+        - shareInitiationRate
+      properties:
+        fromFortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        toFortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        channelId:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 64
+            - type: "null"
+        contentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        collectionStatus:
+          type: string
+          enum: [active, unavailable]
+          description: 当前匿名事件采集是否可用；unavailable 时历史值仍可读取，但不得解释为完整的当日数据。
+        generatedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        pageViews:
+          type: integer
+          minimum: 0
+        anonymousBrowsers:
+          type: integer
+          minimum: 0
+        outfitHubVisitors:
+          type: integer
+          minimum: 0
+        outfitDetailVisitors:
+          type: integer
+          minimum: 0
+        shareInitiations:
+          type: integer
+          minimum: 0
+        sharingBrowsers:
+          type: integer
+          minimum: 0
+        referredBrowsers:
+          type: integer
+          minimum: 0
+        posterSaveRequests:
+          type: integer
+          minimum: 0
+        posterSaveSucceeded:
+          type: integer
+          minimum: 0
+        posterSaveFailed:
+          type: integer
+          minimum: 0
+        outfitDetailRate:
+          $ref: "#/components/schemas/AnalyticsRate"
+        shareInitiationRate:
+          $ref: "#/components/schemas/AnalyticsRate"
+    AdminAnalyticsReport:
+      type: object
+      additionalProperties: false
+      required:
+        - days
+        - fromFortuneDate
+        - toFortuneDate
+        - collectionStatus
+        - generatedAt
+        - summary
+        - daily
+        - channelBreakdown
+      properties:
+        days:
+          type: integer
+          enum: [7, 30]
+        fromFortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        toFortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        collectionStatus:
+          type: string
+          enum: [active, unavailable]
+          description: 当前匿名事件采集是否可用；unavailable 时历史值仍可读取，但不得解释为完整区间数据。
+        generatedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        summary:
+          $ref: "#/components/schemas/AdminAnalyticsOverview"
+        daily:
+          type: array
+          minItems: 7
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/AdminAnalyticsDailyPoint"
+        channelBreakdown:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/AdminAnalyticsChannelPoint"
+    AdminAnalyticsDailyPoint:
+      type: object
+      additionalProperties: false
+      required:
+        - fortuneDate
+        - pageViews
+        - anonymousBrowsers
+        - outfitHubVisitors
+        - outfitDetailVisitors
+        - shareInitiations
+        - sharingBrowsers
+        - referredBrowsers
+        - posterSaveSucceeded
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        pageViews:
+          type: integer
+          minimum: 0
+        anonymousBrowsers:
+          type: integer
+          minimum: 0
+        outfitHubVisitors:
+          type: integer
+          minimum: 0
+        outfitDetailVisitors:
+          type: integer
+          minimum: 0
+        shareInitiations:
+          type: integer
+          minimum: 0
+        sharingBrowsers:
+          type: integer
+          minimum: 0
+        referredBrowsers:
+          type: integer
+          minimum: 0
+        posterSaveSucceeded:
+          type: integer
+          minimum: 0
+    AnalyticsChannelBucket:
+      type: string
+      enum: [organic, wechat_official, wechat_group, user_share, other]
+    AdminAnalyticsChannelPoint:
+      type: object
+      additionalProperties: false
+      required: [channelId, pageViews, anonymousBrowsers, ratio]
+      properties:
+        channelId:
+          $ref: "#/components/schemas/AnalyticsChannelBucket"
+        pageViews:
+          type: integer
+          minimum: 0
+        anonymousBrowsers:
+          type: integer
+          minimum: 0
+        ratio:
+          oneOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: "null"
     NullableContentVersion:
       oneOf:
         - $ref: "#/components/schemas/ContentVersion"
@@ -1772,29 +2973,14 @@ components:
       minLength: 3
       maxLength: 64
       pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$'
-      description: 登录或恢复输入；服务端在限流与凭据校验前执行 NFKC、去除首尾空白并转为规范小写账号名。
+      description: 登录输入；服务端在限流与密码校验前执行 NFKC、去除首尾空白并转为规范小写账号名。
     AdminPassword:
       type: string
-      minLength: 16
+      minLength: 8
       maxLength: 128
       writeOnly: true
-      description: 以 Unicode code point 计 16 至 128 位；只从请求正文或交互式 stdin 接收，禁止进入 CLI 参数、环境变量或日志。
-    TotpCode:
-      type: string
-      pattern: '^\d{6}$'
-      writeOnly: true
-      description: 当前验证器生成的六位动态码；服务端必须原子拒绝已经接受过的 counter。
-    AuthChallengeToken:
-      type: string
-      minLength: 32
-      maxLength: 512
-      description: 256-bit 随机一次性挑战原文；服务端只持久化域分离 HMAC 摘要。
-    RecoveryCode:
-      type: string
-      minLength: 16
-      maxLength: 128
-      description: 高强度一次性恢复码原文；服务端只持久化域分离 HMAC 摘要。
-    CreatePasswordChallengeRequest:
+      description: 以 Unicode code point 计 8 至 128 位；只从请求正文或交互式 stdin 接收，禁止进入 CLI 参数、环境变量或日志。
+    CreateAdminSessionRequest:
       type: object
       additionalProperties: false
       required: [username, password]
@@ -1803,24 +2989,6 @@ components:
           $ref: "#/components/schemas/AdminUsernameInput"
         password:
           $ref: "#/components/schemas/AdminPassword"
-    PasswordChallenge:
-      type: object
-      additionalProperties: false
-      required: [challengeToken, expiresAt]
-      properties:
-        challengeToken:
-          $ref: "#/components/schemas/AuthChallengeToken"
-        expiresAt:
-          $ref: "#/components/schemas/ZonedDateTime"
-    CreateAdminSessionRequest:
-      type: object
-      additionalProperties: false
-      required: [challengeToken, totpCode]
-      properties:
-        challengeToken:
-          $ref: "#/components/schemas/AuthChallengeToken"
-        totpCode:
-          $ref: "#/components/schemas/TotpCode"
     AdminSession:
       type: object
       additionalProperties: false
@@ -1848,87 +3016,13 @@ components:
         credentialRevision:
           type: integer
           minimum: 1
-    CreateRecoveryChallengeRequest:
-      type: object
-      additionalProperties: false
-      required: [username, recoveryCode]
-      properties:
-        username:
-          $ref: "#/components/schemas/AdminUsernameInput"
-        recoveryCode:
-          $ref: "#/components/schemas/RecoveryCode"
-    TotpProvisioning:
-      type: object
-      additionalProperties: false
-      required: [secret, otpauthUri, algorithm, digits, periodSeconds]
-      properties:
-        secret:
-          type: string
-          minLength: 32
-          maxLength: 128
-          pattern: '^[A-Z2-7]+=*$'
-          description: 待启用的 TOTP Base32 密钥，只在本次 no-store 恢复挑战响应中返回。
-        otpauthUri:
-          type: string
-          format: uri
-          maxLength: 2048
-          description: 与 `secret` 相同的待启用配置，只用于验证器录入，禁止记录日志。
-        algorithm:
-          type: string
-          const: SHA1
-        digits:
-          type: integer
-          const: 6
-        periodSeconds:
-          type: integer
-          const: 30
-    RecoveryChallenge:
-      type: object
-      additionalProperties: false
-      required: [challengeToken, expiresAt, totpProvisioning]
-      properties:
-        challengeToken:
-          $ref: "#/components/schemas/AuthChallengeToken"
-        expiresAt:
-          $ref: "#/components/schemas/ZonedDateTime"
-        totpProvisioning:
-          $ref: "#/components/schemas/TotpProvisioning"
-    CompleteRecoveryRequest:
-      type: object
-      additionalProperties: false
-      required: [challengeToken, newPassword, totpCode]
-      properties:
-        challengeToken:
-          $ref: "#/components/schemas/AuthChallengeToken"
-        newPassword:
-          $ref: "#/components/schemas/AdminPassword"
-        totpCode:
-          $ref: "#/components/schemas/TotpCode"
-    RecoveryCompletion:
-      type: object
-      additionalProperties: false
-      required: [session, recoveryCodes]
-      properties:
-        session:
-          $ref: "#/components/schemas/AdminSession"
-        recoveryCodes:
-          type: array
-          minItems: 10
-          maxItems: 10
-          uniqueItems: true
-          description: 新的一套十个一次性恢复码；只在本次 no-store 响应显示。
-          items:
-            $ref: "#/components/schemas/RecoveryCode"
     SecurityEventAction:
       type: string
       enum:
         - bootstrap_completed
         - login_password
-        - login_totp
         - logout_current
         - logout_all
-        - recovery_code
-        - recovery_completed
         - offline_reset
         - csrf_rejected
         - rate_limited
@@ -2024,10 +3118,8 @@ components:
     EmergencyStopRequest:
       type: object
       additionalProperties: false
-      required: [totpCode, confirmationPhrase, reason]
+      required: [confirmationPhrase, reason]
       properties:
-        totpCode:
-          $ref: "#/components/schemas/TotpCode"
         confirmationPhrase:
           type: string
           const: 停止全部公开内容
@@ -2038,10 +3130,8 @@ components:
     EmergencyResumeRequest:
       type: object
       additionalProperties: false
-      required: [totpCode, confirmationPhrase, reason]
+      required: [confirmationPhrase, reason]
       properties:
-        totpCode:
-          $ref: "#/components/schemas/TotpCode"
         confirmationPhrase:
           type: string
           const: 恢复全部公开内容
@@ -2079,6 +3169,338 @@ components:
           const: "23:00"
         crossedDayBoundary:
           type: boolean
+    PublicContentContext:
+      type: object
+      additionalProperties: false
+      required: [servedFortuneDate, switchBoundary, advancedFromCivilDate]
+      description: |
+        匿名用户和普通后台当前实际使用的公开内容日期。它只决定内容选择，
+        不改变 23:00 命理日、时辰或日历算法。
+      properties:
+        servedFortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        switchBoundary:
+          type: string
+          const: "18:00"
+        advancedFromCivilDate:
+          type: boolean
+    AdminDayRelation:
+      type: string
+      enum: [current, next, future, past]
+    AdminOperationalStatus:
+      type: string
+      description: 运营读模型状态，不新增或替代内容生命周期状态。
+      enum:
+        - published_healthy
+        - published_degraded
+        - scheduled_ready
+        - preparing
+        - overdue
+        - generation_failed
+        - publication_failed
+        - missing
+        - invariant_broken
+    AdminIssueCode:
+      type: string
+      enum:
+        - CURRENT_CONTENT_UNAVAILABLE
+        - NEXT_DAY_OVERDUE
+        - REQUIRED_IMAGE_MISSING
+        - REQUIRED_IMAGE_GENERATION_FAILED
+        - CONTENT_GENERATION_FAILED
+        - AUTO_PUBLICATION_FAILED
+        - ACTIVE_VERSION_INCONSISTENT
+        - REQUIRED_IMAGE_DEGRADED
+        - SAFE_FALLBACK_EXHAUSTED
+    OptionalImageStatus:
+      type: string
+      enum: [not_requested, pending, ready, failed, omitted]
+      description: 可选图状态永远不阻止准备、排期、发布或日期健康。
+    RequiredImageReadiness:
+      type: object
+      additionalProperties: false
+      required: [requiredCount, modelReadyCount, deliverySafeCount]
+      properties:
+        requiredCount:
+          type: integer
+          const: 2
+        modelReadyCount:
+          type: integer
+          minimum: 0
+          maximum: 2
+          description: 仍可交付的必备模特封面数量；安全降级素材不计入。
+        deliverySafeCount:
+          type: integer
+          minimum: 0
+          maximum: 2
+          description: 有原图或同快照安全降级素材的必备槽位数量。
+    AdminDaySummary:
+      type: object
+      additionalProperties: false
+      required:
+        - fortuneDate
+        - relation
+        - effectiveFrom
+        - effectiveTo
+        - prepareBy
+        - dayElement
+        - dayElementLabel
+        - primaryColors
+        - operationalStatus
+        - requiredImages
+        - optionalImageStatus
+        - previewAvailable
+        - issueCodes
+        - lifecycleRevision
+        - scheduleSlotRevision
+        - updatedAt
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        relation:
+          $ref: "#/components/schemas/AdminDayRelation"
+        effectiveFrom:
+          $ref: "#/components/schemas/ZonedDateTime"
+        effectiveTo:
+          $ref: "#/components/schemas/ZonedDateTime"
+        prepareBy:
+          $ref: "#/components/schemas/ZonedDateTime"
+        dayElement:
+          $ref: "#/components/schemas/ElementCode"
+        dayElementLabel:
+          type: string
+          enum: [木, 火, 土, 金, 水]
+        primaryColors:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/ColorRef"
+        operationalStatus:
+          $ref: "#/components/schemas/AdminOperationalStatus"
+        requiredImages:
+          $ref: "#/components/schemas/RequiredImageReadiness"
+        optionalImageStatus:
+          $ref: "#/components/schemas/OptionalImageStatus"
+        previewAvailable:
+          type: boolean
+        issueCodes:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/AdminIssueCode"
+        lifecycleRevision:
+          type: integer
+          minimum: 0
+        scheduleSlotRevision:
+          type: integer
+          minimum: 0
+        updatedAt:
+          oneOf:
+            - $ref: "#/components/schemas/ZonedDateTime"
+            - type: "null"
+    AdminOperationsOverview:
+      type: object
+      additionalProperties: false
+      required:
+        - requestContext
+        - publicContentContext
+        - nextOperationalBoundaryAt
+        - health
+        - issueCount
+        - current
+        - currentPreview
+        - currentPreviewRequestContext
+        - currentPreviewPublicContentContext
+        - next
+        - nextPreview
+        - nextPreviewRequestContext
+        - nextPreviewPublicContentContext
+      properties:
+        requestContext:
+          $ref: "#/components/schemas/RequestContext"
+        publicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
+        nextOperationalBoundaryAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+          description: 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。
+        health:
+          type: string
+          enum: [healthy, attention, unavailable]
+        issueCount:
+          type: integer
+          minimum: 0
+        current:
+          $ref: "#/components/schemas/AdminDaySummary"
+        currentPreview:
+          oneOf:
+            - $ref: "#/components/schemas/DailyContent"
+            - type: "null"
+        currentPreviewRequestContext:
+          $ref: "#/components/schemas/RequestContext"
+        currentPreviewPublicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
+          description: 服务端基于 currentPreviewRequestContext 解析的真实公开交付上下文；当前预览必须与本响应 publicContentContext 一致。
+        next:
+          $ref: "#/components/schemas/AdminDaySummary"
+        nextPreview:
+          oneOf:
+            - $ref: "#/components/schemas/DailyContent"
+            - type: "null"
+        nextPreviewRequestContext:
+          $ref: "#/components/schemas/RequestContext"
+        nextPreviewPublicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
+          description: 服务端基于 nextPreviewRequestContext 解析的预览公开交付上下文，客户端不得自行假定 advancedFromCivilDate。
+    AdminCalendarMonth:
+      type: object
+      additionalProperties: false
+      required: [requestContext, publicContentContext, nextOperationalBoundaryAt, month, items]
+      properties:
+        requestContext:
+          $ref: "#/components/schemas/RequestContext"
+        publicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
+        nextOperationalBoundaryAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+          description: 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。
+        month:
+          type: string
+          pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        items:
+          type: array
+          minItems: 42
+          maxItems: 42
+          items:
+            $ref: "#/components/schemas/AdminDaySummary"
+    AdminActionableIssue:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - fortuneDate
+        - severity
+        - title
+        - impact
+        - mitigation
+        - actionLabel
+        - actionHref
+        - firstDetectedAt
+        - updatedAt
+      properties:
+        code:
+          $ref: "#/components/schemas/AdminIssueCode"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        severity:
+          type: string
+          enum: [critical, warning]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        impact:
+          type: string
+          minLength: 1
+          maxLength: 300
+        mitigation:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 300
+            - type: "null"
+        actionLabel:
+          type: string
+          minLength: 1
+          maxLength: 40
+        actionHref:
+          type: string
+          pattern: "^/admin/"
+        firstDetectedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        updatedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+    AdminActionableIssueList:
+      type: object
+      additionalProperties: false
+      required: [requestContext, publicContentContext, nextOperationalBoundaryAt, items]
+      properties:
+        requestContext:
+          $ref: "#/components/schemas/RequestContext"
+        publicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
+        nextOperationalBoundaryAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+          description: 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminActionableIssue"
+    AdminDayConcurrency:
+      type: object
+      additionalProperties: false
+      required: [activeContentVersion, lifecycleRevision, scheduleSlotRevision]
+      properties:
+        activeContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        lifecycleRevision:
+          type: integer
+          minimum: 0
+        scheduleSlotRevision:
+          type: integer
+          minimum: 0
+    AdminDayDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - requestContext
+        - publicContentContext
+        - nextOperationalBoundaryAt
+        - summary
+        - previewSource
+        - preview
+        - previewRequestContext
+        - previewPublicContentContext
+        - editableSelectionKeys
+        - readonlySelectionKeys
+        - concurrency
+      properties:
+        requestContext:
+          $ref: "#/components/schemas/RequestContext"
+        publicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
+        nextOperationalBoundaryAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+          description: 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。
+        summary:
+          $ref: "#/components/schemas/AdminDaySummary"
+        previewSource:
+          type: string
+          enum: [published, scheduled, approved, draft, none]
+        preview:
+          oneOf:
+            - $ref: "#/components/schemas/DailyContent"
+            - type: "null"
+        previewRequestContext:
+          $ref: "#/components/schemas/RequestContext"
+        previewPublicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
+          description: 服务端基于 previewRequestContext 解析的预览公开交付上下文，客户端不得自行计算 servedFortuneDate 或 advancedFromCivilDate。
+        editableSelectionKeys:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        readonlySelectionKeys:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        concurrency:
+          $ref: "#/components/schemas/AdminDayConcurrency"
     CalendarInfo:
       type: object
       additionalProperties: false
@@ -2185,7 +3607,9 @@ components:
           const: 已经穿了注意色
         description:
           type: string
-          const: 可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。
+          minLength: 1
+          maxLength: 300
+          pattern: ".*\\S.*"
         preferredTierCode:
           type: string
           const: da_ji
@@ -2559,10 +3983,12 @@ components:
     TodayResponse:
       type: object
       additionalProperties: false
-      required: [requestContext, content]
+      required: [requestContext, publicContentContext, content]
       properties:
         requestContext:
           $ref: "#/components/schemas/RequestContext"
+        publicContentContext:
+          $ref: "#/components/schemas/PublicContentContext"
         content:
           $ref: "#/components/schemas/DailyContent"
     VersionResolution:
@@ -2728,6 +4154,559 @@ components:
     LifecycleRevision:
       type: integer
       minimum: 1
+    DayCorrectionRevision:
+      type: integer
+      minimum: 1
+    DayCorrectionStatus:
+      type: string
+      enum: [open, applying, submitted, applied, abandoned]
+    DayCorrectionApplyMode:
+      type: string
+      enum: [immediate, scheduled]
+    OpenDayCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required: [fortuneDate]
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+    DayCorrectionWorkingCopy:
+      type: object
+      additionalProperties: false
+      required:
+        - correctionId
+        - fortuneDate
+        - draftId
+        - correctionRevision
+        - draftRevision
+        - status
+        - applyMode
+        - sourceContentVersion
+        - baselineActiveContentVersion
+        - submittedContentVersion
+        - createdAt
+        - updatedAt
+        - modules
+      properties:
+        correctionId:
+          $ref: "#/components/schemas/OpaqueId"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        draftId:
+          $ref: "#/components/schemas/OpaqueId"
+        correctionRevision:
+          $ref: "#/components/schemas/DayCorrectionRevision"
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        status:
+          $ref: "#/components/schemas/DayCorrectionStatus"
+        applyMode:
+          oneOf:
+            - $ref: "#/components/schemas/DayCorrectionApplyMode"
+            - type: "null"
+        sourceContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        baselineActiveContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        submittedContentVersion:
+          $ref: "#/components/schemas/NullableContentVersion"
+        createdAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        updatedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        modules:
+          $ref: "#/components/schemas/DraftModules"
+    SetTierExplanationCommand:
+      type: object
+      additionalProperties: false
+      required: [kind, tierCode, explanation]
+      properties:
+        kind:
+          type: string
+          const: set_tier_explanation
+        tierCode:
+          $ref: "#/components/schemas/TierCode"
+        explanation:
+          type: string
+          minLength: 1
+          maxLength: 300
+          pattern: ".*\\S.*"
+    SetOutfitFormulaDisclaimerCommand:
+      type: object
+      additionalProperties: false
+      required: [kind, formulaId, disclaimer]
+      properties:
+        kind:
+          type: string
+          const: set_outfit_formula_disclaimer
+        formulaId:
+          $ref: "#/components/schemas/OpaqueId"
+        disclaimer:
+          type: string
+          minLength: 1
+          maxLength: 300
+          pattern: ".*\\S.*"
+    SetOutfitFormulaTitleCommand:
+      type: object
+      additionalProperties: false
+      required: [kind, formulaId, title]
+      properties:
+        kind:
+          type: string
+          const: set_outfit_formula_title
+        formulaId:
+          $ref: "#/components/schemas/OpaqueId"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ".*\\S.*"
+    SetBasisDisclaimerCommand:
+      type: object
+      additionalProperties: false
+      required: [kind, disclaimer]
+      properties:
+        kind:
+          type: string
+          const: set_basis_disclaimer
+        disclaimer:
+          type: string
+          minLength: 1
+          maxLength: 300
+          pattern: ".*\\S.*"
+    SetBalanceSuggestionDescriptionCommand:
+      type: object
+      additionalProperties: false
+      required: [kind, description]
+      properties:
+        kind:
+          type: string
+          const: set_balance_suggestion_description
+        description:
+          type: string
+          minLength: 1
+          maxLength: 300
+          pattern: ".*\\S.*"
+    SetShareCopyCommand:
+      type: object
+      additionalProperties: false
+      required: [kind, copyText]
+      properties:
+        kind:
+          type: string
+          const: set_share_copy
+        copyText:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: ".*\\S.*"
+    ReplaceImageCoverCommand:
+      type: object
+      additionalProperties: false
+      required: [kind, imageSlot, assetId]
+      properties:
+        kind:
+          type: string
+          const: replace_image_cover
+        imageSlot:
+          $ref: "#/components/schemas/DailyImageSlot"
+        assetId:
+          $ref: "#/components/schemas/OpaqueId"
+      description: |
+        assetId 必须是当前订正草稿、同一 fortuneDate 且归属同一 imageSlot 的候选素材。
+        服务端采用候选的权威元数据并追加或去重 visual_and_rights.assets 后再替换封面。
+    DayCorrectionCommand:
+      oneOf:
+        - $ref: "#/components/schemas/SetTierExplanationCommand"
+        - $ref: "#/components/schemas/SetOutfitFormulaDisclaimerCommand"
+        - $ref: "#/components/schemas/SetOutfitFormulaTitleCommand"
+        - $ref: "#/components/schemas/SetBasisDisclaimerCommand"
+        - $ref: "#/components/schemas/SetBalanceSuggestionDescriptionCommand"
+        - $ref: "#/components/schemas/SetShareCopyCommand"
+        - $ref: "#/components/schemas/ReplaceImageCoverCommand"
+      discriminator:
+        propertyName: kind
+        mapping:
+          set_tier_explanation: "#/components/schemas/SetTierExplanationCommand"
+          set_outfit_formula_disclaimer: "#/components/schemas/SetOutfitFormulaDisclaimerCommand"
+          set_outfit_formula_title: "#/components/schemas/SetOutfitFormulaTitleCommand"
+          set_basis_disclaimer: "#/components/schemas/SetBasisDisclaimerCommand"
+          set_balance_suggestion_description: "#/components/schemas/SetBalanceSuggestionDescriptionCommand"
+          set_share_copy: "#/components/schemas/SetShareCopyCommand"
+          replace_image_cover: "#/components/schemas/ReplaceImageCoverCommand"
+    DayCorrectionPatchResult:
+      type: object
+      additionalProperties: false
+      required: [correctionId, fortuneDate, correctionRevision, draftRevision, moduleCode]
+      properties:
+        correctionId:
+          $ref: "#/components/schemas/OpaqueId"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        correctionRevision:
+          $ref: "#/components/schemas/DayCorrectionRevision"
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        moduleCode:
+          $ref: "#/components/schemas/ModuleCode"
+    ApplyDayCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: ".*\\S.*"
+    DayCorrectionApplyResult:
+      type: object
+      additionalProperties: false
+      required: [correctionId, correctionRevision, draftRevision, mode, action]
+      properties:
+        correctionId:
+          $ref: "#/components/schemas/OpaqueId"
+        correctionRevision:
+          $ref: "#/components/schemas/DayCorrectionRevision"
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        mode:
+          $ref: "#/components/schemas/DayCorrectionApplyMode"
+        action:
+          $ref: "#/components/schemas/LifecycleActionResult"
+    DayCorrectionImageJobStatus:
+      type: string
+      enum: [queued, claimed, retryable, failed, completed]
+    DayCorrectionImageJob:
+      type: object
+      additionalProperties: false
+      required:
+        - jobId
+        - correctionId
+        - draftId
+        - fortuneDate
+        - imageSlot
+        - generationRevision
+        - promptVersion
+        - status
+        - attempts
+        - attemptLimit
+        - availableAt
+        - lastError
+        - completedAssetId
+        - actorId
+        - reason
+        - requestId
+        - requestedAt
+      properties:
+        jobId:
+          $ref: "#/components/schemas/OpaqueId"
+        correctionId:
+          $ref: "#/components/schemas/OpaqueId"
+        draftId:
+          $ref: "#/components/schemas/OpaqueId"
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        imageSlot:
+          $ref: "#/components/schemas/DailyImageSlot"
+        generationRevision:
+          type: integer
+          minimum: 1
+        promptVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        status:
+          $ref: "#/components/schemas/DayCorrectionImageJobStatus"
+        attempts:
+          type: integer
+          minimum: 0
+        attemptLimit:
+          type: integer
+          minimum: 1
+        availableAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+        lastError:
+          oneOf:
+            - type: string
+              maxLength: 2000
+            - type: "null"
+        completedAssetId:
+          oneOf:
+            - $ref: "#/components/schemas/OpaqueId"
+            - type: "null"
+        actorId:
+          $ref: "#/components/schemas/OpaqueId"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: ".*\\S.*"
+        requestId:
+          type: string
+          minLength: 8
+          maxLength: 128
+        requestedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+    DayCorrectionImageStatus:
+      type: object
+      additionalProperties: false
+      required: [correctionRevision, draftRevision, job, candidate]
+      properties:
+        correctionRevision:
+          $ref: "#/components/schemas/DayCorrectionRevision"
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        job:
+          oneOf:
+            - $ref: "#/components/schemas/DayCorrectionImageJob"
+            - type: "null"
+        candidate:
+          oneOf:
+            - $ref: "#/components/schemas/DraftImageAssetResult"
+            - type: "null"
+    DayCorrectionImageActionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: ".*\\S.*"
+    DayCorrectionImageSelectRequest:
+      type: object
+      additionalProperties: false
+      required: [assetId, reason]
+      properties:
+        assetId:
+          $ref: "#/components/schemas/OpaqueId"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: ".*\\S.*"
+    DayCorrectionImageReuseRequest:
+      type: object
+      additionalProperties: false
+      required: [assetId, sourceContentVersion, reason]
+      properties:
+        assetId:
+          $ref: "#/components/schemas/OpaqueId"
+        sourceContentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: ".*\\S.*"
+    DayCorrectionImageUploadMultipartRequest:
+      type: object
+      additionalProperties: false
+      required: [file, reason]
+      properties:
+        file:
+          type: string
+          contentEncoding: binary
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: ".*\\S.*"
+        altText:
+          type: string
+          minLength: 1
+          maxLength: 300
+          pattern: ".*\\S.*"
+    DayCorrectionImageSelectionResult:
+      type: object
+      additionalProperties: false
+      required:
+        [assetId, correctionRevision, draftRevision, previewUrl, workingCopy]
+      properties:
+        assetId:
+          $ref: "#/components/schemas/OpaqueId"
+        correctionRevision:
+          $ref: "#/components/schemas/DayCorrectionRevision"
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        previewUrl:
+          type: string
+          minLength: 1
+          maxLength: 500
+        workingCopy:
+          $ref: "#/components/schemas/DayCorrectionWorkingCopy"
+    ReusableDayCorrectionImage:
+      type: object
+      additionalProperties: false
+      required:
+        - assetId
+        - imageSlot
+        - colorCodes
+        - previewUrl
+        - sourceContentVersion
+        - sourceFortuneDate
+      properties:
+        assetId:
+          $ref: "#/components/schemas/OpaqueId"
+        imageSlot:
+          $ref: "#/components/schemas/DailyImageSlot"
+        colorCodes:
+          type: array
+          minItems: 1
+          maxItems: 24
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        previewUrl:
+          type: string
+          minLength: 1
+          maxLength: 500
+        sourceContentVersion:
+          $ref: "#/components/schemas/ContentVersion"
+        sourceFortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+    DayCorrectionImageLibraryPage:
+      type: object
+      additionalProperties: false
+      required: [items, copyEnabled]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ReusableDayCorrectionImage"
+        copyEnabled:
+          type: boolean
+          const: true
+          description: 服务端会原子复制安全资产绑定、选择槽位并替换可视化预览。
+    SelectDraftImageAssetRequest:
+      type: object
+      additionalProperties: false
+      required: [imageSlot, reason]
+      properties:
+        imageSlot:
+          $ref: "#/components/schemas/DailyImageSlot"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: "\\S"
+    DailyImageSlot:
+      type: string
+      enum: [required_primary, required_alternative, optional]
+      description: 每日图片槽位；两个 required 槽位为发布必备，optional 最多一张且不阻塞发布。
+    RequestImageSlotGenerationRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: "\\S"
+    DailyImageSlotProductionStatus:
+      type: string
+      enum: [not_requested, pending, ready, failed]
+    RequiredPrimaryImageSlotProduction:
+      type: object
+      additionalProperties: false
+      required: [imageSlot, status, deliveryReady, attempts, attemptLimit, lastError, nextAttemptAt, canRetry]
+      properties:
+        imageSlot:
+          type: string
+          const: required_primary
+        status:
+          type: string
+          enum: [pending, ready, failed]
+        deliveryReady:
+          type: boolean
+          description: 该槽位已有显式选择的候选，可用于冻结发布；与当前 generation 状态分开计算。
+        attempts:
+          type: integer
+          minimum: 0
+        attemptLimit:
+          type: integer
+          minimum: 0
+        lastError:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 2000
+            - type: "null"
+        nextAttemptAt:
+          oneOf:
+            - $ref: "#/components/schemas/ZonedDateTime"
+            - type: "null"
+        canRetry:
+          type: boolean
+    RequiredAlternativeImageSlotProduction:
+      type: object
+      additionalProperties: false
+      required: [imageSlot, status, deliveryReady, attempts, attemptLimit, lastError, nextAttemptAt, canRetry]
+      properties:
+        imageSlot:
+          type: string
+          const: required_alternative
+        status:
+          type: string
+          enum: [pending, ready, failed]
+        deliveryReady:
+          type: boolean
+          description: 该槽位已有显式选择的候选，可用于冻结发布；与当前 generation 状态分开计算。
+        attempts:
+          type: integer
+          minimum: 0
+        attemptLimit:
+          type: integer
+          minimum: 0
+        lastError:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 2000
+            - type: "null"
+        nextAttemptAt:
+          oneOf:
+            - $ref: "#/components/schemas/ZonedDateTime"
+            - type: "null"
+        canRetry:
+          type: boolean
+    OptionalImageSlotProduction:
+      type: object
+      additionalProperties: false
+      required: [imageSlot, status, deliveryReady, attempts, attemptLimit, lastError, nextAttemptAt, canRetry]
+      properties:
+        imageSlot:
+          type: string
+          const: optional
+        status:
+          $ref: "#/components/schemas/DailyImageSlotProductionStatus"
+        deliveryReady:
+          type: boolean
+          description: 该可选槽位已有显式选择的候选；optional 无论取值都不阻塞发布。
+        attempts:
+          type: integer
+          minimum: 0
+        attemptLimit:
+          type: integer
+          minimum: 0
+        lastError:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 2000
+            - type: "null"
+        nextAttemptAt:
+          oneOf:
+            - $ref: "#/components/schemas/ZonedDateTime"
+            - type: "null"
+        canRetry:
+          type: boolean
     CalendarAlgorithmModule:
       type: object
       additionalProperties: false
@@ -3080,11 +5059,14 @@ components:
     ImageAssetUploadMultipartRequest:
       type: object
       additionalProperties: false
-      required: [file, metadata]
+      required: [file, imageSlot, metadata]
       properties:
         file:
           type: string
           format: binary
+        imageSlot:
+          $ref: "#/components/schemas/DailyImageSlot"
+          description: 必填。明确把本次人工上传候选选入对应槽位。
         metadata:
           $ref: "#/components/schemas/ImageAssetUploadMetadata"
           description: 在线路中序列化为没有 filename 的普通 multipart 字段；字段值为 UTF-8 JSON 文本。
@@ -3177,8 +5159,7 @@ components:
         formulaId:
           $ref: "#/components/schemas/OpaqueId"
         imageSlot:
-          type: string
-          enum: [required_primary, required_alternative, optional]
+          $ref: "#/components/schemas/DailyImageSlot"
           description: 每日 2+1 只统计封面槽位；细节图和降级素材不计入。
         requiredForPublish:
           type: boolean
@@ -3266,7 +5247,8 @@ components:
     DraftImageAssetResult:
       type: object
       additionalProperties: false
-      required: [draftId, fortuneDate, draftRevision, asset, previewUrl, reviewLocked]
+      required:
+        [draftId, fortuneDate, draftRevision, imageSlot, selectedForSlot, asset, previewUrl, reviewLocked]
       properties:
         draftId:
           $ref: "#/components/schemas/OpaqueId"
@@ -3274,6 +5256,14 @@ components:
           $ref: "#/components/schemas/FortuneDate"
         draftRevision:
           $ref: "#/components/schemas/DraftRevision"
+        imageSlot:
+          oneOf:
+            - $ref: "#/components/schemas/DailyImageSlot"
+            - type: "null"
+          description: 候选在当前草稿中的目标槽位；旧历史候选可为空，服务端不得按上传顺序猜测。
+        selectedForSlot:
+          type: boolean
+          description: 仅当该候选是其 imageSlot 当前显式选择时为 true；未分槽候选恒为 false。
         asset:
           $ref: "#/components/schemas/AdminImageAsset"
         previewUrl:
@@ -3291,8 +5281,16 @@ components:
     DraftImageCandidate:
       type: object
       additionalProperties: false
-      required: [asset, previewUrl, reviewLocked]
+      required: [imageSlot, selectedForSlot, asset, previewUrl, reviewLocked]
       properties:
+        imageSlot:
+          oneOf:
+            - $ref: "#/components/schemas/DailyImageSlot"
+            - type: "null"
+          description: 候选在当前草稿中的目标槽位；旧历史候选可为空，服务端不得按上传顺序猜测。
+        selectedForSlot:
+          type: boolean
+          description: 仅当该候选是其 imageSlot 当前显式选择时为 true；同槽其他历史候选为 false。
         asset:
           $ref: "#/components/schemas/AdminImageAsset"
         previewUrl:
@@ -3608,6 +5606,88 @@ components:
           $ref: "#/components/schemas/FortuneDate"
         copyFromContentVersion:
           $ref: "#/components/schemas/NullableContentVersion"
+    GenerateDailyContentRequest:
+      type: object
+      additionalProperties: false
+      required: [fortuneDate]
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+    DailyContentProductionStatus:
+      type: string
+      enum: [generating, awaiting_review, failed]
+    DailyContentProduction:
+      type: object
+      additionalProperties: false
+      required:
+        - fortuneDate
+        - draftId
+        - draftRevision
+        - status
+        - imageSlots
+        - requiredGenerationComplete
+        - requiredImagesReady
+        - optionalImageStatus
+        - completedImageSlots
+        - pendingImageSlots
+        - lastError
+        - updatedAt
+      properties:
+        fortuneDate:
+          $ref: "#/components/schemas/FortuneDate"
+        draftId:
+          $ref: "#/components/schemas/OpaqueId"
+        draftRevision:
+          $ref: "#/components/schemas/DraftRevision"
+        status:
+          $ref: "#/components/schemas/DailyContentProductionStatus"
+        imageSlots:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: 固定且唯一地按 required_primary、required_alternative、optional 返回逐槽当前 generation 状态。
+          prefixItems:
+            - $ref: "#/components/schemas/RequiredPrimaryImageSlotProduction"
+            - $ref: "#/components/schemas/RequiredAlternativeImageSlotProduction"
+            - $ref: "#/components/schemas/OptionalImageSlotProduction"
+          items: false
+        requiredGenerationComplete:
+          type: boolean
+          description: 仅表示两个必备槽位的当前 generation 均已完成；不表示图片已人工检查或已具备公开交付资格，optional 不参与计算。
+        requiredImagesReady:
+          type: boolean
+          description: 两个必备槽位均已有显式选择的候选，可用于冻结发布；人工上传或选择可以在自动 generation 失败后恢复该状态。
+        optionalImageStatus:
+          $ref: "#/components/schemas/DailyImageSlotProductionStatus"
+        completedImageSlots:
+          type: integer
+          minimum: 0
+          maximum: 2
+          deprecated: true
+          description: 两个必备槽位当前 generation 中已完成的数量；optional 单独读取 optionalImageStatus。
+        pendingImageSlots:
+          type: integer
+          minimum: 0
+          maximum: 2
+          deprecated: true
+          description: 两个必备槽位当前 generation 中待处理的数量；failed 与 optional 均不计入。
+        lastError:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 500
+            - type: "null"
+        updatedAt:
+          $ref: "#/components/schemas/ZonedDateTime"
+    DailyContentProductionList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyContentProduction"
     DraftModuleUpdate:
       oneOf:
         - $ref: "#/components/schemas/CalendarAlgorithmModule"
@@ -3638,7 +5718,8 @@ components:
           $ref: "#/components/schemas/ContentVersion"
         state:
           type: string
-          const: in_review
+          enum: [approved, in_review]
+          description: 自动候选齐备时直接进入可发布状态；旧的不完整草稿保留待补充兼容状态。
         lifecycleRevision:
           $ref: "#/components/schemas/LifecycleRevision"
     PreflightCheck:
@@ -3947,8 +6028,6 @@ components:
         - INVALID_ARGUMENT
         - INVALID_FORTUNE_DATE
         - AUTHENTICATION_FAILED
-        - AUTH_CHALLENGE_EXPIRED
-        - RECOVERY_CHALLENGE_EXPIRED
         - UNAUTHENTICATED
         - FORBIDDEN
         - CSRF_VALIDATION_FAILED
@@ -3957,8 +6036,10 @@ components:
         - LOOK_NOT_FOUND
         - CONTENT_VERSION_CHANGED
         - ACTIVE_CONTENT_VERSION_CHANGED
+        - ALGORITHM_FIELD_READ_ONLY
+        - DAY_CORRECTION_PAST_DATE
+        - DAY_CORRECTION_RELEASE_UNAVAILABLE
         - IDEMPOTENCY_KEY_REUSED
-        - TOTP_REPLAYED
         - EMERGENCY_CONTROL_CONFLICT
         - INVALID_STATE_TRANSITION
         - VERSION_WITHDRAWN
@@ -3980,6 +6061,7 @@ components:
         - PUBLIC_ACCESS_STOPPED
         - POSTER_GENERATION_UNAVAILABLE
         - FEEDBACK_UNAVAILABLE
+        - ANALYTICS_UNAVAILABLE
         - ADMIN_SERVICE_UNAVAILABLE
     Error:
       type: object
@@ -4102,9 +6184,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     AuthenticationFailed:
-      description: |
-        凭据、一次性挑战或动态码无效。账号不存在、密码错误、恢复码错误和未认证阶段的
-        TOTP 重放必须使用相同状态和对外文案，不能帮助枚举账号或凭据。
+      description: 账号不存在或密码错误时使用相同状态和对外文案，不能帮助枚举账号。
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
@@ -4115,7 +6195,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     AdminReauthenticationFailed:
-      description: 后台会话不存在或已失效，或者高风险操作要求的当前 TOTP 无效
+      description: 后台会话不存在或已失效
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
@@ -4172,7 +6252,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     AuthConflict:
-      description: TOTP counter 重放、幂等键复用或紧急控制状态发生冲突
+      description: 幂等键复用或紧急控制状态发生冲突
       headers:
         X-Request-Id:
           $ref: "#/components/headers/XRequestId"
@@ -4368,6 +6448,21 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
+    AnalyticsUnavailable:
+      description: 匿名使用事件暂时无法接收，公开内容、搭配与分享功能不受影响
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/XRequestId"
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+        Cache-Control:
+          $ref: "#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
     EmergencyControlSucceeded:
       description: 全局公开内容开关已在 PostgreSQL 事务中更新并追加安全审计
       headers:
@@ -4410,10 +6505,14 @@ components:
           timezone: Asia/Shanghai
           dayBoundary: "23:00"
           crossedDayBoundary: true
+        publicContentContext:
+          servedFortuneDate: "2026-07-15"
+          switchBoundary: "18:00"
+          advancedFromCivilDate: true
         content: &dailyContentExample
           fortuneDate: "2026-07-15"
-          effectiveFrom: "2026-07-14T23:00:00+08:00"
-          effectiveTo: "2026-07-15T23:00:00+08:00"
+          effectiveFrom: "2026-07-14T18:00:00+08:00"
+          effectiveTo: "2026-07-15T18:00:00+08:00"
           calendar:
             weekdayText: 星期三
             lunarDateText: 六月初二
@@ -4727,7 +6826,7 @@ components:
         assetUrl: https://cdn.example.com/posters/poster-hash.webp
         entry:
           type: web_qr
-          landingUrl: https://example.com/d/2026-07-15?expectedContentVersion=fd-20260715-r3
+          landingUrl: https://example.com/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r3&referralId=poster-job-20260715-0001&referralKind=poster
     DraftCreated:
       value:
         draftId: draft-01

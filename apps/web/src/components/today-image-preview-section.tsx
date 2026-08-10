@@ -28,6 +28,13 @@ function TodayImagePreviewCard({ card, contentVersion }: TodayImagePreviewCardPr
     <article
       aria-labelledby={titleId}
       className={`today-image-card today-image-card--${card.placement}`}
+      data-admin-selection-key={`image.${
+        card.placement === "primary"
+          ? "required_primary"
+          : card.placement === "alternate"
+            ? "required_alternative"
+            : "optional"
+      }`}
       data-content-version={contentVersion}
       data-image-placement={card.placement}
     >
@@ -117,7 +124,6 @@ export function TodayImagePreviewSection({
           <p className="today-image-preview__eyebrow">图片预览</p>
           <h2 id="today-image-preview-title">{dateLabel}图片示范</h2>
         </div>
-        <p>2 张重点参考 · 最多 1 张补充</p>
       </header>
 
       <div className="today-image-preview__grid">

@@ -1,10 +1,15 @@
-import {
-  CALENDAR_RULE_VERSION,
-  CALENDAR_SOURCE,
-  CalendarRuleEngine,
-} from "../calendar/calendar-rule-engine";
+import { CALENDAR_RULE_VERSION, CalendarRuleEngine } from "../calendar/calendar-rule-engine";
 import { isDeliverableAdminImageAsset } from "@five/api-contract/runtime";
 import type { FiveElement } from "../calendar/calendar-rule-engine";
+import {
+  CURRENT_CALENDAR_ALGORITHM_VERSION,
+  CURRENT_CALENDAR_DATA_VERSION,
+} from "../calendar/calendar-content.values";
+import {
+  FIVE_ELEMENT_PRESENTATION,
+  TIER_CODES_IN_RANK_ORDER,
+  TIER_PRESENTATION,
+} from "../calendar/five-element-presentation";
 import { assessCurrentImageReleaseSafety } from "../daily-images/current-image-release-safety";
 import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
 import type {
@@ -13,92 +18,12 @@ import type {
   StoredMasterReviewEvidence,
 } from "./content-lifecycle.store";
 
-export const CURRENT_CALENDAR_DATA_VERSION = "calendar-golden-fortune-date-23h-v1" as const;
-export const CURRENT_CALENDAR_ALGORITHM_VERSION = CALENDAR_SOURCE;
+export {
+  CURRENT_CALENDAR_ALGORITHM_VERSION,
+  CURRENT_CALENDAR_DATA_VERSION,
+} from "../calendar/calendar-content.values";
 
 const CALENDAR_ENGINE = new CalendarRuleEngine();
-const ELEMENT_LABEL = {
-  earth: "土",
-  fire: "火",
-  metal: "金",
-  water: "水",
-  wood: "木",
-} as const;
-const FIVE_ELEMENT_COLORS: Readonly<
-  Record<FiveElement, ReadonlyArray<{ readonly colorCode: string; readonly name: string }>>
-> = {
-  earth: [
-    { colorCode: "yellow", name: "黄色" },
-    { colorCode: "coffee", name: "咖色" },
-    { colorCode: "brown", name: "棕色" },
-    { colorCode: "khaki", name: "卡其" },
-    { colorCode: "dark_brown_family", name: "褐色系" },
-  ],
-  fire: [
-    { colorCode: "red", name: "红色" },
-    { colorCode: "orange", name: "橙色" },
-    { colorCode: "purple", name: "紫色" },
-    { colorCode: "pink_family", name: "粉色系" },
-  ],
-  metal: [
-    { colorCode: "white", name: "白色" },
-    { colorCode: "ivory", name: "乳白" },
-    { colorCode: "silver", name: "银色" },
-    { colorCode: "gold", name: "金色" },
-    { colorCode: "light_family", name: "浅色系" },
-  ],
-  water: [
-    { colorCode: "black", name: "黑色" },
-    { colorCode: "navy", name: "藏青" },
-    { colorCode: "royal_blue", name: "宝蓝" },
-    { colorCode: "dark_green", name: "墨绿" },
-    { colorCode: "dark_gray_family", name: "深灰系" },
-  ],
-  wood: [
-    { colorCode: "green", name: "绿色" },
-    { colorCode: "cyan", name: "青色" },
-    { colorCode: "emerald", name: "翠色" },
-    { colorCode: "lake_blue", name: "湖蓝" },
-    { colorCode: "light_green_family", name: "浅绿系" },
-  ],
-};
-const TIER_METADATA = [
-  {
-    algorithmLabel: "大吉",
-    displayLabel: "今日优先",
-    displaySection: "primary",
-    rank: 1,
-    tierCode: "da_ji",
-  },
-  {
-    algorithmLabel: "次吉",
-    displayLabel: "稳妥选择",
-    displaySection: "primary",
-    rank: 2,
-    tierCode: "ci_ji",
-  },
-  {
-    algorithmLabel: "平",
-    displayLabel: "日常可穿",
-    displaySection: "primary",
-    rank: 3,
-    tierCode: "ping",
-  },
-  {
-    algorithmLabel: "较差",
-    displayLabel: "注意",
-    displaySection: "attention",
-    rank: 4,
-    tierCode: "jiao_cha",
-  },
-  {
-    algorithmLabel: "不利",
-    displayLabel: "注意",
-    displaySection: "attention",
-    rank: 5,
-    tierCode: "bu_li",
-  },
-] as const;
 
 type CheckCode = PreflightCheck["code"];
 
@@ -130,7 +55,7 @@ function hasFixedElementPalette(
   element: FiveElement,
   colors: ReadonlyArray<{ readonly colorCode: string; readonly name: string }>,
 ): boolean {
-  const expected = FIVE_ELEMENT_COLORS[element];
+  const expected = FIVE_ELEMENT_PRESENTATION[element].colors;
   if (colors.length !== expected.length) return false;
   const actual = new Map(colors.map((color) => [color.colorCode, color.name]));
   return (
@@ -143,15 +68,16 @@ function hasExpectedTierMetadata(
   tier: NonNullable<DraftModules["calendar_algorithm"]>["tiers"][number],
   index: number,
 ): boolean {
-  const expected = TIER_METADATA[index];
+  const tierCode = TIER_CODES_IN_RANK_ORDER[index];
+  if (tierCode === undefined) return false;
+  const expected = TIER_PRESENTATION[tierCode];
   return (
-    expected !== undefined &&
     tier.rank === expected.rank &&
-    tier.tierCode === expected.tierCode &&
+    tier.tierCode === tierCode &&
     tier.algorithmLabel === expected.algorithmLabel &&
     tier.displayLabel === expected.displayLabel &&
     tier.displaySection === expected.displaySection &&
-    tier.elementLabel === ELEMENT_LABEL[tier.element]
+    tier.elementLabel === FIVE_ELEMENT_PRESENTATION[tier.element].label
   );
 }
 
@@ -271,7 +197,8 @@ export function evaluateContentPreflight(
     calendar.calendar.ganzhiDay === expectedCalendar.ganzhiDay &&
     calendar.calendar.branch === expectedCalendar.dayBranch &&
     calendar.calendar.dayElement === expectedCalendar.dayElement &&
-    calendar.calendar.dayElementLabel === ELEMENT_LABEL[expectedCalendar.dayElement] &&
+    calendar.calendar.dayElementLabel ===
+      FIVE_ELEMENT_PRESENTATION[expectedCalendar.dayElement].label &&
     calendar.tiers.length === expectedCalendar.tiers.length &&
     calendar.tiers.every((tier, index) => {
       const expectedTier = expectedCalendar.tiers[index];
@@ -280,7 +207,7 @@ export function evaluateContentPreflight(
         tier.rank === expectedTier.rank &&
         tier.tierCode === expectedTier.tierCode &&
         tier.element === expectedTier.element &&
-        tier.elementLabel === ELEMENT_LABEL[expectedTier.element]
+        tier.elementLabel === FIVE_ELEMENT_PRESENTATION[expectedTier.element].label
       );
     });
   const currentEvidence = latestEvidence(evidence);

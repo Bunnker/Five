@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import nextConfig from "./next.config";
 
 describe("admin web boundary", () => {
+  it("allows the two documented loopback hosts to load development assets", () => {
+    expect(nextConfig.allowedDevOrigins).toEqual(["127.0.0.1", "localhost"]);
+  });
+
   it("proxies the same-origin admin API before the public API rewrite", async () => {
     expect(await nextConfig.rewrites?.()).toEqual(
       expect.arrayContaining([

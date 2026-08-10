@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import { reviewedColorPalette } from "../lib/color-palette";
+import { withPublicChannelId } from "../lib/channel-links";
 import type { OutfitPreviewSectionData } from "../lib/today";
 
 const cardPresentation = {
@@ -19,12 +20,14 @@ const cardPresentation = {
 } as const;
 
 export interface OutfitPreviewSectionProps {
+  channelId?: string;
   dateLabel?: "今日" | "当日";
   interactive?: boolean;
   section: OutfitPreviewSectionData;
 }
 
 export function OutfitPreviewSection({
+  channelId,
   dateLabel = "今日",
   interactive = true,
   section,
@@ -54,7 +57,7 @@ export function OutfitPreviewSection({
                 <span>{presentation.label}</span>
               </div>
 
-              <h3>{card.title}</h3>
+              <h3 data-admin-selection-key={`formula.${card.formulaId}.title`}>{card.title}</h3>
 
               <ul
                 className="outfit-preview-card__slots"
@@ -109,9 +112,10 @@ export function OutfitPreviewSection({
             <a
               aria-label={`查看${presentation.label}穿法：${card.title}`}
               className={className}
+              data-admin-selection-key={`formula.${card.formulaId}.disclaimer`}
               data-content-version={section.contentVersion}
               data-outfit-kind={card.kind}
-              href={card.href}
+              href={withPublicChannelId(card.href, channelId)}
               key={card.formulaId}
             >
               {cardContent}
@@ -120,6 +124,7 @@ export function OutfitPreviewSection({
             <article
               aria-label={`${presentation.label}穿法：${card.title}`}
               className={className}
+              data-admin-selection-key={`formula.${card.formulaId}.disclaimer`}
               data-content-version={section.contentVersion}
               data-outfit-kind={card.kind}
               key={card.formulaId}

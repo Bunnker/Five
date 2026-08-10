@@ -1,18 +1,26 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LookDetailData } from "../../lib/look-detail";
 import type { TodayPageData } from "../../lib/today";
 import OutfitsPage from "./page";
 
-const { headersMock, loadLookDetailMock, loadTodayMock } = vi.hoisted(() => ({
-  headersMock: vi.fn(),
-  loadLookDetailMock: vi.fn(),
-  loadTodayMock: vi.fn(),
-}));
+const { analyticsReporterMock, headersMock, loadLookDetailMock, loadTodayMock } = vi.hoisted(
+  () => ({
+    analyticsReporterMock: vi.fn(),
+    headersMock: vi.fn(),
+    loadLookDetailMock: vi.fn(),
+    loadTodayMock: vi.fn(),
+  }),
+);
 
 vi.mock("next/headers", () => ({
   headers: headersMock,
+}));
+
+vi.mock("../../components/public-content-boundary-guard", () => ({
+  PublicContentBoundaryGuard: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("../../lib/today", async (importOriginal) => ({
@@ -22,6 +30,13 @@ vi.mock("../../lib/today", async (importOriginal) => ({
 
 vi.mock("../../lib/look-detail", () => ({
   loadLookDetail: loadLookDetailMock,
+}));
+
+vi.mock("./outfit-analytics-reporter", () => ({
+  OutfitAnalyticsReporter: (props: unknown) => {
+    analyticsReporterMock(props);
+    return null;
+  },
 }));
 
 const today = {
@@ -198,6 +213,11 @@ const today = {
       "/share?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=organic",
   },
   pingCard: null,
+  publicContentContext: {
+    advancedFromCivilDate: false,
+    servedFortuneDate: "2026-07-15",
+    switchBoundary: "18:00",
+  },
   requestContext: {
     civilDate: "2026-07-15",
     crossedDayBoundary: false,
@@ -277,6 +297,7 @@ const lookDetail = {
 describe("OutfitsPage", () => {
   beforeEach(() => {
     headersMock.mockReset();
+    analyticsReporterMock.mockReset();
     loadLookDetailMock.mockReset();
     loadTodayMock.mockReset();
     headersMock.mockResolvedValue(new Headers({ "x-request-id": "request-issue-15" }));
@@ -352,6 +373,57 @@ describe("OutfitsPage", () => {
     );
     expect(screen.queryByText(/生成图片|重新生图|立即生图/u)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "返回今日颜色" })).toHaveAttribute("href", "/");
+    expect(analyticsReporterMock).toHaveBeenCalledWith({
+      channelId: "organic",
+      contentVersion: "fd-20260715-r1",
+      eventName: "open_outfit_hub",
+      fortuneDate: "2026-07-15",
+    });
+  });
+
+  it("keeps the entry channel through the outfit funnel and its outbound links", async () => {
+    const result = await OutfitsPage({
+      searchParams: Promise.resolve({
+        channelId: "wechat_official",
+        expectedContentVersion: "fd-20260715-r1",
+        formulaId: "formula-dual-01",
+        fortuneDate: "2026-07-15",
+      }),
+    });
+    render(result);
+
+    expect(analyticsReporterMock).toHaveBeenCalledWith({
+      channelId: "wechat_official",
+      contentVersion: "fd-20260715-r1",
+      eventName: "open_outfit_hub",
+      fortuneDate: "2026-07-15",
+    });
+    const detailHref = screen.getByRole("link", { name: "查看橙绿双色详情" });
+    expect(
+      new URL(detailHref.getAttribute("href") ?? "", "https://five.test").searchParams.get(
+        "channelId",
+      ),
+    ).toBe("wechat_official");
+    expect(screen.getByRole("link", { name: "返回今日颜色" })).toHaveAttribute(
+      "href",
+      "/?channelId=wechat_official",
+    );
+  });
+
+  it("rejects an invalid entry channel instead of reflecting it into a return link", async () => {
+    render(
+      await OutfitsPage({
+        searchParams: Promise.resolve({
+          channelId: "wechat\nheader",
+          expectedContentVersion: "fd-20260715-r1",
+          formulaId: "formula-dual-01",
+          fortuneDate: "2026-07-15",
+        }),
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("暂时找不到这条搭配");
+    expect(screen.getByRole("link", { name: "返回今日颜色" })).toHaveAttribute("href", "/");
   });
 
   it("shows the reviewed versioned look with positions, alternatives and only a share action", async () => {
@@ -423,6 +495,12 @@ describe("OutfitsPage", () => {
       "/outfits?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&formulaId=formula-triple-01",
     );
     expect(screen.queryByText(/收藏|登录|拍照试搭|购买|商品|即将上线/u)).not.toBeInTheDocument();
+    expect(analyticsReporterMock).toHaveBeenCalledWith({
+      channelId: "organic",
+      contentVersion: "fd-20260715-r1",
+      eventName: "view_look_detail",
+      fortuneDate: "2026-07-15",
+    });
   });
 
   it("replaces only a failed detail image with the reviewed color fallback", async () => {

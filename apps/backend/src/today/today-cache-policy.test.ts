@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { PublicContentContextResolver } from "../public-content/public-content-context-resolver";
 import { RequestContextResolver } from "../request-context/request-context-resolver";
 import { TodayCachePolicy } from "./today-cache-policy";
 
@@ -11,7 +12,28 @@ function requestContextAt(instant: string) {
   }).resolve();
 }
 
+function publicContentContextAt(instant: string) {
+  return new PublicContentContextResolver().resolve(requestContextAt(instant));
+}
+
 describe("TodayCachePolicy", () => {
+  it("cannot cache a /today response across the 18:00 public switch", () => {
+    expect(
+      policy.calculate(
+        requestContextAt("2026-07-24T17:59:59.001+08:00"),
+        "2026-07-24T23:00:00+08:00",
+        publicContentContextAt("2026-07-24T17:59:59.001+08:00"),
+      ).sharedMaxAgeSeconds,
+    ).toBe(0);
+    expect(
+      policy.calculate(
+        requestContextAt("2026-07-24T18:00:00+08:00"),
+        "2026-07-25T18:00:00+08:00",
+        publicContentContextAt("2026-07-24T18:00:00+08:00"),
+      ).sharedMaxAgeSeconds,
+    ).toBe(60);
+  });
+
   it("caps shared caching at 60 seconds", () => {
     expect(
       policy.calculate(requestContextAt("2026-07-24T10:00:00+08:00"), "2026-07-24T23:00:00+08:00"),

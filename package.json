@@ -16,7 +16,7 @@
     "check": "pnpm contract:check && pnpm calendar:golden:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "contract:generate": "openapi-typescript docs/api/openapi.yaml -o packages/api-contract/src/generated.ts",
     "contract:lint": "redocly lint docs/api/openapi.yaml",
-    "contract:check": "pnpm contract:lint && pnpm contract:generate && git diff --exit-code -- packages/api-contract/src/generated.ts",
+    "contract:check": "pnpm contract:lint && node scripts/check-generated-api-contract.mjs",
     "calendar:golden:generate": "pnpm --filter @five/backend calendar:golden:generate",
     "calendar:golden:check": "pnpm --filter @five/backend calendar:golden:check",
     "format": "prettier --write .",

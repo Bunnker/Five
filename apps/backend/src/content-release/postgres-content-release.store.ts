@@ -751,6 +751,43 @@ class PostgresContentReleaseTransaction implements ContentReleaseTransaction {
     return invalidatedJobIds.length;
   }
 
+  async terminateClaimedScheduleTask(input: {
+    readonly attemptToken: string;
+    readonly reason: string;
+    readonly taskId: string;
+    readonly terminatedAt: string;
+    readonly workerId: string;
+  }): Promise<StoredContentScheduleTask | null> {
+    const result = await this.client.query<ScheduleTaskRow>(
+      `UPDATE content_schedule_tasks
+          SET status = 'terminated',
+              claimed_at = NULL,
+              lease_expires_at = NULL,
+              worker_id = NULL,
+              attempt_token = NULL,
+              terminated_at = $1::timestamptz,
+              termination_reason = $2,
+              updated_at = $1::timestamptz
+        WHERE task_id = $3
+          AND status = 'processing'
+          AND worker_id = $4
+          AND attempt_token = $5
+      RETURNING ${SCHEDULE_TASK_COLUMNS}`,
+      [input.terminatedAt, input.reason, input.taskId, input.workerId, input.attemptToken],
+    );
+    const row = result.rows[0];
+    if (row === undefined) return null;
+    const task = mapScheduleTask(row);
+    await insertScheduleTaskEvent(
+      this.client,
+      task,
+      "terminated",
+      input.terminatedAt,
+      input.reason,
+    );
+    return task;
+  }
+
   async terminateOpenScheduleTasks(input: {
     readonly exceptTaskId: string | null;
     readonly fortuneDate: string;

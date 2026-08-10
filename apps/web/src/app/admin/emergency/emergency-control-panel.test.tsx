@@ -53,7 +53,7 @@ describe("EmergencyControlPanel", () => {
     vi.restoreAllMocks();
   });
 
-  it("requires the exact phrase, reason and a fresh TOTP before stopping public access", async () => {
+  it("requires the exact phrase and reason before stopping public access", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(sessionResponseObject())
@@ -73,9 +73,7 @@ describe("EmergencyControlPanel", () => {
     fireEvent.change(screen.getByLabelText("确认短语"), {
       target: { value: "停止全部公开内容" },
     });
-    fireEvent.change(screen.getByLabelText("当前验证器六位动态码"), {
-      target: { value: "123456" },
-    });
+    expect(screen.queryByLabelText("当前验证器六位动态码")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "立即停止全部公开内容" }));
 
     expect(await screen.findByText("公开内容已经停止")).toBeInTheDocument();
@@ -85,7 +83,6 @@ describe("EmergencyControlPanel", () => {
         body: JSON.stringify({
           confirmationPhrase: "停止全部公开内容",
           reason: "发现未审核图片",
-          totpCode: "123456",
         }),
         headers: expect.objectContaining({
           "Idempotency-Key": "09090909090909090909090909090909",
@@ -121,14 +118,10 @@ describe("EmergencyControlPanel", () => {
     fireEvent.change(screen.getByLabelText("确认短语"), {
       target: { value: "停止全部公开内容" },
     });
-    fireEvent.change(screen.getByLabelText("当前验证器六位动态码"), {
-      target: { value: "123456" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "立即停止全部公开内容" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("状态已过期");
     expect(await screen.findByText("公开内容已经停止")).toBeInTheDocument();
-    expect(screen.getByLabelText("当前验证器六位动态码")).toHaveValue("");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/stop"))).toHaveLength(1);
   });
@@ -149,9 +142,6 @@ describe("EmergencyControlPanel", () => {
     fireEvent.change(screen.getByLabelText("操作原因"), { target: { value: "发现未审核图片" } });
     fireEvent.change(screen.getByLabelText("确认短语"), {
       target: { value: "停止全部公开内容" },
-    });
-    fireEvent.change(screen.getByLabelText("当前验证器六位动态码"), {
-      target: { value: "123456" },
     });
     fireEvent.click(screen.getByRole("button", { name: "立即停止全部公开内容" }));
 
@@ -181,9 +171,6 @@ describe("EmergencyControlPanel", () => {
     fireEvent.change(screen.getByLabelText("确认短语"), {
       target: { value: "停止全部公开内容" },
     });
-    fireEvent.change(screen.getByLabelText("当前验证器六位动态码"), {
-      target: { value: "123456" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "立即停止全部公开内容" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("操作结果暂时无法确认");
@@ -210,9 +197,6 @@ describe("EmergencyControlPanel", () => {
     fireEvent.change(screen.getByLabelText("操作原因"), { target: { value: "发现未审核图片" } });
     fireEvent.change(screen.getByLabelText("确认短语"), {
       target: { value: "停止全部公开内容" },
-    });
-    fireEvent.change(screen.getByLabelText("当前验证器六位动态码"), {
-      target: { value: "123456" },
     });
     fireEvent.click(screen.getByRole("button", { name: "立即停止全部公开内容" }));
     await screen.findByRole("alert");

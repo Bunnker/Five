@@ -11,16 +11,13 @@ import {
 import { ADMIN_AUTH_SERVICE } from "./admin-http.providers";
 import type { AdminProtectionRequest } from "./admin-request-protection";
 
-type PasswordChallenge = components["schemas"]["PasswordChallenge"];
 type AdminSession = components["schemas"]["AdminSession"];
-type RecoveryChallenge = components["schemas"]["RecoveryChallenge"];
-type RecoveryCompletion = components["schemas"]["RecoveryCompletion"];
 
 function isUsername(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/u.test(value);
 }
 
-function isPasswordChallengeRequest(
+function isAdminSessionRequest(
   value: unknown,
 ): value is { readonly password: string; readonly username: string } {
   if (!hasExactlyKeys(value, ["password", "username"])) {
@@ -29,57 +26,8 @@ function isPasswordChallengeRequest(
   return (
     isUsername(value.username) &&
     typeof value.password === "string" &&
-    codePointLength(value.password) >= 16 &&
+    codePointLength(value.password) >= 8 &&
     codePointLength(value.password) <= 128
-  );
-}
-
-function isRecoveryChallengeRequest(
-  value: unknown,
-): value is { readonly recoveryCode: string; readonly username: string } {
-  if (!hasExactlyKeys(value, ["recoveryCode", "username"])) {
-    return false;
-  }
-  return (
-    isUsername(value.username) &&
-    typeof value.recoveryCode === "string" &&
-    codePointLength(value.recoveryCode) >= 16 &&
-    codePointLength(value.recoveryCode) <= 128
-  );
-}
-
-function isRecoveryCompletionRequest(value: unknown): value is {
-  readonly challengeToken: string;
-  readonly newPassword: string;
-  readonly totpCode: string;
-} {
-  if (!hasExactlyKeys(value, ["challengeToken", "newPassword", "totpCode"])) {
-    return false;
-  }
-  return (
-    typeof value.challengeToken === "string" &&
-    codePointLength(value.challengeToken) >= 32 &&
-    codePointLength(value.challengeToken) <= 512 &&
-    typeof value.newPassword === "string" &&
-    codePointLength(value.newPassword) >= 16 &&
-    codePointLength(value.newPassword) <= 128 &&
-    typeof value.totpCode === "string" &&
-    /^\d{6}$/u.test(value.totpCode)
-  );
-}
-
-function isSessionRequest(
-  value: unknown,
-): value is { readonly challengeToken: string; readonly totpCode: string } {
-  if (!hasExactlyKeys(value, ["challengeToken", "totpCode"])) {
-    return false;
-  }
-  return (
-    typeof value.challengeToken === "string" &&
-    codePointLength(value.challengeToken) >= 32 &&
-    codePointLength(value.challengeToken) <= 512 &&
-    typeof value.totpCode === "string" &&
-    /^\d{6}$/u.test(value.totpCode)
   );
 }
 
@@ -231,20 +179,18 @@ export class AdminAuthController {
     reply.header("Set-Cookie", clearedAdminSessionCookie(process.env.NODE_ENV === "production"));
   }
 
-  @Post("password-challenges")
-  @HttpCode(200)
-  async passwordChallenge(
+  @Post("sessions")
+  async createSession(
     @Body() body: unknown,
     @Req() request: AdminProtectionRequest,
     @Res({ passthrough: true }) reply: AdminHttpReply,
-  ): Promise<PasswordChallenge | components["schemas"]["ErrorEnvelope"]> {
+  ): Promise<AdminSession | components["schemas"]["ErrorEnvelope"]> {
     const requestId = request.adminRequestId ?? "admin-request-unavailable";
-    if (!isPasswordChallengeRequest(body) || request.adminAuthPermit?.action !== "login") {
+    if (!isAdminSessionRequest(body) || request.adminAuthPermit?.action !== "login") {
       reply.status(400);
       return adminErrorEnvelope("INVALID_ARGUMENT", "登录信息格式无效，请检查后重试。", requestId);
     }
-
-    const result = await this.service.beginLogin({
+    const result = await this.service.login({
       password: body.password,
       permit: request.adminAuthPermit,
       username: body.username,
@@ -258,42 +204,7 @@ export class AdminAuthController {
       reply.status(401);
       return adminErrorEnvelope(
         "AUTHENTICATION_FAILED",
-        "账号或凭据无效，请检查后重试。",
-        requestId,
-      );
-    }
-    return {
-      challengeToken: result.challengeToken,
-      expiresAt: result.challengeExpiresAt.toISOString(),
-    };
-  }
-
-  @Post("sessions")
-  async createSession(
-    @Body() body: unknown,
-    @Req() request: AdminProtectionRequest,
-    @Res({ passthrough: true }) reply: AdminHttpReply,
-  ): Promise<AdminSession | components["schemas"]["ErrorEnvelope"]> {
-    const requestId = request.adminRequestId ?? "admin-request-unavailable";
-    if (!isSessionRequest(body) || request.adminAuthPermit?.action !== "login_totp") {
-      reply.status(400);
-      return adminErrorEnvelope("INVALID_ARGUMENT", "登录信息格式无效，请检查后重试。", requestId);
-    }
-    const result = await this.service.completeLogin({
-      challengeToken: body.challengeToken,
-      permit: request.adminAuthPermit,
-      totpCode: body.totpCode,
-    });
-    if (result.kind === "rate_limited") {
-      reply.header("Retry-After", result.retryAfterSeconds);
-      reply.status(429);
-      return adminErrorEnvelope("RATE_LIMITED", "尝试次数过多，请稍后再试。", requestId, true);
-    }
-    if (result.kind === "invalid") {
-      reply.status(401);
-      return adminErrorEnvelope(
-        "AUTHENTICATION_FAILED",
-        "账号或凭据无效，请检查后重试。",
+        "账号或密码无效，请检查后重试。",
         requestId,
       );
     }
@@ -307,95 +218,5 @@ export class AdminAuthController {
     );
     reply.status(201);
     return adminSessionResponse(result);
-  }
-
-  @Post("recovery-challenges")
-  @HttpCode(200)
-  async createRecoveryChallenge(
-    @Body() body: unknown,
-    @Req() request: AdminProtectionRequest,
-    @Res({ passthrough: true }) reply: AdminHttpReply,
-  ): Promise<RecoveryChallenge | components["schemas"]["ErrorEnvelope"]> {
-    const requestId = request.adminRequestId ?? "admin-request-unavailable";
-    if (!isRecoveryChallengeRequest(body) || request.adminAuthPermit?.action !== "recovery") {
-      reply.status(400);
-      return adminErrorEnvelope("INVALID_ARGUMENT", "恢复信息格式无效，请检查后重试。", requestId);
-    }
-    const result = await this.service.beginRecovery({
-      permit: request.adminAuthPermit,
-      recoveryCode: body.recoveryCode,
-      username: body.username,
-    });
-    if (result.kind === "rate_limited") {
-      reply.header("Retry-After", result.retryAfterSeconds);
-      reply.status(429);
-      return adminErrorEnvelope("RATE_LIMITED", "尝试次数过多，请稍后再试。", requestId, true);
-    }
-    if (result.kind === "invalid") {
-      reply.status(401);
-      return adminErrorEnvelope(
-        "AUTHENTICATION_FAILED",
-        "账号或凭据无效，请检查后重试。",
-        requestId,
-      );
-    }
-    return {
-      challengeToken: result.challengeToken,
-      expiresAt: result.challengeExpiresAt.toISOString(),
-      totpProvisioning: {
-        algorithm: "SHA1",
-        digits: 6,
-        otpauthUri: result.totpSetup.otpauthUri,
-        periodSeconds: 30,
-        secret: result.totpSetup.secretBase32,
-      },
-    };
-  }
-
-  @Post("recovery-completions")
-  async completeRecovery(
-    @Body() body: unknown,
-    @Req() request: AdminProtectionRequest,
-    @Res({ passthrough: true }) reply: AdminHttpReply,
-  ): Promise<RecoveryCompletion | components["schemas"]["ErrorEnvelope"]> {
-    const requestId = request.adminRequestId ?? "admin-request-unavailable";
-    if (
-      !isRecoveryCompletionRequest(body) ||
-      request.adminAuthPermit?.action !== "recovery_complete"
-    ) {
-      reply.status(400);
-      return adminErrorEnvelope("INVALID_ARGUMENT", "恢复信息格式无效，请检查后重试。", requestId);
-    }
-    const result = await this.service.completeRecovery({
-      challengeToken: body.challengeToken,
-      newPassword: body.newPassword,
-      permit: request.adminAuthPermit,
-      totpCode: body.totpCode,
-    });
-    if (result.kind === "rate_limited") {
-      reply.header("Retry-After", result.retryAfterSeconds);
-      reply.status(429);
-      return adminErrorEnvelope("RATE_LIMITED", "尝试次数过多，请稍后再试。", requestId, true);
-    }
-    if (result.kind === "invalid") {
-      reply.status(401);
-      return adminErrorEnvelope(
-        "AUTHENTICATION_FAILED",
-        "账号或凭据无效，请检查后重试。",
-        requestId,
-      );
-    }
-    reply.header(
-      "Set-Cookie",
-      adminSessionCookie({
-        ...result.session,
-        production: process.env.NODE_ENV === "production",
-      }),
-    );
-    reply.status(201);
-    return {
-      recoveryCodes: [...result.recoveryCodes],
-      session: adminSessionResponse(result.session),
-    };
   }
 }

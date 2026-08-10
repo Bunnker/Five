@@ -7,6 +7,15 @@ interface PosterAssetHttpReply {
   status(code: number): unknown;
 }
 
+const CONTROLLED_POSTER_ASSET_KEY = /^poster-[A-Za-z0-9_-]{1,180}\.(?:png|svg)$/u;
+
+function controlledPosterMediaType(assetKey: string): string | null {
+  if (!CONTROLLED_POSTER_ASSET_KEY.test(assetKey)) {
+    return null;
+  }
+  return assetKey.endsWith(".svg") ? "image/svg+xml; charset=utf-8" : "image/png";
+}
+
 @Controller("api/v1/poster-assets")
 export class PosterAssetController {
   constructor(
@@ -19,6 +28,12 @@ export class PosterAssetController {
     @Param("assetKey") assetKey: string,
     @Res({ passthrough: true }) reply: PosterAssetHttpReply,
   ): Promise<StreamableFile | null> {
+    const mediaType = controlledPosterMediaType(assetKey);
+    if (mediaType === null) {
+      reply.status(404);
+      return null;
+    }
+
     let body: Buffer | null;
     try {
       body = await this.store.read(assetKey);
@@ -32,7 +47,7 @@ export class PosterAssetController {
 
     reply.header("Cache-Control", "public, max-age=31536000, immutable");
     reply.header("Content-Disposition", `inline; filename="${assetKey}"`);
-    reply.header("Content-Type", "image/svg+xml; charset=utf-8");
+    reply.header("Content-Type", mediaType);
     reply.status(200);
     return new StreamableFile(body);
   }

@@ -4,8 +4,10 @@ import { AttentionColorSection } from "../../components/attention-color-section"
 import { CiJiColorCard } from "../../components/ci-ji-color-card";
 import { DaJiColorCard } from "../../components/da-ji-color-card";
 import { PingColorCard } from "../../components/ping-color-card";
+import { PublicContentBoundaryGuard } from "../../components/public-content-boundary-guard";
 import { FoundationAction } from "../../components/visual-foundation";
 import { toColorGuideData } from "../../lib/color-guide";
+import { parsePublicChannelId, withPublicChannelId } from "../../lib/channel-links";
 import { loadToday } from "../../lib/today";
 import {
   resolveTodayEntry,
@@ -19,7 +21,13 @@ interface ColorsPageProps {
   searchParams: Promise<TodayEntrySearchParams>;
 }
 
-function ColorsNotice({ status }: { status: Exclude<TodayEntryResolution["status"], "ready"> }) {
+function ColorsNotice({
+  channelId,
+  status,
+}: {
+  channelId: string | null;
+  status: Exclude<TodayEntryResolution["status"], "ready">;
+}) {
   const notices = {
     invalid: {
       description: "链接信息不完整，请从首页重新进入。",
@@ -42,7 +50,10 @@ function ColorsNotice({ status }: { status: Exclude<TodayEntryResolution["status
         <p className="outfit-page__eyebrow">完整颜色建议</p>
         <h1>{notice.title}</h1>
         <p>{notice.description}</p>
-        <a className="outfit-page__back outfit-page__back--button" href="/">
+        <a
+          className="outfit-page__back outfit-page__back--button"
+          href={withPublicChannelId("/", channelId)}
+        >
           返回今日首页
         </a>
       </section>
@@ -52,6 +63,7 @@ function ColorsNotice({ status }: { status: Exclude<TodayEntryResolution["status
 
 export default async function ColorsPage({ searchParams }: ColorsPageProps) {
   const [params, requestHeaders] = await Promise.all([searchParams, headers()]);
+  const entryChannelId = parsePublicChannelId(params.channelId);
   const today = await loadToday({ requestId: requestHeaders.get("x-request-id") });
   const colorGuide = toColorGuideData(today);
   const resolution = resolveTodayEntry(today, params, {
@@ -59,41 +71,59 @@ export default async function ColorsPage({ searchParams }: ColorsPageProps) {
   });
 
   if (resolution.status !== "ready") {
-    return <ColorsNotice status={resolution.status} />;
+    return <ColorsNotice channelId={entryChannelId} status={resolution.status} />;
   }
 
   if (colorGuide === null) {
-    return <ColorsNotice status="unavailable" />;
+    return <ColorsNotice channelId={entryChannelId} status="unavailable" />;
   }
 
   return (
-    <main className="outfit-page">
-      <article
-        aria-labelledby="colors-page-title"
-        className="outfit-page__sheet"
-        data-content-version={resolution.contentVersion}
-      >
-        <a className="outfit-page__back" href="/">
-          <span aria-hidden="true">←</span>
-          返回今日首页
-        </a>
+    <PublicContentBoundaryGuard
+      effectiveTo={resolution.today.content.effectiveTo}
+      responseGeneratedAt={resolution.today.requestContext.responseGeneratedAt}
+    >
+      <main className="outfit-page">
+        <article
+          aria-labelledby="colors-page-title"
+          className="outfit-page__sheet"
+          data-content-version={resolution.contentVersion}
+        >
+          <a className="outfit-page__back" href={withPublicChannelId("/", resolution.channelId)}>
+            <span aria-hidden="true">←</span>
+            返回今日首页
+          </a>
 
-        <header className="outfit-page__header">
-          <p className="outfit-page__eyebrow">当天已核对的公开颜色</p>
-          <h1 id="colors-page-title">完整颜色建议</h1>
-          <p>{resolution.fortuneDate}</p>
-        </header>
+          <header className="outfit-page__header">
+            <p className="outfit-page__eyebrow">当天已核对的公开颜色</p>
+            <h1 id="colors-page-title">完整颜色建议</h1>
+            <p>{resolution.fortuneDate}</p>
+          </header>
 
-        <DaJiColorCard actionHref={colorGuide.daJi.outfitHref} tier={colorGuide.daJi.tier} />
-        <CiJiColorCard actionHref={colorGuide.ciJi.outfitHref} tier={colorGuide.ciJi.tier} />
-        <PingColorCard actionHref={colorGuide.ping.outfitHref} tier={colorGuide.ping.tier} />
-        <AttentionColorSection section={colorGuide.attentionSection} />
-        <div className="colors-page__next-step">
-          <FoundationAction fullWidth href={colorGuide.defaultOutfitHref} indicator="›">
-            看看怎么搭
-          </FoundationAction>
-        </div>
-      </article>
-    </main>
+          <DaJiColorCard
+            actionHref={withPublicChannelId(colorGuide.daJi.outfitHref, resolution.channelId)}
+            tier={colorGuide.daJi.tier}
+          />
+          <CiJiColorCard
+            actionHref={withPublicChannelId(colorGuide.ciJi.outfitHref, resolution.channelId)}
+            tier={colorGuide.ciJi.tier}
+          />
+          <PingColorCard
+            actionHref={withPublicChannelId(colorGuide.ping.outfitHref, resolution.channelId)}
+            tier={colorGuide.ping.tier}
+          />
+          <AttentionColorSection section={colorGuide.attentionSection} />
+          <div className="colors-page__next-step">
+            <FoundationAction
+              fullWidth
+              href={withPublicChannelId(colorGuide.defaultOutfitHref, resolution.channelId)}
+              indicator="›"
+            >
+              看看怎么搭
+            </FoundationAction>
+          </div>
+        </article>
+      </main>
+    </PublicContentBoundaryGuard>
   );
 }

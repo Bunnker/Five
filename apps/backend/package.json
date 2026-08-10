@@ -14,6 +14,7 @@
     "calendar:golden:generate": "node -r ts-node/register/transpile-only scripts/generate-calendar-golden.ts --write",
     "calendar:golden:check": "node -r ts-node/register/transpile-only scripts/check-calendar-golden.ts",
     "admin:credentials": "node -r ts-node/register/transpile-only scripts/admin-credentials.ts",
+    "local-preview:configure": "node -r ts-node/register/transpile-only scripts/configure-local-preview-batch.ts",
     "db:migrate": "node-pg-migrate -j mts --envPath ../../.env up",
     "db:rollback": "node-pg-migrate -j mts --envPath ../../.env down"
   },
@@ -23,6 +24,7 @@
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-fastify": "^11.1.28",
+    "lunar-javascript": "1.7.7",
     "pg": "^8.22.0",
     "qrcode": "1.5.4",
     "reflect-metadata": "^0.2.2",
@@ -33,7 +35,6 @@
     "@types/pg": "^8.20.0",
     "@types/qrcode": "1.5.6",
     "dotenv": "^17.4.2",
-    "lunar-javascript": "1.7.7",
     "node-pg-migrate": "^9.0.0",
     "ts-node": "^10.9.2"
   }

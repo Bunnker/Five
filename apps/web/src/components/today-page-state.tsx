@@ -13,12 +13,14 @@ import {
   writeTodaySnapshotCache,
 } from "../lib/today-cache";
 import type { TodaySnapshotCacheHit } from "../lib/today-cache";
+import { trackAnalyticsEvent } from "../lib/analytics";
 import type { LoadTodayResult, TodaySnapshot } from "../lib/today";
 import { resolveTodayRefreshSchedule } from "../lib/today-refresh-policy";
-import { TodayPageContent } from "./today-page-content";
+import { DailyExperienceView } from "./daily-experience-view";
 import { TodayPageSkeleton } from "./today-page-skeleton";
 
 export interface TodayPageStateProps {
+  channelId?: string;
   result: LoadTodayResult;
 }
 
@@ -28,7 +30,7 @@ interface ActiveTodaySnapshot extends TodaySnapshotCacheHit {
   expiresAtClientMs: number;
 }
 
-type TodayUpdateKind = "civil_midnight" | "content_version" | "fortune_day";
+type TodayUpdateKind = "civil_midnight" | "content_version" | "public_content";
 
 interface TodayUpdateNotice {
   description: string;
@@ -55,9 +57,9 @@ function describeSnapshotUpdate(
   }
   if (previous.fortuneDate !== next.fortuneDate) {
     return {
-      description: "日期、时辰与穿衣建议已经整包切换。",
-      headline: "已进入新命理日，今日内容已更新",
-      kind: "fortune_day",
+      description: "北京时间 18:00 已切换到下一日期的完整穿衣建议。",
+      headline: "明日建议已更新",
+      kind: "public_content",
     };
   }
   if (previous.data.requestContext.civilDate !== next.data.requestContext.civilDate) {
@@ -153,7 +155,7 @@ function RetryButton({ isRetrying, onRetry }: RetryButtonProps) {
   );
 }
 
-export function TodayPageState({ result }: TodayPageStateProps) {
+export function TodayPageState({ channelId = "organic", result }: TodayPageStateProps) {
   const router = useRouter();
   const routerRef = useRef(router);
   routerRef.current = router;
@@ -169,6 +171,7 @@ export function TodayPageState({ result }: TodayPageStateProps) {
   const boundaryBlockedRef = useRef(false);
   const boundaryRefreshPendingRef = useRef(false);
   const lastDisplayedSnapshotRef = useRef<TodaySnapshot | null>(null);
+  const lastTrackedSnapshotRef = useRef<string | null>(null);
   const refreshInFlightRef = useRef(false);
   const requestRefreshRef = useRef<(showRetryProgress?: boolean) => boolean>(() => false);
   const refreshWatchdogRef = useRef<number | null>(null);
@@ -341,6 +344,23 @@ export function TodayPageState({ result }: TodayPageStateProps) {
     if (activeSnapshot === null) {
       return;
     }
+    const fingerprint = `${channelId}:${activeSnapshot.snapshot.fortuneDate}:${activeSnapshot.snapshot.contentVersion}`;
+    if (lastTrackedSnapshotRef.current === fingerprint) {
+      return;
+    }
+    lastTrackedSnapshotRef.current = fingerprint;
+    trackAnalyticsEvent({
+      channelId,
+      contentVersion: activeSnapshot.snapshot.contentVersion,
+      eventName: "view_today_summary",
+      fortuneDate: activeSnapshot.snapshot.fortuneDate,
+    });
+  }, [activeSnapshot, channelId]);
+
+  useEffect(() => {
+    if (activeSnapshot === null) {
+      return;
+    }
     const remainingMs = activeSnapshot.expiresAtClientMs - Date.now();
     if (remainingMs <= 0) {
       blockExpiredContext(activeSnapshot);
@@ -417,7 +437,7 @@ export function TodayPageState({ result }: TodayPageStateProps) {
               </div>
             </aside>
           )}
-          <TodayPageContent today={activeSnapshot.snapshot.data} />
+          <DailyExperienceView channelId={channelId} today={activeSnapshot.snapshot.data} />
         </>
       );
     }
@@ -434,7 +454,7 @@ export function TodayPageState({ result }: TodayPageStateProps) {
             {isRetrying ? "正在重试…" : "重新获取"}
           </button>
         </aside>
-        <TodayPageContent today={activeSnapshot.snapshot.data} />
+        <DailyExperienceView channelId={channelId} today={activeSnapshot.snapshot.data} />
       </>
     );
   }

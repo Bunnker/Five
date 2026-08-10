@@ -53,11 +53,14 @@ export function isSafePublicImageUrl(value: unknown): value is string {
   }
 
   try {
-    const url = new URL(value);
+    if (value.startsWith("//")) return false;
+    const url = new URL(value, "https://five.invalid");
+    const sameOriginPath = value.startsWith("/");
     return (
       (url.protocol === "https:" || url.protocol === "http:") &&
       url.username === "" &&
-      url.password === ""
+      url.password === "" &&
+      (!sameOriginPath || url.origin === "https://five.invalid")
     );
   } catch {
     return false;
@@ -65,7 +68,7 @@ export function isSafePublicImageUrl(value: unknown): value is string {
 }
 
 export function publicImageResourceIdentity(value: string): string {
-  const url = new URL(value);
+  const url = new URL(value, "https://five.invalid");
   url.hash = "";
   return url.href;
 }

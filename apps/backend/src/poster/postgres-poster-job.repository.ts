@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 
+import { hasCurrentPosterLandingContract } from "./poster-job.repository";
 import type {
   ClaimPosterAssetGarbageInput,
   CompletePosterJobInput,
@@ -50,6 +51,22 @@ const RETURNING_JOB = `
   attempts,
   locked_by
 `;
+const JOINED_JOB = `
+  j.job_id,
+  j.fortune_date::text AS fortune_date,
+  j.source_content_version,
+  j.current_active_content_version,
+  j.poster_template_version,
+  j.channel_id,
+  j.status,
+  j.poster_instance_id,
+  j.asset_key,
+  j.asset_url,
+  j.attempt_token,
+  j.landing_url,
+  j.attempts,
+  j.locked_by
+`;
 
 function mapRow(row: PosterJobRow): PosterJobRecord {
   return {
@@ -96,18 +113,26 @@ export class PostgresPosterJobRepository implements PosterJobRepository {
       ]);
 
       const idempotent = await client.query<PosterJobRow & { request_hash: string }>(
-        `SELECT i.request_hash, j.*
+        `SELECT i.request_hash, ${JOINED_JOB}
            FROM poster_job_idempotency i
            JOIN poster_jobs j ON j.job_id = i.job_id
           WHERE i.caller_scope = $1 AND i.endpoint = $2 AND i.idempotency_key = $3`,
         [CALLER_SCOPE, ENDPOINT, input.idempotencyKey],
       );
       const prior = idempotent.rows[0];
+      let replaceIdempotencyBinding = false;
       if (prior !== undefined) {
-        await client.query("COMMIT");
-        return prior.request_hash === input.requestHash
-          ? { kind: "existing", record: mapRow(prior) }
-          : { kind: "idempotency_conflict" };
+        if (prior.request_hash !== input.requestHash) {
+          await client.query("COMMIT");
+          return { kind: "idempotency_conflict" };
+        }
+        const priorRecord = mapRow(prior);
+        if (hasCurrentPosterLandingContract(priorRecord)) {
+          await client.query("COMMIT");
+          return { kind: "existing", record: priorRecord };
+        }
+        replaceIdempotencyBinding = true;
+        await this.invalidateLegacyLandingJob(client, priorRecord);
       }
 
       // All creators take one transaction-scoped lock before reading capacity and inserting.
@@ -128,13 +153,12 @@ export class PostgresPosterJobRepository implements PosterJobRepository {
         [input.expectedContentVersion, input.posterTemplateVersion, input.channelId],
       );
       let record = reusable.rows[0];
+      if (record !== undefined && !hasCurrentPosterLandingContract(mapRow(record))) {
+        await this.invalidateLegacyLandingJob(client, mapRow(record));
+        record = undefined;
+      }
       if (record !== undefined) {
-        await client.query(
-          `INSERT INTO poster_job_idempotency (
-             caller_scope, endpoint, idempotency_key, request_hash, job_id
-           ) VALUES ($1, $2, $3, $4, $5)`,
-          [CALLER_SCOPE, ENDPOINT, input.idempotencyKey, input.requestHash, record.job_id],
-        );
+        await this.bindIdempotency(client, input, record.job_id, replaceIdempotencyBinding);
         await client.query("COMMIT");
         return { kind: "existing", record: mapRow(record) };
       }
@@ -168,12 +192,7 @@ export class PostgresPosterJobRepository implements PosterJobRepository {
         throw new Error("Poster job insert did not return the created row");
       }
 
-      await client.query(
-        `INSERT INTO poster_job_idempotency (
-           caller_scope, endpoint, idempotency_key, request_hash, job_id
-         ) VALUES ($1, $2, $3, $4, $5)`,
-        [CALLER_SCOPE, ENDPOINT, input.idempotencyKey, input.requestHash, record.job_id],
-      );
+      await this.bindIdempotency(client, input, record.job_id, replaceIdempotencyBinding);
       await client.query("COMMIT");
       return { kind: "created", record: mapRow(record) };
     } catch (error) {
@@ -198,7 +217,7 @@ export class PostgresPosterJobRepository implements PosterJobRepository {
     requestHash: string,
   ): Promise<FindIdempotentPosterJobResult> {
     const result = await this.pool.query<PosterJobRow & { request_hash: string }>(
-      `SELECT i.request_hash, j.*
+      `SELECT i.request_hash, ${JOINED_JOB}
          FROM poster_job_idempotency i
          JOIN poster_jobs j ON j.job_id = i.job_id
         WHERE i.caller_scope = $1 AND i.endpoint = $2 AND i.idempotency_key = $3`,
@@ -208,9 +227,13 @@ export class PostgresPosterJobRepository implements PosterJobRepository {
     if (row === undefined) {
       return { kind: "missing" };
     }
-    return row.request_hash === requestHash
-      ? { kind: "existing", record: mapRow(row) }
-      : { kind: "idempotency_conflict" };
+    if (row.request_hash !== requestHash) {
+      return { kind: "idempotency_conflict" };
+    }
+    const record = mapRow(row);
+    return hasCurrentPosterLandingContract(record)
+      ? { kind: "existing", record }
+      : { kind: "missing" };
   }
 
   async claimNext(input: ClaimPosterJobInput): Promise<PosterJobRecord | null> {
@@ -440,5 +463,56 @@ export class PostgresPosterJobRepository implements PosterJobRepository {
     );
     const status = result.rows[0]?.status;
     return status === undefined ? "lost" : status === "failed" ? "failed" : "retrying";
+  }
+
+  private async bindIdempotency(
+    client: PoolClient,
+    input: CreatePosterJobRecordInput,
+    jobId: string,
+    replace: boolean,
+  ): Promise<void> {
+    if (replace) {
+      const rebound = await client.query(
+        `UPDATE poster_job_idempotency
+            SET job_id = $4,
+                created_at = now()
+          WHERE caller_scope = $1
+            AND endpoint = $2
+            AND idempotency_key = $3`,
+        [CALLER_SCOPE, ENDPOINT, input.idempotencyKey, jobId],
+      );
+      if (rebound.rowCount !== 1) {
+        throw new Error("Poster legacy idempotency binding disappeared during replacement");
+      }
+      return;
+    }
+    await client.query(
+      `INSERT INTO poster_job_idempotency (
+         caller_scope, endpoint, idempotency_key, request_hash, job_id
+       ) VALUES ($1, $2, $3, $4, $5)`,
+      [CALLER_SCOPE, ENDPOINT, input.idempotencyKey, input.requestHash, jobId],
+    );
+  }
+
+  private async invalidateLegacyLandingJob(
+    client: PoolClient,
+    record: PosterJobRecord,
+  ): Promise<void> {
+    if (record.status !== "processing" && record.status !== "ready") return;
+    await client.query(
+      `UPDATE poster_jobs
+          SET status = 'version_changed',
+              poster_instance_id = NULL,
+              asset_key = NULL,
+              asset_url = NULL,
+              locked_at = NULL,
+              locked_by = NULL,
+              attempt_token = NULL,
+              last_error = 'poster landing contract upgraded',
+              updated_at = now()
+        WHERE job_id = $1
+          AND status IN ('processing', 'ready')`,
+      [record.jobId],
+    );
   }
 }

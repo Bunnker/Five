@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { hasCurrentPosterLandingContract } from "./poster-job.repository";
 import { PostgresPosterJobRepository } from "./postgres-poster-job.repository";
 
 // This suite atomically claims the next global job, so it only runs against an explicitly
@@ -25,13 +26,13 @@ describeDatabase("PostgresPosterJobRepository", () => {
 
   async function cleanIntegrationRows(): Promise<void> {
     await pool.query(
-      "DELETE FROM poster_asset_reservations WHERE job_id LIKE 'repository-%' OR job_id LIKE 'unused-%' OR job_id LIKE 'conflict-%' OR job_id LIKE 'capacity-%' OR job_id LIKE 'reuse-%' OR job_id LIKE 'race-%'",
+      "DELETE FROM poster_asset_reservations WHERE job_id LIKE 'repository-%' OR job_id LIKE 'unused-%' OR job_id LIKE 'conflict-%' OR job_id LIKE 'capacity-%' OR job_id LIKE 'reuse-%' OR job_id LIKE 'race-%' OR job_id LIKE 'upgrade-%'",
     );
     await pool.query(
-      "DELETE FROM poster_job_idempotency WHERE job_id LIKE 'repository-%' OR job_id LIKE 'unused-%' OR job_id LIKE 'conflict-%' OR job_id LIKE 'capacity-%' OR job_id LIKE 'reuse-%' OR job_id LIKE 'race-%'",
+      "DELETE FROM poster_job_idempotency WHERE job_id LIKE 'repository-%' OR job_id LIKE 'unused-%' OR job_id LIKE 'conflict-%' OR job_id LIKE 'capacity-%' OR job_id LIKE 'reuse-%' OR job_id LIKE 'race-%' OR job_id LIKE 'upgrade-%'",
     );
     await pool.query(
-      "DELETE FROM poster_jobs WHERE job_id LIKE 'repository-%' OR job_id LIKE 'unused-%' OR job_id LIKE 'conflict-%' OR job_id LIKE 'capacity-%' OR job_id LIKE 'reuse-%' OR job_id LIKE 'race-%'",
+      "DELETE FROM poster_jobs WHERE job_id LIKE 'repository-%' OR job_id LIKE 'unused-%' OR job_id LIKE 'conflict-%' OR job_id LIKE 'capacity-%' OR job_id LIKE 'reuse-%' OR job_id LIKE 'race-%' OR job_id LIKE 'upgrade-%'",
     );
   }
 
@@ -49,12 +50,15 @@ describeDatabase("PostgresPosterJobRepository", () => {
       fortuneDate: "2026-07-15",
       idempotencyKey,
       jobId,
-      landingUrl: `https://five.example.com/daily/2026-07-15?channelId=integration&expectedContentVersion=fd-20260715-r3`,
+      landingUrl: `https://five.example.com/daily/2026-07-15?channelId=${encodeURIComponent(`integration-${suffix}`.slice(0, 64))}&expectedContentVersion=fd-20260715-r3&referralId=${jobId}&referralKind=poster`,
       posterTemplateVersion: "poster-template-v3",
       requestHash: "a".repeat(64),
     };
 
     const created = await repository.createOrReuse(input);
+    if (created.kind === "created" || created.kind === "existing") {
+      expect(hasCurrentPosterLandingContract(created.record)).toBe(true);
+    }
     const replay = await repository.createOrReuse({ ...input, jobId: `unused-${suffix}` });
     const conflict = await repository.createOrReuse({
       ...input,
@@ -173,17 +177,21 @@ describeDatabase("PostgresPosterJobRepository", () => {
 
   it("serializes concurrent creators at queue capacity", async () => {
     const suffix = randomUUID();
-    const input = (side: "a" | "b") => ({
-      channelId: `race-${side}-${suffix}`.slice(0, 64),
-      currentActiveContentVersion: "fd-20260715-r3",
-      expectedContentVersion: "fd-20260715-r3",
-      fortuneDate: "2026-07-15",
-      idempotencyKey: `race-idempotency-${side}-${suffix}`,
-      jobId: `race-${side}-${suffix}`,
-      landingUrl: `https://five.example.com/daily/2026-07-15?channelId=race-${side}&expectedContentVersion=fd-20260715-r3`,
-      posterTemplateVersion: "poster-template-v3",
-      requestHash: side.repeat(64),
-    });
+    const input = (side: "a" | "b") => {
+      const channelId = `race-${side}-${suffix}`.slice(0, 64);
+      const jobId = `race-${side}-${suffix}`;
+      return {
+        channelId,
+        currentActiveContentVersion: "fd-20260715-r3",
+        expectedContentVersion: "fd-20260715-r3",
+        fortuneDate: "2026-07-15",
+        idempotencyKey: `race-idempotency-${side}-${suffix}`,
+        jobId,
+        landingUrl: `https://five.example.com/daily/2026-07-15?channelId=${encodeURIComponent(channelId)}&expectedContentVersion=fd-20260715-r3&referralId=${jobId}&referralKind=poster`,
+        posterTemplateVersion: "poster-template-v3",
+        requestHash: side.repeat(64),
+      };
+    };
 
     const results = await Promise.all([
       repository.createOrReuse(input("a")),
@@ -194,5 +202,83 @@ describeDatabase("PostgresPosterJobRepository", () => {
     expect(results.filter((result) => result.kind === "rate_limited")).toEqual([
       { kind: "rate_limited", queueCapacity: 1 },
     ]);
+  });
+
+  it("rebinds a same-payload idempotency key after invalidating a legacy ready QR job", async () => {
+    const suffix = randomUUID();
+    const legacyJobId = `upgrade-legacy-${suffix}`;
+    const replacementJobId = `upgrade-current-${suffix}`;
+    const idempotencyKey = `upgrade-idempotency-${suffix}`;
+    const channelId = `upgrade-${suffix}`.slice(0, 64);
+    const requestHash = "d".repeat(64);
+    const base = {
+      channelId,
+      currentActiveContentVersion: "fd-20260715-r3",
+      expectedContentVersion: "fd-20260715-r3",
+      fortuneDate: "2026-07-15",
+      idempotencyKey,
+      posterTemplateVersion: "poster-template-v3",
+      requestHash,
+    };
+    await expect(
+      repository.createOrReuse({
+        ...base,
+        jobId: legacyJobId,
+        landingUrl:
+          "https://five.example.com/daily/2026-07-15?channelId=legacy&expectedContentVersion=fd-20260715-r3",
+      }),
+    ).resolves.toMatchObject({ kind: "created", record: { jobId: legacyJobId } });
+    const claim = await repository.claimNext({
+      attemptToken: `upgrade-attempt-${suffix}`,
+      workerId: `upgrade-worker-${suffix}`,
+    });
+    expect(claim?.jobId).toBe(legacyJobId);
+    const assetKey = `upgrade-${suffix}.png`;
+    await repository.reserveAsset({
+      assetKey,
+      attemptToken: claim?.attemptToken ?? "",
+      jobId: legacyJobId,
+      workerId: claim?.lockedBy ?? "",
+    });
+    await repository.completeReady({
+      assetKey,
+      assetUrl: `https://assets.example.com/${assetKey}`,
+      attemptToken: claim?.attemptToken ?? "",
+      currentActiveContentVersion: "fd-20260715-r3",
+      jobId: legacyJobId,
+      posterInstanceId: `upgrade-poster-${suffix}`,
+      workerId: claim?.lockedBy ?? "",
+    });
+
+    await expect(repository.findByIdempotency(idempotencyKey, requestHash)).resolves.toEqual({
+      kind: "missing",
+    });
+    await expect(repository.findByIdempotency(idempotencyKey, "e".repeat(64))).resolves.toEqual({
+      kind: "idempotency_conflict",
+    });
+    await expect(
+      repository.createOrReuse({
+        ...base,
+        jobId: replacementJobId,
+        landingUrl: `https://five.example.com/daily/2026-07-15?channelId=${encodeURIComponent(channelId)}&expectedContentVersion=fd-20260715-r3&referralId=${replacementJobId}&referralKind=poster`,
+      }),
+    ).resolves.toMatchObject({
+      kind: "created",
+      record: { jobId: replacementJobId, status: "processing" },
+    });
+    await expect(repository.findById(legacyJobId)).resolves.toMatchObject({
+      assetKey: null,
+      assetUrl: null,
+      posterInstanceId: null,
+      status: "version_changed",
+    });
+    await expect(repository.findRetainedAssetKeys([assetKey])).resolves.toEqual([]);
+    const storedReplacement = await repository.findById(replacementJobId);
+    expect(storedReplacement).not.toBeNull();
+    expect(hasCurrentPosterLandingContract(storedReplacement!)).toBe(true);
+    await expect(repository.findByIdempotency(idempotencyKey, requestHash)).resolves.toMatchObject({
+      kind: "existing",
+      record: { jobId: replacementJobId },
+    });
   });
 });

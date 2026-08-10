@@ -41,7 +41,7 @@ export class PosterWorker {
       return "idle";
     }
 
-    const assetKey = `poster-${attemptToken}.svg`;
+    const assetKey = `poster-${attemptToken}.png`;
     let assetWritten = false;
     let completionAttempted = false;
     try {

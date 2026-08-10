@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TodayPageData } from "../../lib/today";
@@ -11,6 +12,10 @@ const { headersMock, loadTodayMock } = vi.hoisted(() => ({
 
 vi.mock("next/headers", () => ({
   headers: headersMock,
+}));
+
+vi.mock("../../components/public-content-boundary-guard", () => ({
+  PublicContentBoundaryGuard: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("../../lib/today", () => ({
@@ -184,11 +189,16 @@ const today = {
     relationText: "金克木",
     tierCode: "ping",
   },
+  publicContentContext: {
+    advancedFromCivilDate: true,
+    servedFortuneDate: "2026-07-15",
+    switchBoundary: "18:00",
+  },
   requestContext: {
-    civilDate: "2026-07-15",
+    civilDate: "2026-07-14",
     crossedDayBoundary: false,
-    fortuneDate: "2026-07-15",
-    shichen: "午",
+    fortuneDate: "2026-07-14",
+    shichen: "酉",
   },
 } as TodayPageData;
 
@@ -205,7 +215,7 @@ describe("ColorsPage", () => {
     loadTodayMock.mockResolvedValue(today);
   });
 
-  it("shows all five public tier labels from one version", async () => {
+  it("shows all five tiers for the served next-day content after 18:00", async () => {
     render(await ColorsPage({ searchParams: Promise.resolve(validSearchParams) }));
 
     expect(loadTodayMock).toHaveBeenCalledWith({ requestId: "request-colors-page" });
@@ -216,16 +226,20 @@ describe("ColorsPage", () => {
     const lowerTiers = screen.getByRole("region", { name: "较差 · 不利" });
 
     expect(daJi).toHaveTextContent("大吉");
-    expect(daJi).toHaveTextContent("火");
-    expect(daJi).toHaveTextContent("木生火");
+    expect(within(daJi).getByText("火", { selector: "strong" })).toBeVisible();
+    expect(within(daJi).queryByText("木生火")).not.toBeInTheDocument();
     expect(daJi).toHaveTextContent("今日木日，木生火，火为大吉。");
     expect(daJi).toHaveTextContent("红色");
     expect(ciJi).toHaveTextContent("次吉");
-    expect(ciJi).toHaveTextContent("木与木同类");
+    expect(within(ciJi).getByText("木", { selector: "strong" })).toBeVisible();
+    expect(within(ciJi).queryByText("木与木同类")).not.toBeInTheDocument();
     expect(ping).toHaveTextContent("平");
-    expect(ping).toHaveTextContent("金克木");
+    expect(within(ping).getByText("金", { selector: "strong" })).toBeVisible();
+    expect(within(ping).queryByText("金克木")).not.toBeInTheDocument();
     expect(within(lowerTiers).getByRole("article", { name: "较差 · 建议减少" })).toBeVisible();
     expect(within(lowerTiers).getByRole("article", { name: "不利 · 今日先收起" })).toBeVisible();
+    expect(within(lowerTiers).queryByText("水生木")).not.toBeInTheDocument();
+    expect(within(lowerTiers).queryByText("木克土")).not.toBeInTheDocument();
     expect(lowerTiers).not.toHaveTextContent("注意");
     expect(within(lowerTiers).queryByRole("link")).not.toBeInTheDocument();
 
@@ -274,6 +288,35 @@ describe("ColorsPage", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("今日颜色暂时无法打开");
     expect(screen.getByRole("status")).toHaveTextContent("今日内容还没有加载成功");
+  });
+
+  it("preserves a valid entry channel through every color-to-outfit and return link", async () => {
+    render(
+      await ColorsPage({
+        searchParams: Promise.resolve({ ...validSearchParams, channelId: "wechat_official" }),
+      }),
+    );
+
+    expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute(
+      "href",
+      "/?channelId=wechat_official",
+    );
+    for (const link of screen.getAllByRole("link", { name: /查看.*穿法|看看怎么搭/u })) {
+      expect(
+        new URL(link.getAttribute("href") ?? "", "https://five.test").searchParams.get("channelId"),
+      ).toBe("wechat_official");
+    }
+  });
+
+  it("rejects an invalid optional channel instead of injecting it into navigation", async () => {
+    render(
+      await ColorsPage({
+        searchParams: Promise.resolve({ ...validSearchParams, channelId: "wechat\nheader" }),
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("暂时找不到这份颜色建议");
+    expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
   });
 
   it("does not mix color cards with outfit links from another content version", async () => {

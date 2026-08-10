@@ -46,7 +46,6 @@ function EmergencyControlContent({ session }: { session: AdminSession }) {
   const [actionState, setActionState] = useState<ActionState>({ kind: "idle" });
   const [reason, setReason] = useState("");
   const [confirmationPhrase, setConfirmationPhrase] = useState("");
-  const [totpCode, setTotpCode] = useState("");
   const [pendingOperation, setPendingOperation] = useState<PendingEmergencyOperation | null>(null);
 
   const loadStatus = useCallback(
@@ -84,7 +83,6 @@ function EmergencyControlContent({ session }: { session: AdminSession }) {
   useEffect(() => {
     const forgetConfirmation = () => {
       setConfirmationPhrase("");
-      setTotpCode("");
       setReason("");
       setPendingOperation(null);
       setActionState({ kind: "idle" });
@@ -113,11 +111,6 @@ function EmergencyControlContent({ session }: { session: AdminSession }) {
       setActionState({ kind: "error", message: "请写明本次高风险操作的原因。" });
       return;
     }
-    if (!/^\d{6}$/u.test(totpCode)) {
-      setActionState({ kind: "error", message: "请输入当前验证器显示的六位动态码。" });
-      return;
-    }
-
     let idempotencyKey: string;
     try {
       idempotencyKey = createIdempotencyKey();
@@ -131,14 +124,13 @@ function EmergencyControlContent({ session }: { session: AdminSession }) {
 
     setActionState({ kind: "submitting" });
     const request: EmergencyControlRequest = {
-      body: { confirmationPhrase: requiredPhrase, reason: reason.trim(), totpCode },
+      body: { confirmationPhrase: requiredPhrase, reason: reason.trim() },
       csrfToken: session.csrfToken,
       etag,
       idempotencyKey,
       operation: stopping ? "stop" : "resume",
     };
     const result = await adminApi.setEmergencyStatus(request);
-    setTotpCode("");
     setConfirmationPhrase("");
 
     if (!result.ok) {
@@ -304,7 +296,7 @@ function EmergencyControlContent({ session }: { session: AdminSession }) {
           <p className="admin-kicker">GLOBAL CIRCUIT · 全局开关</p>
           <h1>紧急控制</h1>
         </div>
-        <p>这是影响全部匿名访问的高风险操作，每次都需要最新状态、精确短语和新的动态码。</p>
+        <p>这是影响全部匿名访问的高风险操作，每次都需要最新状态、精确短语和操作原因。</p>
       </header>
 
       <section
@@ -365,20 +357,6 @@ function EmergencyControlContent({ session }: { session: AdminSession }) {
             value={confirmationPhrase}
           />
           <small>请完整输入：{requiredPhrase}</small>
-        </label>
-        <label>
-          <span>当前验证器六位动态码</span>
-          <input
-            autoComplete="one-time-code"
-            disabled={pendingOperation !== null || actionState.kind === "submitting"}
-            inputMode="numeric"
-            maxLength={6}
-            onChange={(event) => setTotpCode(event.currentTarget.value.replace(/\D/gu, ""))}
-            pattern="\d{6}"
-            required
-            type="text"
-            value={totpCode}
-          />
         </label>
         <button
           className={`admin-button ${stopping ? "admin-button--danger" : "admin-button--primary"}`}

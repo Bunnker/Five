@@ -12,11 +12,33 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * 获取服务端当前命理日的已发布内容
+         * 获取北京时间 18:00 公共切换后的已发布内容
          * @description 服务端按 `Asia/Shanghai` 一次性计算完整 `requestContext`。
+         *     `publicContentContext.servedFortuneDate` 在北京时间 18:00 切换到下一日期；
+         *     命理计算使用的 `requestContext.fortuneDate` 仍在 23:00 切换，两者不得混用。
          *     网页不得使用设备时钟重新计算 `civilDate`、`fortuneDate` 或 `shichen`。
          */
         get: operations["getToday"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/image-assets/{assetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取当前内容版本引用的不可变图片文件
+         * @description 发布后检查不阻止首次交付；问题图片仍可通过单图下线停止公开。
+         */
+        get: operations["getPublicImageAsset"];
         put?: never;
         post?: never;
         delete?: never;
@@ -119,7 +141,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/admin/api/v1/auth/password-challenges": {
+    "/api/v1/analytics-events": {
         parameters: {
             query?: never;
             header?: never;
@@ -129,14 +151,55 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 校验单一维护者账号与密码并创建一次性 TOTP 挑战
-         * @description 无论账号是否存在，失败时都执行等价密码哈希校验并返回同一错误。
-         *     请求在解析正文前先接受持久化的请求来源级限流；严格解析并规范化账号后、
-         *     执行昂贵密码哈希前，再接受持久化的账号级限流。
-         *     虽然此阶段尚无会话 CSRF 令牌，请求仍必须携带并通过可信同源 `Origin` 校验。
-         *     挑战只能使用一次，并在五分钟后失效。
+         * 接收一条第一方匿名使用事件
+         * @description 事件写入是旁路能力，调用方不得等待它再执行导航、系统分享或海报保存。
+         *     `eventId` 与规范化请求共同提供幂等；相同载荷重放不会重复统计，不同载荷复用同一 ID 返回冲突。
+         *     服务端只保存独立 HMAC 后的 `anonymousId`，不保存原始标识、IP、完整 User-Agent、联系人、群或分享目标。
          */
-        post: operations["createAdminPasswordChallenge"];
+        post: operations["createAnalyticsEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/analytics/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查看匿名访问、搭配、分享发起和分享回流
+         * @description 查询按公开内容 `fortuneDate` 分组，范围最多 31 日。匿名人数表示当前浏览器随机标识，
+         *     不代表真实个人或跨设备用户。分享数据只表示可观测的发起与回流，不表示微信实际发送成功。
+         */
+        get: operations["getAdminAnalyticsOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/analytics/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查看最近 7 日或 30 日的匿名使用报表
+         * @description 报表结束日期由服务端当前公开 `servedFortuneDate` 决定，北京时间 18:00 随公开内容切换；
+         *     浏览器不得根据设备日期推算。每日序列按公开内容日期升序返回并补齐无事件日期。
+         *     匿名浏览器只表示当前浏览器随机标识，分享发起不表示微信等外部平台实际发送成功。
+         */
+        get: operations["getAdminAnalyticsReport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -153,12 +216,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 使用密码挑战与 TOTP 动态码建立后台会话
-         * @description 服务端在 PostgreSQL 中原子消费一次性密码挑战和 TOTP counter；允许的时钟偏差内，
-         *     已用于登录或其他高风险动作的同一 counter 也不能再次使用。成功后只通过同源
-         *     `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/admin` 且无 `Domain` 的 Cookie
-         *     返回随机会话令牌，响应正文只返回与该会话绑定的 CSRF 令牌和会话期限。此请求在
-         *     会话建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
+         * 使用账号与密码建立后台会话
+         * @description 服务端执行来源级和账号级持久化限流，并对不存在账号执行等价密码哈希工作量。
+         *     校验成功后只通过同源 `HttpOnly`、`Secure`、`SameSite=Strict`、`Path=/admin`
+         *     且无 `Domain` 的 Cookie 返回随机会话令牌，响应正文只返回与该会话绑定的 CSRF
+         *     令牌和会话期限。此请求在会话建立前没有 CSRF 令牌，但仍必须通过可信同源
+         *     `Origin` 校验。
          */
         post: operations["createAdminSession"];
         delete?: never;
@@ -200,55 +263,9 @@ export interface paths {
         /**
          * 原子注销单一维护者的全部后台会话
          * @description 必须同时通过可信同源 `Origin` 与会话绑定的 CSRF 令牌校验。成功后原子撤销
-         *     全部现有会话并作废尚未消费的登录挑战，不能由操作前签发的挑战重新建立会话。
+         *     全部现有会话并使操作前取得的所有会话材料失效。
          */
         post: operations["logoutAllAdminSessions"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/api/v1/auth/recovery-challenges": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 原子消费一个恢复码并开始两阶段控制权恢复
-         * @description 正确恢复码在 PostgreSQL 中只消费一次，并立即提升凭据修订号、注销全部会话、
-         *     使旧验证器和全部旧恢复码失效。随后只签发十分钟有效、一次性的恢复挑战，
-         *     同时给出待启用的新 TOTP 配置。失败不暴露账号或恢复码是否存在；请求来源在正文解析前
-         *     限流，账号在严格解析并规范化后、校验恢复码前限流。此未登录请求仍必须通过可信同源
-         *     `Origin` 校验。
-         */
-        post: operations["createAdminRecoveryChallenge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/admin/api/v1/auth/recovery-completions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 完成新密码与新验证器设置并签发新的恢复码
-         * @description 原子消费十分钟恢复挑战并校验待启用 TOTP 的未使用 counter。成功后启用新凭据，
-         *     一次性返回恰好十个新恢复码并建立新会话；服务端只保存恢复码摘要。此请求在新会话
-         *     建立前没有 CSRF 令牌，但仍必须通过可信同源 `Origin` 校验。
-         */
-        post: operations["completeAdminRecovery"];
         delete?: never;
         options?: never;
         head?: never;
@@ -264,7 +281,7 @@ export interface paths {
         };
         /**
          * 查询至少保留 365 天的关键登录与安全记录
-         * @description 只返回单向来源指纹和受限浏览器摘要，不返回 IP、密码、动态码、恢复码、挑战或会话原文。
+         * @description 只返回单向来源指纹和受限浏览器摘要，不返回 IP、密码或会话原文。
          */
         get: operations["listSecurityEvents"];
         put?: never;
@@ -303,7 +320,7 @@ export interface paths {
         put?: never;
         /**
          * 紧急停止全部公开内容
-         * @description 必须重新校验当前 TOTP、精确短语“停止全部公开内容”和原因，并原子消费 TOTP counter。
+         * @description 必须提供精确短语“停止全部公开内容”和原因；会话、Origin、CSRF、并发与幂等保护仍全部生效。
          *     成功后源站立即 fail closed；已经下载或被外部转发的副本无法召回，正式 CDN 的
          *     `purge/deny` 联动由 Issue #34 在真实部署环境验收。
          */
@@ -325,10 +342,81 @@ export interface paths {
         put?: never;
         /**
          * 恢复全部公开内容
-         * @description 必须重新校验当前 TOTP、精确短语“恢复全部公开内容”和原因，并原子消费 TOTP counter。
+         * @description 必须提供精确短语“恢复全部公开内容”和原因；会话、Origin、CSRF、并发与幂等保护仍全部生效。
          *     恢复只解除全局开关；每个内容版本仍须独立满足已发布、审核和素材安全条件。
          */
         post: operations["resumePublicAccess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operations/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看当前 servedFortuneDate 用户正在看到的内容和下一公开交付日准备状态 */
+        get: operations["getAdminOperationsOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operations/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看由服务端日期关系生成的 42 格月历 */
+        get: operations["getAdminOperationsCalendar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operations/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 查看维护者现在可以处理的问题
+         * @description 可选图片未请求、缺失或失败不会出现在此列表。
+         */
+        get: operations["listAdminOperationsIssues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/operations/days/{fortuneDate}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看某个命理日的真实用户端投影和订正能力 */
+        get: operations["getAdminOperationsDay"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -350,6 +438,29 @@ export interface paths {
         put?: never;
         /** 创建某个命理日的草稿 */
         post: operations["createDailyContentDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/daily-content-productions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看自动生产与待检查队列 */
+        get: operations["listDailyContentProductions"];
+        put?: never;
+        /**
+         * 自动生成指定日期的文字、穿搭与模特图任务
+         * @description 创建已经填好确定性日历结果、五档、文案和穿搭方案的草稿，并只为 2 张必备模特图建立自动生产任务。
+         *     可选图默认不请求；维护者可在需要时通过图片上传或后续可替换生成入口补充，它不阻塞发布。
+         *     同一命理日重复请求返回同一个仍可编辑的自动草稿，不重复创建图片任务。
+         */
+        post: operations["generateDailyContent"];
         delete?: never;
         options?: never;
         head?: never;
@@ -408,6 +519,8 @@ export interface paths {
          * 上传一张绑定草稿与命理日的图片
          * @description 文件与 JSON 元数据使用两个 multipart part；metadata 必须是没有 filename 的普通表单字段，
          *     字段值是符合 ImageAssetUploadMetadata 的 UTF-8 JSON 文本。服务端计算文件校验值、尺寸和格式；
+         *     imageSlot 是新上传请求的必填字段；本次人工上传会原子成为该槽位的显式选择。
+         *     历史未分槽记录只允许通过原幂等键重放，不接受新的未分槽上传。
          *     用户访问时不会触发生图。网络重试必须复用同一个 `Idempotency-Key`。
          */
         post: operations["uploadDailyContentDraftImageAsset"];
@@ -672,6 +785,246 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/api/v1/daily-content-productions/{fortuneDate}/drafts/{draftId}/image-slots/{imageSlot}/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 显式请求单个图片槽位的新 generation
+         * @description 对 failed 或已完成槽位创建新的 3 次尝试 generation，并原子切换 current job；生成中的槽位拒绝重复请求。
+         *     optional 首次生成也只能由本入口显式请求。旧 generation 随后完成时不得改变 current 状态或冻结素材选择。
+         *     可选图生成与失败均不阻塞两张必备图的生成完成状态或内容发布。
+         */
+        post: operations["requestDailyContentImageSlotGeneration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/daily-content-drafts/{draftId}/image-assets/{assetId}/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 显式选择一个候选作为草稿槽位素材
+         * @description 使用草稿修订号与幂等键原子更新槽位选择；同槽旧候选仍保留但不参与自动冻结。
+         *     冻结只读取显式选择，不按上传时间、数组顺序或提示词版本猜测。
+         */
+        post: operations["selectDailyContentDraftImageAsset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 创建或复用某个命理日的可视化订正工作副本
+         * @description 服务端从该日当前排期版本、活跃版本或最新可用批准版本复制工作副本；同一命理日
+         *     同时只保留一个未完成订正。普通维护者不需要理解草稿或内容版本。
+         */
+        post: operations["openDayCorrectionWorkingCopy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取订正工作副本与当前修订号 */
+        get: operations["getDayCorrectionWorkingCopy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * 使用字段白名单命令订正文案、穿搭说明或指定图片槽
+         * @description 只接受契约列出的语义命令，不接受 JSON Pointer 或任意模块 JSON。fortuneDate、五档颜色、
+         *     五档顺序、五行结果、业务时间和时辰等算法字段在服务端硬拒绝。If-Match 必须原样回传
+         *     读取工作副本时收到的 opaque strong day-correction ETag；客户端不得自行拼接。成功后返回同时绑定 correction 与 draft revision 的新 ETag。
+         */
+        patch: operations["patchDayCorrectionWorkingCopy"];
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 保存订正并按当前公开交付日立即替换或按 18:00 公开边界排期
+         * @description 服务端从同一时刻解析 RequestContext 与 PublicContentContext。目标等于 servedFortuneDate 时
+         *     创建批准版本并立即替换；目标晚于 servedFortuneDate 时使用 PublicContentWindowResolver
+         *     给出的 effectiveFrom（目标日期前一日北京时间 18:00）排期；过去日期拒绝。23:00 命理
+         *     fortuneDate 只服务算法和时辰，不能用于选择立即替换或排期模式。
+         *     If-Match 必须原样回传最后一次读取或订正工作副本时收到的 opaque strong day-correction ETag；客户端不得自行拼接。
+         *     外部 Idempotency-Key 派生稳定且彼此隔离的 submit 与 publish/schedule 子键。若提交成功但
+         *     发布或排期暂时失败，批准版本与订正进度会保留，使用相同外部键重试只恢复发布步骤，
+         *     不创建第二个内容版本。发布与排期继续使用生命周期 revision、预期活跃版本、事务审计、
+         *     排期栅栏和公共缓存清理意图。
+         */
+        post: operations["applyDayCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看订正工作副本某个图片槽的重生成状态和候选 */
+        get: operations["getDayCorrectionImageStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 为订正工作副本异步重生成一个不自动选中的图片候选
+         * @description 任务与 correctionId、draftId 和 imageSlot 绑定，使用独立持久化队列。Worker 只上传
+         *     selectForSlot=false 的候选，不得修改自动生产任务、visual 模块、排期或公开版本。
+         *     If-Match 必须原样回传 day-correction ETag；幂等重试先恢复原任务再判断当前修订号。
+         */
+        post: operations["regenerateDayCorrectionImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 将当前草稿同槽位候选选入可视化订正
+         * @description 候选必须属于当前订正草稿、同一 fortuneDate 和同一 imageSlot。成功后服务端增加草稿
+         *     修订号并只替换对应 visual_and_rights 封面；不会提交、排期或发布订正。
+         */
+        post: operations["selectDayCorrectionImageCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 列出与当前槽位配色严格一致的安全历史模特图
+         * @description 仅返回 published 或 superseded 不可变快照中仍按原封面 active 交付、未全局下线、
+         *     人工检查通过、权利已清理且 AI 标识完整的图片。选择动作会重新在事务内检查这些条件。
+         */
+        get: operations["listReusableDayCorrectionImages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/library/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 从安全搭配库复制图片并立即更新订正预览
+         * @description 在一个 PostgreSQL 事务内重新验证来源版本、全局下线状态、交付状态、检查与权利状态、
+         *     槽位和严格配色；随后创建目标草稿候选绑定、更新显式槽位选择和 visual 模块，并记录审计。
+         *     不允许让目标草稿直接引用外部草稿候选。
+         */
+        post: operations["reuseDayCorrectionImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/api/v1/day-corrections/{correctionId}/images/{imageSlot}/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 上传图片并由服务端完成槽位选择和可视化替换
+         * @description 文件、订正原因和可选替代文本使用 multipart part。来源、权利、AI 标识、校验值等
+         *     可信元数据全部由服务端根据上传事实生成；客户端不得自行声明。服务端上传并显式选择
+         *     当前槽位，随后在两张必备图齐全时物化 visual 模块并返回最新工作副本；客户端不得再发第二次 PATCH。
+         */
+        post: operations["uploadDayCorrectionImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/api/v1/audit-events": {
         parameters: {
             query?: never;
@@ -711,6 +1064,138 @@ export interface components {
         ContentVersion: string;
         /** @description 不透明标识；调用方不得解析。 */
         OpaqueId: string;
+        /** @description 浏览器为一次事件生成的高熵幂等标识，不包含用户信息。 */
+        AnalyticsEventId: string;
+        /** @enum {string} */
+        AnalyticsEventName: "view_today_summary" | "open_outfit_hub" | "view_daily_look" | "view_look_detail" | "share_summary_initiated" | "share_link_landing_view" | "share_poster_initiated" | "poster_save_requested" | "poster_save_succeeded" | "poster_save_failed" | "poster_landing_view";
+        /** @description 当前浏览器随机第一方标识；服务端只保存独立 HMAC 摘要。 */
+        AnalyticsAnonymousId: string;
+        /** @description 普通链接每次分享生成随机引用；海报使用公开任务 ID 作为二维码与分享共用的稳定引用；不得包含 anonymousId、联系人或分享目标。 */
+        AnalyticsReferralId: string;
+        /**
+         * @description 事件字段按 `eventName` 使用下方 `oneOf` 约束。普通浏览事件不得携带分享或海报标识；
+         *     分享发起与落地必须携带回流引用；海报保存事件必须携带海报实例；落地事件必须同时声明来源版本。
+         */
+        CreateAnalyticsEventRequest: components["schemas"]["AnalyticsPageViewEventFields"] | components["schemas"]["AnalyticsSummaryShareEventFields"] | components["schemas"]["AnalyticsLinkLandingEventFields"] | components["schemas"]["AnalyticsPosterShareEventFields"] | components["schemas"]["AnalyticsPosterSaveEventFields"] | components["schemas"]["AnalyticsPosterLandingEventFields"];
+        AnalyticsEventCommonFields: {
+            eventId: components["schemas"]["AnalyticsEventId"];
+            eventName: components["schemas"]["AnalyticsEventName"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            /** @description 当前页面实际交付的内容版本。 */
+            contentVersion: components["schemas"]["ContentVersion"];
+            channelId: string;
+            anonymousId: components["schemas"]["AnalyticsAnonymousId"];
+        };
+        AnalyticsPageViewEventFields: components["schemas"]["AnalyticsEventCommonFields"] & {
+            /** @enum {string} */
+            eventName: "view_today_summary" | "open_outfit_hub" | "view_daily_look" | "view_look_detail";
+            referralId: null;
+            posterInstanceId: null;
+            sourceContentVersion: null;
+        };
+        AnalyticsSummaryShareEventFields: components["schemas"]["AnalyticsEventCommonFields"] & {
+            /** @constant */
+            eventName: "share_summary_initiated";
+            referralId: components["schemas"]["AnalyticsReferralId"];
+            posterInstanceId: null;
+            sourceContentVersion: null;
+        };
+        AnalyticsLinkLandingEventFields: components["schemas"]["AnalyticsEventCommonFields"] & {
+            /** @constant */
+            eventName: "share_link_landing_view";
+            referralId: components["schemas"]["AnalyticsReferralId"];
+            posterInstanceId: null;
+            sourceContentVersion: components["schemas"]["ContentVersion"];
+        };
+        AnalyticsPosterShareEventFields: components["schemas"]["AnalyticsEventCommonFields"] & {
+            /** @constant */
+            eventName: "share_poster_initiated";
+            referralId: components["schemas"]["AnalyticsReferralId"];
+            posterInstanceId: components["schemas"]["OpaqueId"];
+            sourceContentVersion: null;
+        };
+        AnalyticsPosterSaveEventFields: components["schemas"]["AnalyticsEventCommonFields"] & {
+            /** @enum {string} */
+            eventName: "poster_save_requested" | "poster_save_succeeded" | "poster_save_failed";
+            referralId: null;
+            posterInstanceId: components["schemas"]["OpaqueId"];
+            sourceContentVersion: null;
+        };
+        AnalyticsPosterLandingEventFields: components["schemas"]["AnalyticsEventCommonFields"] & {
+            /** @constant */
+            eventName: "poster_landing_view";
+            referralId: components["schemas"]["AnalyticsReferralId"];
+            posterInstanceId: null;
+            sourceContentVersion: components["schemas"]["ContentVersion"];
+        };
+        CreateAnalyticsEventResponse: {
+            eventId: components["schemas"]["AnalyticsEventId"];
+            /** @enum {string} */
+            status: "accepted" | "duplicate";
+        };
+        AnalyticsRate: {
+            numerator: number;
+            denominator: number;
+            ratio: number | null;
+        };
+        AdminAnalyticsOverview: {
+            fromFortuneDate: components["schemas"]["FortuneDate"];
+            toFortuneDate: components["schemas"]["FortuneDate"];
+            channelId: string | null;
+            contentVersion: components["schemas"]["NullableContentVersion"];
+            /**
+             * @description 当前匿名事件采集是否可用；unavailable 时历史值仍可读取，但不得解释为完整的当日数据。
+             * @enum {string}
+             */
+            collectionStatus: "active" | "unavailable";
+            generatedAt: components["schemas"]["ZonedDateTime"];
+            pageViews: number;
+            anonymousBrowsers: number;
+            outfitHubVisitors: number;
+            outfitDetailVisitors: number;
+            shareInitiations: number;
+            sharingBrowsers: number;
+            referredBrowsers: number;
+            posterSaveRequests: number;
+            posterSaveSucceeded: number;
+            posterSaveFailed: number;
+            outfitDetailRate: components["schemas"]["AnalyticsRate"];
+            shareInitiationRate: components["schemas"]["AnalyticsRate"];
+        };
+        AdminAnalyticsReport: {
+            /** @enum {integer} */
+            days: 7 | 30;
+            fromFortuneDate: components["schemas"]["FortuneDate"];
+            toFortuneDate: components["schemas"]["FortuneDate"];
+            /**
+             * @description 当前匿名事件采集是否可用；unavailable 时历史值仍可读取，但不得解释为完整区间数据。
+             * @enum {string}
+             */
+            collectionStatus: "active" | "unavailable";
+            generatedAt: components["schemas"]["ZonedDateTime"];
+            summary: components["schemas"]["AdminAnalyticsOverview"];
+            daily: components["schemas"]["AdminAnalyticsDailyPoint"][];
+            channelBreakdown: components["schemas"]["AdminAnalyticsChannelPoint"][];
+        };
+        AdminAnalyticsDailyPoint: {
+            fortuneDate: components["schemas"]["FortuneDate"];
+            pageViews: number;
+            anonymousBrowsers: number;
+            outfitHubVisitors: number;
+            outfitDetailVisitors: number;
+            shareInitiations: number;
+            sharingBrowsers: number;
+            referredBrowsers: number;
+            posterSaveSucceeded: number;
+        };
+        /** @enum {string} */
+        AnalyticsChannelBucket: "organic" | "wechat_official" | "wechat_group" | "user_share" | "other";
+        AdminAnalyticsChannelPoint: {
+            channelId: components["schemas"]["AnalyticsChannelBucket"];
+            pageViews: number;
+            anonymousBrowsers: number;
+            ratio: number | null;
+        };
         NullableContentVersion: components["schemas"]["ContentVersion"] | null;
         /** @enum {string} */
         ElementCode: "wood" | "fire" | "earth" | "metal" | "water";
@@ -722,27 +1207,13 @@ export interface components {
         ModuleCode: "calendar_algorithm" | "copy_and_formula" | "visual_and_rights" | "poster_consistency";
         /** @description 由离线 bootstrap 命令首次创建的唯一小写 ASCII 维护者账号名；限流与校验使用同一规范值。 */
         AdminUsername: string;
-        /** @description 登录或恢复输入；服务端在限流与凭据校验前执行 NFKC、去除首尾空白并转为规范小写账号名。 */
+        /** @description 登录输入；服务端在限流与密码校验前执行 NFKC、去除首尾空白并转为规范小写账号名。 */
         AdminUsernameInput: string;
-        /** @description 以 Unicode code point 计 16 至 128 位；只从请求正文或交互式 stdin 接收，禁止进入 CLI 参数、环境变量或日志。 */
+        /** @description 以 Unicode code point 计 8 至 128 位；只从请求正文或交互式 stdin 接收，禁止进入 CLI 参数、环境变量或日志。 */
         AdminPassword: string;
-        /** @description 当前验证器生成的六位动态码；服务端必须原子拒绝已经接受过的 counter。 */
-        TotpCode: string;
-        /** @description 256-bit 随机一次性挑战原文；服务端只持久化域分离 HMAC 摘要。 */
-        AuthChallengeToken: string;
-        /** @description 高强度一次性恢复码原文；服务端只持久化域分离 HMAC 摘要。 */
-        RecoveryCode: string;
-        CreatePasswordChallengeRequest: {
+        CreateAdminSessionRequest: {
             username: components["schemas"]["AdminUsernameInput"];
             password: components["schemas"]["AdminPassword"];
-        };
-        PasswordChallenge: {
-            challengeToken: components["schemas"]["AuthChallengeToken"];
-            expiresAt: components["schemas"]["ZonedDateTime"];
-        };
-        CreateAdminSessionRequest: {
-            challengeToken: components["schemas"]["AuthChallengeToken"];
-            totpCode: components["schemas"]["TotpCode"];
         };
         AdminSession: {
             username: components["schemas"]["AdminUsername"];
@@ -753,42 +1224,8 @@ export interface components {
             csrfToken: string;
             credentialRevision: number;
         };
-        CreateRecoveryChallengeRequest: {
-            username: components["schemas"]["AdminUsernameInput"];
-            recoveryCode: components["schemas"]["RecoveryCode"];
-        };
-        TotpProvisioning: {
-            /** @description 待启用的 TOTP Base32 密钥，只在本次 no-store 恢复挑战响应中返回。 */
-            secret: string;
-            /**
-             * Format: uri
-             * @description 与 `secret` 相同的待启用配置，只用于验证器录入，禁止记录日志。
-             */
-            otpauthUri: string;
-            /** @constant */
-            algorithm: "SHA1";
-            /** @constant */
-            digits: 6;
-            /** @constant */
-            periodSeconds: 30;
-        };
-        RecoveryChallenge: {
-            challengeToken: components["schemas"]["AuthChallengeToken"];
-            expiresAt: components["schemas"]["ZonedDateTime"];
-            totpProvisioning: components["schemas"]["TotpProvisioning"];
-        };
-        CompleteRecoveryRequest: {
-            challengeToken: components["schemas"]["AuthChallengeToken"];
-            newPassword: components["schemas"]["AdminPassword"];
-            totpCode: components["schemas"]["TotpCode"];
-        };
-        RecoveryCompletion: {
-            session: components["schemas"]["AdminSession"];
-            /** @description 新的一套十个一次性恢复码；只在本次 no-store 响应显示。 */
-            recoveryCodes: components["schemas"]["RecoveryCode"][];
-        };
         /** @enum {string} */
-        SecurityEventAction: "bootstrap_completed" | "login_password" | "login_totp" | "logout_current" | "logout_all" | "recovery_code" | "recovery_completed" | "offline_reset" | "csrf_rejected" | "rate_limited" | "emergency_stop" | "emergency_resume";
+        SecurityEventAction: "bootstrap_completed" | "login_password" | "logout_current" | "logout_all" | "offline_reset" | "csrf_rejected" | "rate_limited" | "emergency_stop" | "emergency_resume";
         /** @enum {string} */
         SecurityEventOutcome: "succeeded" | "rejected";
         SecurityEvent: {
@@ -816,13 +1253,11 @@ export interface components {
             auditEventId: components["schemas"]["OpaqueId"] | null;
         };
         EmergencyStopRequest: {
-            totpCode: components["schemas"]["TotpCode"];
             /** @constant */
             confirmationPhrase: "停止全部公开内容";
             reason: string;
         };
         EmergencyResumeRequest: {
-            totpCode: components["schemas"]["TotpCode"];
             /** @constant */
             confirmationPhrase: "恢复全部公开内容";
             reason: string;
@@ -839,6 +1274,125 @@ export interface components {
             /** @constant */
             dayBoundary: "23:00";
             crossedDayBoundary: boolean;
+        };
+        /**
+         * @description 匿名用户和普通后台当前实际使用的公开内容日期。它只决定内容选择，
+         *     不改变 23:00 命理日、时辰或日历算法。
+         */
+        PublicContentContext: {
+            servedFortuneDate: components["schemas"]["FortuneDate"];
+            /** @constant */
+            switchBoundary: "18:00";
+            advancedFromCivilDate: boolean;
+        };
+        /** @enum {string} */
+        AdminDayRelation: "current" | "next" | "future" | "past";
+        /**
+         * @description 运营读模型状态，不新增或替代内容生命周期状态。
+         * @enum {string}
+         */
+        AdminOperationalStatus: "published_healthy" | "published_degraded" | "scheduled_ready" | "preparing" | "overdue" | "generation_failed" | "publication_failed" | "missing" | "invariant_broken";
+        /** @enum {string} */
+        AdminIssueCode: "CURRENT_CONTENT_UNAVAILABLE" | "NEXT_DAY_OVERDUE" | "REQUIRED_IMAGE_MISSING" | "REQUIRED_IMAGE_GENERATION_FAILED" | "CONTENT_GENERATION_FAILED" | "AUTO_PUBLICATION_FAILED" | "ACTIVE_VERSION_INCONSISTENT" | "REQUIRED_IMAGE_DEGRADED" | "SAFE_FALLBACK_EXHAUSTED";
+        /**
+         * @description 可选图状态永远不阻止准备、排期、发布或日期健康。
+         * @enum {string}
+         */
+        OptionalImageStatus: "not_requested" | "pending" | "ready" | "failed" | "omitted";
+        RequiredImageReadiness: {
+            /** @constant */
+            requiredCount: 2;
+            /** @description 仍可交付的必备模特封面数量；安全降级素材不计入。 */
+            modelReadyCount: number;
+            /** @description 有原图或同快照安全降级素材的必备槽位数量。 */
+            deliverySafeCount: number;
+        };
+        AdminDaySummary: {
+            fortuneDate: components["schemas"]["FortuneDate"];
+            relation: components["schemas"]["AdminDayRelation"];
+            effectiveFrom: components["schemas"]["ZonedDateTime"];
+            effectiveTo: components["schemas"]["ZonedDateTime"];
+            prepareBy: components["schemas"]["ZonedDateTime"];
+            dayElement: components["schemas"]["ElementCode"];
+            /** @enum {string} */
+            dayElementLabel: "木" | "火" | "土" | "金" | "水";
+            primaryColors: components["schemas"]["ColorRef"][];
+            operationalStatus: components["schemas"]["AdminOperationalStatus"];
+            requiredImages: components["schemas"]["RequiredImageReadiness"];
+            optionalImageStatus: components["schemas"]["OptionalImageStatus"];
+            previewAvailable: boolean;
+            issueCodes: components["schemas"]["AdminIssueCode"][];
+            lifecycleRevision: number;
+            scheduleSlotRevision: number;
+            updatedAt: components["schemas"]["ZonedDateTime"] | null;
+        };
+        AdminOperationsOverview: {
+            requestContext: components["schemas"]["RequestContext"];
+            publicContentContext: components["schemas"]["PublicContentContext"];
+            /** @description 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。 */
+            nextOperationalBoundaryAt: components["schemas"]["ZonedDateTime"];
+            /** @enum {string} */
+            health: "healthy" | "attention" | "unavailable";
+            issueCount: number;
+            current: components["schemas"]["AdminDaySummary"];
+            currentPreview: components["schemas"]["DailyContent"] | null;
+            currentPreviewRequestContext: components["schemas"]["RequestContext"];
+            /** @description 服务端基于 currentPreviewRequestContext 解析的真实公开交付上下文；当前预览必须与本响应 publicContentContext 一致。 */
+            currentPreviewPublicContentContext: components["schemas"]["PublicContentContext"];
+            next: components["schemas"]["AdminDaySummary"];
+            nextPreview: components["schemas"]["DailyContent"] | null;
+            nextPreviewRequestContext: components["schemas"]["RequestContext"];
+            /** @description 服务端基于 nextPreviewRequestContext 解析的预览公开交付上下文，客户端不得自行假定 advancedFromCivilDate。 */
+            nextPreviewPublicContentContext: components["schemas"]["PublicContentContext"];
+        };
+        AdminCalendarMonth: {
+            requestContext: components["schemas"]["RequestContext"];
+            publicContentContext: components["schemas"]["PublicContentContext"];
+            /** @description 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。 */
+            nextOperationalBoundaryAt: components["schemas"]["ZonedDateTime"];
+            month: string;
+            items: components["schemas"]["AdminDaySummary"][];
+        };
+        AdminActionableIssue: {
+            code: components["schemas"]["AdminIssueCode"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            /** @enum {string} */
+            severity: "critical" | "warning";
+            title: string;
+            impact: string;
+            mitigation: string | null;
+            actionLabel: string;
+            actionHref: string;
+            firstDetectedAt: components["schemas"]["ZonedDateTime"];
+            updatedAt: components["schemas"]["ZonedDateTime"];
+        };
+        AdminActionableIssueList: {
+            requestContext: components["schemas"]["RequestContext"];
+            publicContentContext: components["schemas"]["PublicContentContext"];
+            /** @description 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。 */
+            nextOperationalBoundaryAt: components["schemas"]["ZonedDateTime"];
+            items: components["schemas"]["AdminActionableIssue"][];
+        };
+        AdminDayConcurrency: {
+            activeContentVersion: components["schemas"]["NullableContentVersion"];
+            lifecycleRevision: number;
+            scheduleSlotRevision: number;
+        };
+        AdminDayDetail: {
+            requestContext: components["schemas"]["RequestContext"];
+            publicContentContext: components["schemas"]["PublicContentContext"];
+            /** @description 下一次运营刷新边界，只能是下一公开内容日的 prepareBy 或 18:00 公开生效时刻，不表示 23:00 命理换日或普通时辰边界。 */
+            nextOperationalBoundaryAt: components["schemas"]["ZonedDateTime"];
+            summary: components["schemas"]["AdminDaySummary"];
+            /** @enum {string} */
+            previewSource: "published" | "scheduled" | "approved" | "draft" | "none";
+            preview: components["schemas"]["DailyContent"] | null;
+            previewRequestContext: components["schemas"]["RequestContext"];
+            /** @description 服务端基于 previewRequestContext 解析的预览公开交付上下文，客户端不得自行计算 servedFortuneDate 或 advancedFromCivilDate。 */
+            previewPublicContentContext: components["schemas"]["PublicContentContext"];
+            editableSelectionKeys: string[];
+            readonlySelectionKeys: string[];
+            concurrency: components["schemas"]["AdminDayConcurrency"];
         };
         CalendarInfo: {
             weekdayText: string;
@@ -877,8 +1431,7 @@ export interface components {
         BalanceSuggestion: {
             /** @constant */
             title: "已经穿了注意色";
-            /** @constant */
-            description: "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。";
+            description: string;
             /** @constant */
             preferredTierCode: "da_ji";
             accessoryExamples: ("丝巾" | "围巾" | "包" | "鞋" | "领带" | "耳饰" | "手机壳" | "帽子" | "腰带" | "首饰")[];
@@ -985,6 +1538,7 @@ export interface components {
         };
         TodayResponse: {
             requestContext: components["schemas"]["RequestContext"];
+            publicContentContext: components["schemas"]["PublicContentContext"];
             content: components["schemas"]["DailyContent"];
         };
         VersionResolution: {
@@ -1046,6 +1600,230 @@ export interface components {
         };
         DraftRevision: number;
         LifecycleRevision: number;
+        DayCorrectionRevision: number;
+        /** @enum {string} */
+        DayCorrectionStatus: "open" | "applying" | "submitted" | "applied" | "abandoned";
+        /** @enum {string} */
+        DayCorrectionApplyMode: "immediate" | "scheduled";
+        OpenDayCorrectionRequest: {
+            fortuneDate: components["schemas"]["FortuneDate"];
+        };
+        DayCorrectionWorkingCopy: {
+            correctionId: components["schemas"]["OpaqueId"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            draftId: components["schemas"]["OpaqueId"];
+            correctionRevision: components["schemas"]["DayCorrectionRevision"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            status: components["schemas"]["DayCorrectionStatus"];
+            applyMode: components["schemas"]["DayCorrectionApplyMode"] | null;
+            sourceContentVersion: components["schemas"]["NullableContentVersion"];
+            baselineActiveContentVersion: components["schemas"]["NullableContentVersion"];
+            submittedContentVersion: components["schemas"]["NullableContentVersion"];
+            createdAt: components["schemas"]["ZonedDateTime"];
+            updatedAt: components["schemas"]["ZonedDateTime"];
+            modules: components["schemas"]["DraftModules"];
+        };
+        SetTierExplanationCommand: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_tier_explanation";
+            tierCode: components["schemas"]["TierCode"];
+            explanation: string;
+        };
+        SetOutfitFormulaDisclaimerCommand: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_outfit_formula_disclaimer";
+            formulaId: components["schemas"]["OpaqueId"];
+            disclaimer: string;
+        };
+        SetOutfitFormulaTitleCommand: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_outfit_formula_title";
+            formulaId: components["schemas"]["OpaqueId"];
+            title: string;
+        };
+        SetBasisDisclaimerCommand: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_basis_disclaimer";
+            disclaimer: string;
+        };
+        SetBalanceSuggestionDescriptionCommand: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_balance_suggestion_description";
+            description: string;
+        };
+        SetShareCopyCommand: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_share_copy";
+            copyText: string;
+        };
+        /**
+         * @description assetId 必须是当前订正草稿、同一 fortuneDate 且归属同一 imageSlot 的候选素材。
+         *     服务端采用候选的权威元数据并追加或去重 visual_and_rights.assets 后再替换封面。
+         */
+        ReplaceImageCoverCommand: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "replace_image_cover";
+            imageSlot: components["schemas"]["DailyImageSlot"];
+            assetId: components["schemas"]["OpaqueId"];
+        };
+        DayCorrectionCommand: components["schemas"]["SetTierExplanationCommand"] | components["schemas"]["SetOutfitFormulaDisclaimerCommand"] | components["schemas"]["SetOutfitFormulaTitleCommand"] | components["schemas"]["SetBasisDisclaimerCommand"] | components["schemas"]["SetBalanceSuggestionDescriptionCommand"] | components["schemas"]["SetShareCopyCommand"] | components["schemas"]["ReplaceImageCoverCommand"];
+        DayCorrectionPatchResult: {
+            correctionId: components["schemas"]["OpaqueId"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            correctionRevision: components["schemas"]["DayCorrectionRevision"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            moduleCode: components["schemas"]["ModuleCode"];
+        };
+        ApplyDayCorrectionRequest: {
+            reason: string;
+        };
+        DayCorrectionApplyResult: {
+            correctionId: components["schemas"]["OpaqueId"];
+            correctionRevision: components["schemas"]["DayCorrectionRevision"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            mode: components["schemas"]["DayCorrectionApplyMode"];
+            action: components["schemas"]["LifecycleActionResult"];
+        };
+        /** @enum {string} */
+        DayCorrectionImageJobStatus: "queued" | "claimed" | "retryable" | "failed" | "completed";
+        DayCorrectionImageJob: {
+            jobId: components["schemas"]["OpaqueId"];
+            correctionId: components["schemas"]["OpaqueId"];
+            draftId: components["schemas"]["OpaqueId"];
+            fortuneDate: components["schemas"]["FortuneDate"];
+            imageSlot: components["schemas"]["DailyImageSlot"];
+            generationRevision: number;
+            promptVersion: string;
+            status: components["schemas"]["DayCorrectionImageJobStatus"];
+            attempts: number;
+            attemptLimit: number;
+            availableAt: components["schemas"]["ZonedDateTime"];
+            lastError: string | null;
+            completedAssetId: components["schemas"]["OpaqueId"] | null;
+            actorId: components["schemas"]["OpaqueId"];
+            reason: string;
+            requestId: string;
+            requestedAt: components["schemas"]["ZonedDateTime"];
+        };
+        DayCorrectionImageStatus: {
+            correctionRevision: components["schemas"]["DayCorrectionRevision"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            job: components["schemas"]["DayCorrectionImageJob"] | null;
+            candidate: components["schemas"]["DraftImageAssetResult"] | null;
+        };
+        DayCorrectionImageActionRequest: {
+            reason: string;
+        };
+        DayCorrectionImageSelectRequest: {
+            assetId: components["schemas"]["OpaqueId"];
+            reason: string;
+        };
+        DayCorrectionImageReuseRequest: {
+            assetId: components["schemas"]["OpaqueId"];
+            sourceContentVersion: components["schemas"]["ContentVersion"];
+            reason: string;
+        };
+        DayCorrectionImageUploadMultipartRequest: {
+            file: string;
+            reason: string;
+            altText?: string;
+        };
+        DayCorrectionImageSelectionResult: {
+            assetId: components["schemas"]["OpaqueId"];
+            correctionRevision: components["schemas"]["DayCorrectionRevision"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            previewUrl: string;
+            workingCopy: components["schemas"]["DayCorrectionWorkingCopy"];
+        };
+        ReusableDayCorrectionImage: {
+            assetId: components["schemas"]["OpaqueId"];
+            imageSlot: components["schemas"]["DailyImageSlot"];
+            colorCodes: string[];
+            previewUrl: string;
+            sourceContentVersion: components["schemas"]["ContentVersion"];
+            sourceFortuneDate: components["schemas"]["FortuneDate"];
+        };
+        DayCorrectionImageLibraryPage: {
+            items: components["schemas"]["ReusableDayCorrectionImage"][];
+            /**
+             * @description 服务端会原子复制安全资产绑定、选择槽位并替换可视化预览。
+             * @constant
+             */
+            copyEnabled: true;
+        };
+        SelectDraftImageAssetRequest: {
+            imageSlot: components["schemas"]["DailyImageSlot"];
+            reason: string;
+        };
+        /**
+         * @description 每日图片槽位；两个 required 槽位为发布必备，optional 最多一张且不阻塞发布。
+         * @enum {string}
+         */
+        DailyImageSlot: "required_primary" | "required_alternative" | "optional";
+        RequestImageSlotGenerationRequest: {
+            reason: string;
+        };
+        /** @enum {string} */
+        DailyImageSlotProductionStatus: "not_requested" | "pending" | "ready" | "failed";
+        RequiredPrimaryImageSlotProduction: {
+            /** @constant */
+            imageSlot: "required_primary";
+            /** @enum {string} */
+            status: "pending" | "ready" | "failed";
+            /** @description 该槽位已有显式选择的候选，可用于冻结发布；与当前 generation 状态分开计算。 */
+            deliveryReady: boolean;
+            attempts: number;
+            attemptLimit: number;
+            lastError: string | null;
+            nextAttemptAt: components["schemas"]["ZonedDateTime"] | null;
+            canRetry: boolean;
+        };
+        RequiredAlternativeImageSlotProduction: {
+            /** @constant */
+            imageSlot: "required_alternative";
+            /** @enum {string} */
+            status: "pending" | "ready" | "failed";
+            /** @description 该槽位已有显式选择的候选，可用于冻结发布；与当前 generation 状态分开计算。 */
+            deliveryReady: boolean;
+            attempts: number;
+            attemptLimit: number;
+            lastError: string | null;
+            nextAttemptAt: components["schemas"]["ZonedDateTime"] | null;
+            canRetry: boolean;
+        };
+        OptionalImageSlotProduction: {
+            /** @constant */
+            imageSlot: "optional";
+            status: components["schemas"]["DailyImageSlotProductionStatus"];
+            /** @description 该可选槽位已有显式选择的候选；optional 无论取值都不阻塞发布。 */
+            deliveryReady: boolean;
+            attempts: number;
+            attemptLimit: number;
+            lastError: string | null;
+            nextAttemptAt: components["schemas"]["ZonedDateTime"] | null;
+            canRetry: boolean;
+        };
         CalendarAlgorithmModule: {
             calendar: components["schemas"]["CalendarInfo"];
             tiers: components["schemas"]["Tier"][];
@@ -1159,6 +1937,8 @@ export interface components {
         ImageAssetUploadMultipartRequest: {
             /** Format: binary */
             file: string;
+            /** @description 必填。明确把本次人工上传候选选入对应槽位。 */
+            imageSlot: components["schemas"]["DailyImageSlot"];
             /** @description 在线路中序列化为没有 filename 的普通 multipart 字段；字段值为 UTF-8 JSON 文本。 */
             metadata: components["schemas"]["ImageAssetUploadMetadata"];
         };
@@ -1182,11 +1962,8 @@ export interface components {
         LookDraft: {
             lookId: components["schemas"]["OpaqueId"];
             formulaId: components["schemas"]["OpaqueId"];
-            /**
-             * @description 每日 2+1 只统计封面槽位；细节图和降级素材不计入。
-             * @enum {string}
-             */
-            imageSlot: "required_primary" | "required_alternative" | "optional";
+            /** @description 每日 2+1 只统计封面槽位；细节图和降级素材不计入。 */
+            imageSlot: components["schemas"]["DailyImageSlot"];
             /** @description 兼容字段；两个 required 槽位必须为 true，optional 必须为 false。 */
             requiredForPublish: boolean;
             sortOrder: number;
@@ -1233,6 +2010,10 @@ export interface components {
             draftId: components["schemas"]["OpaqueId"];
             fortuneDate: components["schemas"]["FortuneDate"];
             draftRevision: components["schemas"]["DraftRevision"];
+            /** @description 候选在当前草稿中的目标槽位；旧历史候选可为空，服务端不得按上传顺序猜测。 */
+            imageSlot: components["schemas"]["DailyImageSlot"] | null;
+            /** @description 仅当该候选是其 imageSlot 当前显式选择时为 true；未分槽候选恒为 false。 */
+            selectedForSlot: boolean;
             asset: components["schemas"]["AdminImageAsset"];
             previewUrl: components["schemas"]["AdminImagePreviewUrl"];
             /** @description 为 true 时素材来自已冻结快照，不允许在当前草稿内重新审核；如需调整必须上传新素材。 */
@@ -1244,6 +2025,10 @@ export interface components {
          */
         AdminImagePreviewUrl: string;
         DraftImageCandidate: {
+            /** @description 候选在当前草稿中的目标槽位；旧历史候选可为空，服务端不得按上传顺序猜测。 */
+            imageSlot: components["schemas"]["DailyImageSlot"] | null;
+            /** @description 仅当该候选是其 imageSlot 当前显式选择时为 true；同槽其他历史候选为 false。 */
+            selectedForSlot: boolean;
             asset: components["schemas"]["AdminImageAsset"];
             previewUrl: components["schemas"]["AdminImagePreviewUrl"];
             /** @description 为 true 时素材来自已冻结快照，不允许在当前草稿内重新审核；如需调整必须上传新素材。 */
@@ -1379,6 +2164,43 @@ export interface components {
             fortuneDate: components["schemas"]["FortuneDate"];
             copyFromContentVersion: components["schemas"]["NullableContentVersion"];
         };
+        GenerateDailyContentRequest: {
+            fortuneDate: components["schemas"]["FortuneDate"];
+        };
+        /** @enum {string} */
+        DailyContentProductionStatus: "generating" | "awaiting_review" | "failed";
+        DailyContentProduction: {
+            fortuneDate: components["schemas"]["FortuneDate"];
+            draftId: components["schemas"]["OpaqueId"];
+            draftRevision: components["schemas"]["DraftRevision"];
+            status: components["schemas"]["DailyContentProductionStatus"];
+            /** @description 固定且唯一地按 required_primary、required_alternative、optional 返回逐槽当前 generation 状态。 */
+            imageSlots: [
+                components["schemas"]["RequiredPrimaryImageSlotProduction"],
+                components["schemas"]["RequiredAlternativeImageSlotProduction"],
+                components["schemas"]["OptionalImageSlotProduction"]
+            ];
+            /** @description 仅表示两个必备槽位的当前 generation 均已完成；不表示图片已人工检查或已具备公开交付资格，optional 不参与计算。 */
+            requiredGenerationComplete: boolean;
+            /** @description 两个必备槽位均已有显式选择的候选，可用于冻结发布；人工上传或选择可以在自动 generation 失败后恢复该状态。 */
+            requiredImagesReady: boolean;
+            optionalImageStatus: components["schemas"]["DailyImageSlotProductionStatus"];
+            /**
+             * @deprecated
+             * @description 两个必备槽位当前 generation 中已完成的数量；optional 单独读取 optionalImageStatus。
+             */
+            completedImageSlots: number;
+            /**
+             * @deprecated
+             * @description 两个必备槽位当前 generation 中待处理的数量；failed 与 optional 均不计入。
+             */
+            pendingImageSlots: number;
+            lastError: string | null;
+            updatedAt: components["schemas"]["ZonedDateTime"];
+        };
+        DailyContentProductionList: {
+            items: components["schemas"]["DailyContentProduction"][];
+        };
         DraftModuleUpdate: components["schemas"]["CalendarAlgorithmModule"] | components["schemas"]["CopyAndFormulaModule"] | components["schemas"]["VisualAndRightsModule"] | components["schemas"]["PosterConsistencyModule"];
         UpdatedDraftModule: {
             draftId: components["schemas"]["OpaqueId"];
@@ -1389,8 +2211,11 @@ export interface components {
         SubmitDraftResult: {
             draftId: components["schemas"]["OpaqueId"];
             contentVersion: components["schemas"]["ContentVersion"];
-            /** @constant */
-            state: "in_review";
+            /**
+             * @description 自动候选齐备时直接进入可发布状态；旧的不完整草稿保留待补充兼容状态。
+             * @enum {string}
+             */
+            state: "approved" | "in_review";
             lifecycleRevision: components["schemas"]["LifecycleRevision"];
         };
         PreflightCheck: {
@@ -1493,7 +2318,7 @@ export interface components {
             nextCursor: string | null;
         };
         /** @enum {string} */
-        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "AUTHENTICATION_FAILED" | "AUTH_CHALLENGE_EXPIRED" | "RECOVERY_CHALLENGE_EXPIRED" | "UNAUTHENTICATED" | "FORBIDDEN" | "CSRF_VALIDATION_FAILED" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "IDEMPOTENCY_KEY_REUSED" | "TOTP_REPLAYED" | "EMERGENCY_CONTROL_CONFLICT" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "IMAGE_FILE_INVALID" | "IMAGE_FILE_TOO_LARGE" | "IMAGE_MEDIA_TYPE_UNSUPPORTED" | "IMAGE_REVIEW_INCOMPLETE" | "IMAGE_SET_INVALID" | "IMAGE_WITHDRAWAL_BLOCKED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "PUBLIC_ACCESS_STOPPED" | "POSTER_GENERATION_UNAVAILABLE" | "FEEDBACK_UNAVAILABLE" | "ADMIN_SERVICE_UNAVAILABLE";
+        ErrorCode: "INVALID_ARGUMENT" | "INVALID_FORTUNE_DATE" | "AUTHENTICATION_FAILED" | "UNAUTHENTICATED" | "FORBIDDEN" | "CSRF_VALIDATION_FAILED" | "RESOURCE_NOT_FOUND" | "CONTENT_NOT_FOUND" | "LOOK_NOT_FOUND" | "CONTENT_VERSION_CHANGED" | "ACTIVE_CONTENT_VERSION_CHANGED" | "ALGORITHM_FIELD_READ_ONLY" | "DAY_CORRECTION_PAST_DATE" | "DAY_CORRECTION_RELEASE_UNAVAILABLE" | "IDEMPOTENCY_KEY_REUSED" | "EMERGENCY_CONTROL_CONFLICT" | "INVALID_STATE_TRANSITION" | "VERSION_WITHDRAWN" | "HISTORICAL_CONTENT_EXPIRED" | "REVISION_MISMATCH" | "REQUIRED_REVIEW_MISSING" | "MASTER_REVIEW_EVIDENCE_MISSING" | "PUBLISH_PRECHECK_FAILED" | "IMAGE_FILE_INVALID" | "IMAGE_FILE_TOO_LARGE" | "IMAGE_MEDIA_TYPE_UNSUPPORTED" | "IMAGE_REVIEW_INCOMPLETE" | "IMAGE_SET_INVALID" | "IMAGE_WITHDRAWAL_BLOCKED" | "SCHEDULE_TIME_INVALID" | "PRECONDITION_REQUIRED" | "RATE_LIMITED" | "CONTENT_NOT_READY" | "PUBLIC_ACCESS_STOPPED" | "POSTER_GENERATION_UNAVAILABLE" | "FEEDBACK_UNAVAILABLE" | "ANALYTICS_UNAVAILABLE" | "ADMIN_SERVICE_UNAVAILABLE";
         Error: {
             code: components["schemas"]["ErrorCode"];
             message: string;
@@ -1595,10 +2420,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /**
-         * @description 凭据、一次性挑战或动态码无效。账号不存在、密码错误、恢复码错误和未认证阶段的
-         *     TOTP 重放必须使用相同状态和对外文案，不能帮助枚举账号或凭据。
-         */
+        /** @description 账号不存在或密码错误时使用相同状态和对外文案，不能帮助枚举账号。 */
         AuthenticationFailed: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
@@ -1609,7 +2431,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description 后台会话不存在或已失效，或者高风险操作要求的当前 TOTP 无效 */
+        /** @description 后台会话不存在或已失效 */
         AdminReauthenticationFailed: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
@@ -1664,7 +2486,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description TOTP counter 重放、幂等键复用或紧急控制状态发生冲突 */
+        /** @description 幂等键复用或紧急控制状态发生冲突 */
         AuthConflict: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
@@ -1852,6 +2674,18 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description 匿名使用事件暂时无法接收，公开内容、搭配与分享功能不受影响 */
+        AnalyticsUnavailable: {
+            headers: {
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "Retry-After"?: number;
+                "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description 全局公开内容开关已在 PostgreSQL 事务中更新并追加安全审计 */
         EmergencyControlSucceeded: {
             headers: {
@@ -1886,6 +2720,8 @@ export interface components {
         DraftId: components["schemas"]["OpaqueId"];
         AssetId: components["schemas"]["OpaqueId"];
         ContentVersionPath: components["schemas"]["ContentVersion"];
+        CorrectionId: components["schemas"]["OpaqueId"];
+        ImageSlot: components["schemas"]["DailyImageSlot"];
         ModuleCode: components["schemas"]["ModuleCode"];
         ExpectedContentVersionOptional: components["schemas"]["ContentVersion"];
         ExpectedContentVersionRequired: components["schemas"]["ContentVersion"];
@@ -1904,6 +2740,11 @@ export interface components {
     };
     requestBodies: never;
     headers: {
+        /**
+         * @description 服务端观察到该响应的时间，采用 HTTP `Date` 格式。网页以此校准 18:00 公开切换，
+         *     不得用设备时钟自行推进 `servedFortuneDate`。
+         */
+        RepresentationDate: string;
         /** @description 当前外部请求的追踪编号；缓存命中时也必须按请求生成。 */
         XRequestId: string;
         /** @description 当前响应中的业务内容版本。 */
@@ -1914,6 +2755,11 @@ export interface components {
         DraftETag: string;
         /** @description 内容生命周期当前修订号的强 ETag，例如 `"lifecycle:12"`。 */
         LifecycleETag: string;
+        /**
+         * @description 同时绑定 correctionRevision 与 draftRevision 的不透明强 ETag。客户端只能原样保存和回传，
+         *     不得从响应体字段自行拼接。
+         */
+        DayCorrectionETag: string;
         /** @description 全局公开内容开关当前修订号的强 ETag，例如 `"emergency-control:4"`。 */
         EmergencyControlETag: string;
         /** @description 认证、恢复、安全记录和紧急控制响应不得被浏览器或中间层保存。 */
@@ -1944,9 +2790,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 当前命理日存在可以公开读取的内容 */
+            /** @description 当前公开交付日存在可以公开读取的内容 */
             200: {
                 headers: {
+                    Date: components["headers"]["RepresentationDate"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     "X-Content-Version": components["headers"]["XContentVersion"];
                     ETag: components["headers"]["RepresentationETag"];
@@ -1960,6 +2807,7 @@ export interface operations {
             /** @description `If-None-Match` 对应的完整响应表示仍有效 */
             304: {
                 headers: {
+                    Date: components["headers"]["RepresentationDate"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     ETag: components["headers"]["RepresentationETag"];
                     "Cache-Control": components["headers"]["DynamicCacheControl"];
@@ -1968,6 +2816,40 @@ export interface operations {
                 content?: never;
             };
             429: components["responses"]["RateLimited"];
+            503: components["responses"]["PublicContentUnavailable"];
+        };
+    };
+    getPublicImageAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assetId: components["schemas"]["OpaqueId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 图片文件 */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/avif": string;
+                    "image/webp": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
+            };
+            /** @description 图片不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             503: components["responses"]["PublicContentUnavailable"];
         };
     };
@@ -2137,7 +3019,7 @@ export interface operations {
             503: components["responses"]["FeedbackUnavailable"];
         };
     };
-    createAdminPasswordChallenge: {
+    createAnalyticsEvent: {
         parameters: {
             query?: never;
             header?: never;
@@ -2146,11 +3028,42 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreatePasswordChallengeRequest"];
+                "application/json": components["schemas"]["CreateAnalyticsEventRequest"];
             };
         };
         responses: {
-            /** @description 密码已校验，等待验证器动态码 */
+            /** @description 事件已接收或已按相同载荷幂等重放 */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateAnalyticsEventResponse"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+            503: components["responses"]["AnalyticsUnavailable"];
+        };
+    };
+    getAdminAnalyticsOverview: {
+        parameters: {
+            query: {
+                from: components["schemas"]["FortuneDate"];
+                to: components["schemas"]["FortuneDate"];
+                channelId?: string;
+                contentVersion?: components["schemas"]["ContentVersion"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回统一口径的匿名使用摘要 */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];
@@ -2158,13 +3071,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PasswordChallenge"];
+                    "application/json": components["schemas"]["AdminAnalyticsOverview"];
                 };
             };
-            400: components["responses"]["AuthInvalidArgument"];
-            401: components["responses"]["AuthenticationFailed"];
-            403: components["responses"]["CsrfValidationFailed"];
-            429: components["responses"]["AuthRateLimited"];
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    getAdminAnalyticsReport: {
+        parameters: {
+            query: {
+                days: 7 | 30;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回同一数据库快照中的区间汇总、每日趋势与渠道占比 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminAnalyticsReport"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
             503: components["responses"]["AdminServiceUnavailable"];
         };
     };
@@ -2281,70 +3219,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
-            503: components["responses"]["AdminServiceUnavailable"];
-        };
-    };
-    createAdminRecoveryChallenge: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateRecoveryChallengeRequest"];
-            };
-        };
-        responses: {
-            /** @description 恢复码已消费，等待设置新密码并验证新的 TOTP */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["XRequestId"];
-                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecoveryChallenge"];
-                };
-            };
-            400: components["responses"]["AuthInvalidArgument"];
-            401: components["responses"]["AuthenticationFailed"];
-            403: components["responses"]["CsrfValidationFailed"];
-            429: components["responses"]["AuthRateLimited"];
-            503: components["responses"]["AdminServiceUnavailable"];
-        };
-    };
-    completeAdminRecovery: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CompleteRecoveryRequest"];
-            };
-        };
-        responses: {
-            /** @description 已恢复控制权；新的恢复码只在本响应显示一次 */
-            201: {
-                headers: {
-                    "X-Request-Id": components["headers"]["XRequestId"];
-                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
-                    "Set-Cookie": components["headers"]["AdminSessionSetCookie"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecoveryCompletion"];
-                };
-            };
-            400: components["responses"]["AuthInvalidArgument"];
-            401: components["responses"]["AuthenticationFailed"];
-            403: components["responses"]["CsrfValidationFailed"];
-            409: components["responses"]["AuthConflict"];
-            429: components["responses"]["AuthRateLimited"];
             503: components["responses"]["AdminServiceUnavailable"];
         };
     };
@@ -2473,6 +3347,105 @@ export interface operations {
             503: components["responses"]["AdminServiceUnavailable"];
         };
     };
+    getAdminOperationsOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回同一次服务端业务时间下的当前与下一公开交付日运营视图 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminOperationsOverview"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    getAdminOperationsCalendar: {
+        parameters: {
+            query: {
+                /** @example 2026-08 */
+                month: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回月历窗口和统一日级摘要 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCalendarMonth"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    listAdminOperationsIssues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回人类语言的可行动异常，不返回堆栈或内部错误对象 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminActionableIssueList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    getAdminOperationsDay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fortuneDate: components["parameters"]["FortuneDate"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回日级摘要、共享公开展示投影与并发保护信息 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDayDetail"];
+                };
+            };
+            400: components["responses"]["InvalidFortuneDate"];
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
     listDailyContentDrafts: {
         parameters: {
             query?: {
@@ -2534,6 +3507,67 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["CsrfValidationFailed"];
             404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listDailyContentProductions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 按内容日期返回自动生产状态 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyContentProductionList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+        };
+    };
+    generateDailyContent: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateDailyContentRequest"];
+            };
+        };
+        responses: {
+            /** @description 草稿文字已生成，模特图任务正在处理或等待处理 */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyContentProduction"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
             409: components["responses"]["Conflict"];
         };
     };
@@ -3233,6 +4267,541 @@ export interface operations {
             409: components["responses"]["Conflict"];
             412: components["responses"]["RevisionMismatch"];
             422: components["responses"]["PublishPrecheckFailed"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    requestDailyContentImageSlotGeneration: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                fortuneDate: components["parameters"]["FortuneDate"];
+                draftId: components["parameters"]["DraftId"];
+                imageSlot: components["schemas"]["DailyImageSlot"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestImageSlotGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description 槽位已重新进入生成队列 */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyContentProduction"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    selectDailyContentDraftImageAsset: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                draftId: components["parameters"]["DraftId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectDraftImageAssetRequest"];
+            };
+        };
+        responses: {
+            /** @description 候选已成为指定槽位的显式选择，并增加草稿修订号 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DraftETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftImageAssetResult"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    openDayCorrectionWorkingCopy: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenDayCorrectionRequest"];
+            };
+        };
+        responses: {
+            /** @description 返回新建或既有订正工作副本 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionWorkingCopy"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+        };
+    };
+    getDayCorrectionWorkingCopy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回订正工作副本 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionWorkingCopy"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["ResourceNotFound"];
+        };
+    };
+    patchDayCorrectionWorkingCopy: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DayCorrectionCommand"];
+            };
+        };
+        responses: {
+            /** @description 字段已更新并增加草稿修订号 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionPatchResult"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["InvalidStateTransition"];
+            412: components["responses"]["RevisionMismatch"];
+            422: components["responses"]["ImageSetInvalid"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    applyDayCorrection: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyDayCorrectionRequest"];
+            };
+        };
+        responses: {
+            /** @description 已立即替换或已安排在固定 18:00 公开内容边界生效 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionApplyResult"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            /** @description 图片集合不安全（IMAGE_SET_INVALID）或发布前检查未通过（PUBLISH_PRECHECK_FAILED） */
+            422: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            428: components["responses"]["PreconditionRequired"];
+            503: components["responses"]["AdminServiceUnavailable"];
+        };
+    };
+    getDayCorrectionImageStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+                imageSlot: components["parameters"]["ImageSlot"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回当前槽位任务和候选；不会自动选图或发布 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionImageStatus"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["ResourceNotFound"];
+        };
+    };
+    regenerateDayCorrectionImage: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+                imageSlot: components["parameters"]["ImageSlot"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DayCorrectionImageActionRequest"];
+            };
+        };
+        responses: {
+            /** @description 已创建或恢复同一重生成任务 */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionImageStatus"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    selectDayCorrectionImageCandidate: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+                imageSlot: components["parameters"]["ImageSlot"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DayCorrectionImageSelectRequest"];
+            };
+        };
+        responses: {
+            /** @description 候选已选中并替换对应预览图片 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionImageSelectionResult"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            422: components["responses"]["ImageSetInvalid"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    listReusableDayCorrectionImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+                imageSlot: components["parameters"]["ImageSlot"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 返回安全且配色兼容的历史素材 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionImageLibraryPage"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["InvalidStateTransition"];
+        };
+    };
+    reuseDayCorrectionImage: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+                imageSlot: components["parameters"]["ImageSlot"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DayCorrectionImageReuseRequest"];
+            };
+        };
+        responses: {
+            /** @description 图片已复制到当前草稿并成为该槽位的预览图片 */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionImageSelectionResult"];
+                };
+            };
+            400: components["responses"]["InvalidArgument"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            422: components["responses"]["ImageSetInvalid"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    uploadDayCorrectionImage: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description 草稿写操作使用响应中的草稿 ETag；生命周期写操作使用内容版本 ETag；
+                 *     全局紧急控制使用公开内容开关 ETag。调用方必须原样回传，不能自行拼接。
+                 */
+                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 同一业务意图的网络重试必须复用同一个高熵不透明值。 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description 当前后台会话绑定的随机 CSRF 令牌。后台写操作还必须由服务端校验可信同源 `Origin`；
+                 *     令牌只能保存在运行中页面内存，不能放入 localStorage、URL 或日志。
+                 */
+                "X-CSRF-Token": components["parameters"]["XCsrfToken"];
+            };
+            path: {
+                correctionId: components["parameters"]["CorrectionId"];
+                imageSlot: components["parameters"]["ImageSlot"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["DayCorrectionImageUploadMultipartRequest"];
+            };
+        };
+        responses: {
+            /** @description 图片已上传、选择并替换当前预览 */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "Cache-Control": components["headers"]["NoStoreCacheControl"];
+                    ETag: components["headers"]["DayCorrectionETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayCorrectionImageSelectionResult"];
+                };
+            };
+            400: components["responses"]["ImageUploadInvalid"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["CsrfValidationFailed"];
+            404: components["responses"]["ResourceNotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["RevisionMismatch"];
+            413: components["responses"]["ImageFileTooLarge"];
+            415: components["responses"]["ImageMediaTypeUnsupported"];
+            422: components["responses"]["ImageSetInvalid"];
             428: components["responses"]["PreconditionRequired"];
         };
     };

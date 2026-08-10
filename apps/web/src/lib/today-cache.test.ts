@@ -4,6 +4,7 @@ import type { CompleteTodayPageData, TodaySnapshot } from "./today";
 import {
   clearTodaySnapshotPointer,
   readTodaySnapshotCache,
+  TODAY_CACHE_KEY_PREFIX,
   TODAY_CACHE_POINTER_KEY,
   todaySnapshotCacheKey,
   writeTodaySnapshotCache,
@@ -53,6 +54,11 @@ function completeData(version = contentVersion, date = fortuneDate): CompleteTod
       fortuneDate: date,
       shichen: "巳",
     },
+    publicContentContext: {
+      advancedFromCivilDate: false,
+      servedFortuneDate: date,
+      switchBoundary: "18:00",
+    },
     share: versioned,
   } as unknown as CompleteTodayPageData;
 }
@@ -64,8 +70,8 @@ function snapshot(
   return {
     contentVersion,
     data,
-    effectiveFrom: "2026-07-15T00:00:00+08:00",
-    effectiveTo: "2026-07-15T23:00:00+08:00",
+    effectiveFrom: "2026-07-14T18:00:00+08:00",
+    effectiveTo: "2026-07-15T18:00:00+08:00",
     fortuneDate,
     responseGeneratedAt: "2026-07-15T09:59:58+08:00",
     serverObservedAtMs,
@@ -74,6 +80,23 @@ function snapshot(
 }
 
 describe("today snapshot browser cache", () => {
+  it("uses the v2 namespace and ignores legacy v1 entries", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      "five:today:v1:active",
+      JSON.stringify({
+        cacheKey: "five:today:v1:2026-07-15:fd-20260715-r1",
+        contentVersion,
+        fortuneDate,
+        schemaVersion: 1,
+      }),
+    );
+
+    expect(TODAY_CACHE_KEY_PREFIX).toBe("five:today:v2");
+    expect(TODAY_CACHE_POINTER_KEY).toBe("five:today:v2:active");
+    expect(readTodaySnapshotCache(storage, serverObservedAtMs)).toBeNull();
+  });
+
   it("writes the complete date+version entry before its active pointer and restores it", () => {
     const storage = new MemoryStorage();
     const value = snapshot();
@@ -106,6 +129,19 @@ describe("today snapshot browser cache", () => {
     expect(readTodaySnapshotCache(storage, serverObservedAtMs + remaining)).toBeNull();
   });
 
+  it("never restores the previous public date across the Beijing 18:00 switch", () => {
+    const storage = new MemoryStorage();
+    const beforeSwitchMs = Date.parse("2026-07-15T17:59:59+08:00");
+    const value = snapshot({
+      responseGeneratedAt: "2026-07-15T17:59:59+08:00",
+      serverObservedAtMs: beforeSwitchMs,
+    });
+
+    expect(writeTodaySnapshotCache(value, storage, beforeSwitchMs, beforeSwitchMs)).toBe(true);
+    expect(readTodaySnapshotCache(storage, beforeSwitchMs)).toMatchObject({ expiresInMs: 1_000 });
+    expect(readTodaySnapshotCache(storage, beforeSwitchMs + 1_000)).toBeNull();
+  });
+
   it("rejects a device clock rollback, a mixed pointer tuple and corrupted JSON", () => {
     const storage = new MemoryStorage();
     const value = snapshot();
@@ -120,7 +156,7 @@ describe("today snapshot browser cache", () => {
         cacheKey: todaySnapshotCacheKey("2026-07-16", contentVersion),
         contentVersion,
         fortuneDate: "2026-07-16",
-        schemaVersion: 1,
+        schemaVersion: 2,
       }),
     );
     expect(readTodaySnapshotCache(storage, serverObservedAtMs)).toBeNull();

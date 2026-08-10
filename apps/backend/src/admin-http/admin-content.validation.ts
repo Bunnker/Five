@@ -10,6 +10,7 @@ import { isFortuneDate, isOpaquePublicValue } from "../today/public-route-params
 import { codePointLength, hasExactlyKeys } from "./admin-http";
 
 type AddMasterReviewEvidenceRequest = components["schemas"]["AddMasterReviewEvidenceRequest"];
+type ApplyDayCorrectionRequest = components["schemas"]["ApplyDayCorrectionRequest"];
 type CreateDraftRequest = components["schemas"]["CreateDraftRequest"];
 type ExpectedActiveVersionRequest = components["schemas"]["ExpectedActiveVersionRequest"];
 type RollbackRequest = components["schemas"]["RollbackRequest"];
@@ -41,6 +42,50 @@ export function isCreateDraftRequest(value: unknown): value is CreateDraftReques
     typeof value.fortuneDate === "string" &&
     isFortuneDate(value.fortuneDate) &&
     (value.copyFromContentVersion === null || isOpaqueAdminId(value.copyFromContentVersion))
+  );
+}
+
+export function isOpenDayCorrectionRequest(
+  value: unknown,
+): value is components["schemas"]["OpenDayCorrectionRequest"] {
+  return (
+    hasExactlyKeys(value, ["fortuneDate"]) &&
+    typeof value.fortuneDate === "string" &&
+    isFortuneDate(value.fortuneDate)
+  );
+}
+
+export function isApplyDayCorrectionRequest(value: unknown): value is ApplyDayCorrectionRequest {
+  return hasExactlyKeys(value, ["reason"]) && isNonBlankBoundedText(value.reason, 2_000);
+}
+
+export function isGenerateDailyContentRequest(
+  value: unknown,
+): value is components["schemas"]["GenerateDailyContentRequest"] {
+  return (
+    hasExactlyKeys(value, ["fortuneDate"]) &&
+    typeof value.fortuneDate === "string" &&
+    isFortuneDate(value.fortuneDate)
+  );
+}
+
+export function isDailyImageSlot(value: unknown): value is components["schemas"]["DailyImageSlot"] {
+  return value === "required_primary" || value === "required_alternative" || value === "optional";
+}
+
+export function isRequestImageSlotGenerationRequest(
+  value: unknown,
+): value is components["schemas"]["RequestImageSlotGenerationRequest"] {
+  return hasExactlyKeys(value, ["reason"]) && isNonBlankBoundedText(value.reason, 500);
+}
+
+export function isSelectDraftImageAssetRequest(
+  value: unknown,
+): value is components["schemas"]["SelectDraftImageAssetRequest"] {
+  return (
+    hasExactlyKeys(value, ["imageSlot", "reason"]) &&
+    isDailyImageSlot(value.imageSlot) &&
+    isNonBlankBoundedText(value.reason, 500)
   );
 }
 
@@ -147,6 +192,41 @@ export function parseStrongRevisionEtag(
   }
   const revision = Number(match[1]);
   return Number.isSafeInteger(revision) ? revision : null;
+}
+
+export interface DayCorrectionEtagRevision {
+  readonly correctionRevision: number;
+  readonly draftRevision: number;
+}
+
+export function formatDayCorrectionEtag(revision: DayCorrectionEtagRevision): string {
+  const payload = Buffer.from(
+    `${revision.correctionRevision}:${revision.draftRevision}`,
+    "utf8",
+  ).toString("base64url");
+  return `"dc:${payload}"`;
+}
+
+export function parseDayCorrectionEtag(
+  value: string | string[] | undefined,
+): DayCorrectionEtagRevision | null {
+  if (typeof value !== "string") return null;
+  const match = /^"dc:([-_A-Za-z0-9]+)"$/u.exec(value);
+  if (match === null) return null;
+  let decoded: string;
+  try {
+    decoded = Buffer.from(match[1] ?? "", "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  if (Buffer.from(decoded, "utf8").toString("base64url") !== match[1]) return null;
+  const revisions = /^([1-9]\d*):([1-9]\d*)$/u.exec(decoded);
+  if (revisions === null) return null;
+  const correctionRevision = Number(revisions[1]);
+  const draftRevision = Number(revisions[2]);
+  return Number.isSafeInteger(correctionRevision) && Number.isSafeInteger(draftRevision)
+    ? { correctionRevision, draftRevision }
+    : null;
 }
 
 export function isIdempotencyKey(value: unknown): value is string {

@@ -25,7 +25,9 @@ export function AttentionColorSection({ section }: AttentionColorSectionProps) {
         <div>
           <p className="attention-balance__eyebrow">已经穿了也不用换</p>
           <h3>用大吉色小配饰补充</h3>
-          <p>{section.balanceSuggestion.description}</p>
+          <p data-admin-selection-key="balanceSuggestion.description">
+            {section.balanceSuggestion.description}
+          </p>
         </div>
         <ul aria-label="可选的小面积配饰">
           {section.balanceSuggestion.accessoryExamples.map((example) => (

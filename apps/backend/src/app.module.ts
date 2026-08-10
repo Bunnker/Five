@@ -5,6 +5,7 @@ import { DatabaseModule } from "./database/database.module";
 import { FeedbackModule } from "./feedback/feedback.module";
 import { HealthModule } from "./health/health.module";
 import { PosterModule } from "./poster/poster.module";
+import { ProductAnalyticsModule } from "./product-analytics/product-analytics.module";
 import { RequestContextModule } from "./request-context/request-context.module";
 import { TodayModule } from "./today/today.module";
 
@@ -15,6 +16,7 @@ import { TodayModule } from "./today/today.module";
     FeedbackModule,
     HealthModule,
     PosterModule,
+    ProductAnalyticsModule,
     RequestContextModule,
     TodayModule,
   ],

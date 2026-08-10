@@ -331,12 +331,18 @@ function seedTrustedImageCandidates(
   fortuneDate: string,
   visual: NonNullable<DraftModules["visual_and_rights"]>,
 ): void {
+  const slotByCoverAssetId = new Map(
+    visual.looks.map(({ coverAssetId, imageSlot }) => [coverAssetId, imageSlot]),
+  );
   store.seedDraftImageAssetsForTest(
     visual.assets.map((asset) => ({
       asset,
       draftId,
       fortuneDate,
+      imageSlot: slotByCoverAssetId.get(asset.assetId) ?? null,
       reviewLocked: false,
+      selectionSource: slotByCoverAssetId.has(asset.assetId) ? "manual_selection" : null,
+      selectedForSlot: slotByCoverAssetId.has(asset.assetId),
       storageKey: `${asset.sha256.slice(0, 2)}/${asset.sha256}.webp`,
       uploadedAt: "2026-07-31T15:00:00.000Z",
     })),
@@ -580,11 +586,152 @@ describe("ContentLifecycleService", () => {
       items: [
         {
           contentVersion: "content-opaque-1",
-          effectiveFrom: "2026-07-31T23:00:00+08:00",
-          effectiveTo: "2026-08-01T23:00:00+08:00",
+          effectiveFrom: "2026-07-31T18:00:00+08:00",
+          effectiveTo: "2026-08-01T18:00:00+08:00",
         },
       ],
     });
+  });
+
+  it("keeps an ordinary submit in review even when two selected images could materialize visual", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "operator-1",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-standard-null-visual",
+    });
+    if (created.kind !== "created") throw new Error("draft fixture was not created");
+    const complete = completeModules();
+    if (complete.visual_and_rights === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(
+      store,
+      created.draft.draftId,
+      created.draft.fortuneDate,
+      complete.visual_and_rights,
+    );
+    let revision = 1;
+    for (const moduleCode of ["calendar_algorithm", "copy_and_formula"] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "operator-1",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: complete[moduleCode]!,
+        moduleCode,
+        requestId: `request-standard-null-visual-${moduleCode}`,
+      });
+      if (updated.kind !== "updated") throw new Error("module fixture was not updated");
+      revision = updated.result.draftRevision;
+    }
+    const input = {
+      actorId: "operator-1",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: revision,
+      idempotencyKey: "submit-standard-null-visual-0001",
+      requestId: "request-submit-standard-null-visual",
+    };
+
+    const submitted = await service.submitDraft(input);
+    expect(submitted).toMatchObject({ kind: "submitted", result: { state: "in_review" } });
+    if (submitted.kind !== "submitted") return;
+    await expect(service.getVersion(submitted.result.contentVersion)).resolves.toMatchObject({
+      snapshot: { visual_and_rights: null },
+      state: "in_review",
+    });
+    await expect(service.submitAutomaticProductionDraft(input)).resolves.toEqual({
+      kind: "idempotency_conflict",
+    });
+  });
+
+  it("approves an automatic production draft only after two required images materialize visual", async () => {
+    const store = new InMemoryContentLifecycleStore();
+    const service = deterministicService(store);
+    const created = await service.createDraft({
+      actorId: "system:auto-publication-worker",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-automatic-null-visual",
+    });
+    if (created.kind !== "created") throw new Error("draft fixture was not created");
+    const complete = completeModules();
+    if (complete.visual_and_rights === null) throw new Error("fixture missing visual module");
+    seedTrustedImageCandidates(
+      store,
+      created.draft.draftId,
+      created.draft.fortuneDate,
+      complete.visual_and_rights,
+    );
+    let revision = 1;
+    for (const moduleCode of ["calendar_algorithm", "copy_and_formula"] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "system:auto-publication-worker",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: complete[moduleCode]!,
+        moduleCode,
+        requestId: `request-automatic-null-visual-${moduleCode}`,
+      });
+      if (updated.kind !== "updated") throw new Error("module fixture was not updated");
+      revision = updated.result.draftRevision;
+    }
+
+    const submitted = await service.submitAutomaticProductionDraft({
+      actorId: "system:auto-publication-worker",
+      draftId: created.draft.draftId,
+      expectedDraftRevision: revision,
+      idempotencyKey: "submit-automatic-null-visual-0001",
+      requestId: "request-submit-automatic-null-visual",
+    });
+    expect(submitted).toMatchObject({ kind: "submitted", result: { state: "approved" } });
+    if (submitted.kind !== "submitted") return;
+    await expect(service.getVersion(submitted.result.contentVersion)).resolves.toMatchObject({
+      snapshot: {
+        poster_consistency: expect.any(Object),
+        visual_and_rights: {
+          looks: expect.arrayContaining([
+            expect.objectContaining({ imageSlot: "required_primary" }),
+            expect.objectContaining({ imageSlot: "required_alternative" }),
+          ]),
+        },
+      },
+      state: "approved",
+    });
+  });
+
+  it("rejects automatic production freeze while either required image is missing", async () => {
+    const service = deterministicService();
+    const created = await service.createDraft({
+      actorId: "system:auto-publication-worker",
+      copyFromContentVersion: null,
+      fortuneDate: "2026-08-02",
+      requestId: "request-create-automatic-missing-images",
+    });
+    if (created.kind !== "created") throw new Error("draft fixture was not created");
+    const complete = completeModules();
+    let revision = 1;
+    for (const moduleCode of ["calendar_algorithm", "copy_and_formula"] as const) {
+      const updated = await service.updateDraftModule({
+        actorId: "system:auto-publication-worker",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        module: complete[moduleCode]!,
+        moduleCode,
+        requestId: `request-automatic-missing-images-${moduleCode}`,
+      });
+      if (updated.kind !== "updated") throw new Error("module fixture was not updated");
+      revision = updated.result.draftRevision;
+    }
+
+    await expect(
+      service.submitAutomaticProductionDraft({
+        actorId: "system:auto-publication-worker",
+        draftId: created.draft.draftId,
+        expectedDraftRevision: revision,
+        idempotencyKey: "submit-automatic-missing-images-0001",
+        requestId: "request-submit-automatic-missing-images",
+      }),
+    ).resolves.toEqual({ kind: "invalid_state" });
   });
 
   it("freezes a triple primary look and a mono optional look through the lifecycle seam", async () => {

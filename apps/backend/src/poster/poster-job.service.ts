@@ -50,10 +50,13 @@ function publicJob(record: PosterJobRecord): PosterJob {
 function createLandingUrl(
   webOrigin: string,
   { channelId, expectedContentVersion, fortuneDate }: CreatePosterJobRequest,
+  referralId: string,
 ): string {
   const url = new URL(`/daily/${fortuneDate}`, webOrigin);
   url.searchParams.set("channelId", channelId);
   url.searchParams.set("expectedContentVersion", expectedContentVersion);
+  url.searchParams.set("referralId", referralId);
+  url.searchParams.set("referralKind", "poster");
   return url.toString();
 }
 
@@ -107,12 +110,13 @@ export class PosterJobService {
     }
 
     try {
+      const jobId = this.createJobId();
       const result = await this.repository.createOrReuse({
         ...input,
         currentActiveContentVersion,
         idempotencyKey,
-        jobId: this.createJobId(),
-        landingUrl: createLandingUrl(this.publicWebOrigin, input),
+        jobId,
+        landingUrl: createLandingUrl(this.publicWebOrigin, input, jobId),
         posterTemplateVersion,
         requestHash,
       });

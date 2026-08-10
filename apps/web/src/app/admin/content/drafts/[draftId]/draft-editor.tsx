@@ -10,12 +10,16 @@ import {
   parseDraftModuleJson,
   type AdminSession,
   type ContentDraft,
+  type DraftImageAssetList,
   type DraftModuleCode,
+  type DraftModuleUpdate,
   type SubmitDraftResult,
 } from "../../../admin-api";
 import { AdminSessionGate } from "../../../admin-session-gate";
 import { useAdminSession } from "../../../admin-session-context";
+import { DailyExperiencePreview } from "../../daily-experience-preview";
 import { DailyImageWorkbench } from "./daily-image-workbench";
+import { VisualCopyEditor } from "./visual-copy-editor";
 
 type LoadState =
   | { kind: "loading" }
@@ -106,6 +110,7 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
     useState<Record<DraftModuleCode, ModuleState>>(initialModuleStates);
   const [submitState, setSubmitState] = useState<ModuleState>({ kind: "idle" });
   const [submittedVersion, setSubmittedVersion] = useState<SubmitDraftResult | null>(null);
+  const [previewImages, setPreviewImages] = useState<DraftImageAssetList["items"]>([]);
   const pendingSubmitKeyRef = useRef<string | null>(null);
 
   const loadDraft = useCallback(async () => {
@@ -150,28 +155,27 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
     setLoadState({ kind: "conflict", message });
   }, []);
 
-  async function saveModule(moduleCode: DraftModuleCode) {
-    if (draft === null || etag === null || loadState.kind !== "ready") return;
-    const parsed = parseDraftModuleJson(moduleCode, moduleSources[moduleCode]);
-    if (!parsed.ok) {
-      setModuleStates((current) => ({
-        ...current,
-        [moduleCode]: { kind: "error", message: parsed.message },
-      }));
-      return;
-    }
+  const synchronizePreviewImages = useCallback((items: DraftImageAssetList["items"]) => {
+    setPreviewImages(items);
+  }, []);
+
+  async function saveModuleValue(
+    moduleCode: DraftModuleCode,
+    module: DraftModuleUpdate,
+  ): Promise<boolean> {
+    if (draft === null || etag === null || loadState.kind !== "ready") return false;
     setModuleStates((current) => ({ ...current, [moduleCode]: { kind: "saving" } }));
     const result = await adminApi.updateDraftModule({
       csrfToken: session.csrfToken,
       draftId: draft.draftId,
       etag,
-      module: parsed.value,
+      module,
       moduleCode,
     });
     if (!result.ok) {
       if (result.error.status === 401) {
         clearSession();
-        return;
+        return false;
       }
       if (result.error.status === 412) {
         setLoadState({
@@ -179,18 +183,18 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
           message: "其他页面已经更新这份草稿。当前内容没有覆盖服务端，请重新载入后再编辑。",
         });
         setModuleStates((current) => ({ ...current, [moduleCode]: { kind: "idle" } }));
-        return;
+        return false;
       }
       setModuleStates((current) => ({
         ...current,
         [moduleCode]: { kind: "error", message: describeAdminContentApiError(result.error) },
       }));
-      return;
+      return false;
     }
     const newEtag = result.response.headers.get("ETag");
     if (newEtag === null) {
       setLoadState({ kind: "error", message: "模块已响应，但无法确认新的修订号，请重新载入。" });
-      return;
+      return false;
     }
     setEtag(newEtag);
     setDraft((current) =>
@@ -210,6 +214,19 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
       ...current,
       [moduleCode]: { kind: "success", message: "模块已保存，并取得新的草稿修订号。" },
     }));
+    return true;
+  }
+
+  async function saveModule(moduleCode: DraftModuleCode) {
+    const parsed = parseDraftModuleJson(moduleCode, moduleSources[moduleCode]);
+    if (!parsed.ok) {
+      setModuleStates((current) => ({
+        ...current,
+        [moduleCode]: { kind: "error", message: parsed.message },
+      }));
+      return;
+    }
+    await saveModuleValue(moduleCode, parsed.value);
   }
 
   async function submitDraft() {
@@ -231,14 +248,6 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
     }
     if (moduleDefinitions.some(({ code }) => moduleStates[code].kind === "saving")) {
       setSubmitState({ kind: "error", message: "模块仍在保存，请保存完成后再提交。" });
-      return;
-    }
-    const missing = moduleDefinitions.filter(({ code }) => draft.modules[code] === null);
-    if (missing.length > 0) {
-      setSubmitState({
-        kind: "error",
-        message: `提交前必须保存四个模块。尚缺：${missing.map(({ label }) => label).join("、")}。`,
-      });
       return;
     }
     try {
@@ -281,7 +290,10 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
     }
     pendingSubmitKeyRef.current = null;
     setSubmittedVersion(result.data);
-    setSubmitState({ kind: "success", message: "草稿已冻结为不可变内容版本，等待大师核对。" });
+    setSubmitState({
+      kind: "success",
+      message: "草稿已冻结为可发布版本，系统会立即发布或按日期排期。",
+    });
   }
 
   if (loadState.kind === "loading") {
@@ -337,6 +349,14 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
       ) : null}
 
       <nav className="admin-module-jump" aria-label="草稿模块">
+        <a href="#daily-preview">
+          <span>00</span>
+          用户端预览
+        </a>
+        <a href="#visual-correction">
+          <span>✎</span>
+          可视化订正
+        </a>
         {moduleDefinitions.map(({ code, label, number }) => (
           <a href={`#module-${code}`} key={code}>
             <span>{number}</span>
@@ -344,6 +364,20 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
           </a>
         ))}
       </nav>
+
+      <DailyExperiencePreview
+        fortuneDate={draft.fortuneDate}
+        images={previewImages}
+        mode="draft"
+        modules={draft.modules}
+        revisionLabel={`${draft.draftId}-${draft.draftRevision}`}
+      />
+
+      <VisualCopyEditor
+        disabled={loadState.kind !== "ready" || submittedVersion !== null}
+        modules={draft.modules}
+        onSave={saveModuleValue}
+      />
 
       <div className="admin-module-stack">
         {moduleDefinitions.map(({ code, description, label, number }) => {
@@ -377,45 +411,54 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
                   draftRevision={draft.draftRevision}
                   etag={etag}
                   fortuneDate={draft.fortuneDate}
+                  onCandidatesChange={synchronizePreviewImages}
                   onConflict={reportImageConflict}
                   onRevisionChange={synchronizeImageRevision}
                   onUnauthorized={clearSession}
                   visualModule={draft.modules.visual_and_rights}
                 />
               ) : null}
-              <label>
-                <span>{label} JSON</span>
-                <textarea
-                  aria-label={`${label} JSON`}
-                  disabled={
-                    state.kind === "saving" ||
-                    loadState.kind !== "ready" ||
-                    submittedVersion !== null
-                  }
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setModuleSources((current) => ({ ...current, [code]: value }));
-                    setModuleStates((current) => ({ ...current, [code]: { kind: "idle" } }));
-                  }}
-                  spellCheck={false}
-                  value={moduleSources[code]}
-                />
-              </label>
-              <div className="admin-module-editor__actions">
-                <button
-                  className="admin-button admin-button--quiet"
-                  disabled={
-                    state.kind === "saving" ||
-                    loadState.kind !== "ready" ||
-                    submittedVersion !== null
-                  }
-                  onClick={() => void saveModule(code)}
-                  type="button"
-                >
-                  {state.kind === "saving" ? `正在保存${label}…` : `保存${label}`}
-                </button>
-                {state.kind === "success" ? <p role="status">{state.message}</p> : null}
-              </div>
+              <details className="admin-json-details">
+                <summary>
+                  <span>高级设置</span>
+                  <strong>查看或编辑 {label} JSON</strong>
+                </summary>
+                <div className="admin-json-details__body">
+                  <label>
+                    <span>{label} JSON</span>
+                    <textarea
+                      aria-label={`${label} JSON`}
+                      disabled={
+                        state.kind === "saving" ||
+                        loadState.kind !== "ready" ||
+                        submittedVersion !== null
+                      }
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setModuleSources((current) => ({ ...current, [code]: value }));
+                        setModuleStates((current) => ({ ...current, [code]: { kind: "idle" } }));
+                      }}
+                      spellCheck={false}
+                      value={moduleSources[code]}
+                    />
+                  </label>
+                  <div className="admin-module-editor__actions">
+                    <button
+                      className="admin-button admin-button--quiet"
+                      disabled={
+                        state.kind === "saving" ||
+                        loadState.kind !== "ready" ||
+                        submittedVersion !== null
+                      }
+                      onClick={() => void saveModule(code)}
+                      type="button"
+                    >
+                      {state.kind === "saving" ? `正在保存${label}…` : `保存${label}`}
+                    </button>
+                    {state.kind === "success" ? <p role="status">{state.message}</p> : null}
+                  </div>
+                </div>
+              </details>
               {state.kind === "error" ? (
                 <p className="admin-message admin-message--error" role="alert">
                   {state.message}
@@ -428,9 +471,9 @@ function DraftEditorContent({ draftId, session }: { draftId: string; session: Ad
 
       <section className="admin-submit-draft" aria-labelledby="submit-draft-title">
         <div>
-          <p className="admin-kicker">FREEZE · IRREVERSIBLE SNAPSHOT</p>
-          <h2 id="submit-draft-title">提交大师核对</h2>
-          <p>提交会冻结四个模块并生成唯一内容版本；之后不能原地修改。</p>
+          <p className="admin-kicker">PUBLISH FIRST · VERSIONED</p>
+          <h2 id="submit-draft-title">发布到用户端</h2>
+          <p>提交会自动补齐展示模块并冻结唯一内容版本；发布后有问题时复制修改并替换。</p>
         </div>
         <button
           className="admin-button admin-button--primary"

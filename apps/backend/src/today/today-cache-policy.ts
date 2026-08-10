@@ -1,4 +1,5 @@
 import { resolveRequestContextBoundaryDurations } from "../request-context/request-context-boundaries";
+import type { PublicContentContext } from "../public-content/public-content-context-resolver";
 import type { RequestContext } from "../request-context/request-context-resolver";
 import { parseZonedDateTime } from "../request-context/zoned-date-time";
 
@@ -21,16 +22,28 @@ function requireZonedInstant(value: string, label: string): number {
 }
 
 export class TodayCachePolicy {
-  calculate(requestContext: RequestContext, effectiveTo: string): TodayCacheDecision {
+  calculate(
+    requestContext: RequestContext,
+    effectiveTo: string,
+    publicContentContext?: PublicContentContext,
+  ): TodayCacheDecision {
     const responseInstant = requireZonedInstant(
       requestContext.responseGeneratedAt,
       "requestContext.responseGeneratedAt",
     );
     const effectiveToInstant = requireZonedInstant(effectiveTo, "content.effectiveTo");
+    const nextPublicSwitchInstant =
+      publicContentContext === undefined
+        ? Number.POSITIVE_INFINITY
+        : requireZonedInstant(
+            `${publicContentContext.servedFortuneDate}T18:00:00+08:00`,
+            "publicContentContext next switch",
+          );
     const boundaries = resolveRequestContextBoundaryDurations(requestContext.responseGeneratedAt);
     const remainingMilliseconds = Math.min(
       MAX_SHARED_CACHE_MILLISECONDS,
       effectiveToInstant - responseInstant,
+      nextPublicSwitchInstant - responseInstant,
       boundaries.millisecondsUntilNextShichen,
       boundaries.millisecondsUntilNextCivilMidnight,
     );

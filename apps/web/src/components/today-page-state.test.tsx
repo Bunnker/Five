@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   read: vi.fn(),
   refresh: vi.fn(),
   remaining: vi.fn(),
+  trackAnalyticsEvent: vi.fn(),
   write: vi.fn(),
 }));
 
@@ -20,13 +21,17 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../lib/today-cache", () => ({
-  TODAY_PENDING_REFRESH_ANCHOR_KEY: "five:today:v1:pending-refresh-anchor",
+  TODAY_PENDING_REFRESH_ANCHOR_KEY: "five:today:v2:pending-refresh-anchor",
   clearTodaySnapshotCache: mocks.clearAll,
   clearTodaySnapshotPointer: mocks.clear,
   getTodayCacheClientAnchorMs: mocks.anchor,
   getTodaySnapshotRemainingMs: mocks.remaining,
   readTodaySnapshotCache: mocks.read,
   writeTodaySnapshotCache: mocks.write,
+}));
+
+vi.mock("../lib/analytics", () => ({
+  trackAnalyticsEvent: mocks.trackAnalyticsEvent,
 }));
 
 vi.mock("./today-page-content", () => ({
@@ -56,16 +61,21 @@ const snapshot = {
       fortuneDate: "2026-07-15",
       shichen: "巳",
     },
+    publicContentContext: {
+      advancedFromCivilDate: false,
+      servedFortuneDate: "2026-07-15",
+      switchBoundary: "18:00",
+    },
   },
-  effectiveFrom: "2026-07-14T23:00:00+08:00",
-  effectiveTo: "2026-07-15T23:00:00+08:00",
+  effectiveFrom: "2026-07-14T18:00:00+08:00",
+  effectiveTo: "2026-07-15T18:00:00+08:00",
   fortuneDate: "2026-07-15",
   responseGeneratedAt: "2026-07-15T10:00:00+08:00",
   serverObservedAtMs: Date.parse("2026-07-15T10:00:05+08:00"),
 } as TodaySnapshot;
 
-function renderResult(result: LoadTodayResult) {
-  return render(<TodayPageState result={result} />);
+function renderResult(result: LoadTodayResult, channelId = "organic") {
+  return render(<TodayPageState channelId={channelId} result={result} />);
 }
 
 describe("TodayPageState", () => {
@@ -86,7 +96,7 @@ describe("TodayPageState", () => {
 
   it("renders and caches one complete online snapshot without a stale-content notice", async () => {
     mocks.write.mockReturnValue(true);
-    renderResult({ kind: "ready", snapshot });
+    renderResult({ kind: "ready", snapshot }, "wechat_official");
 
     expect(await screen.findByRole("heading", { name: "2026-07-15" })).toBeVisible();
     expect(screen.getByRole("main")).toHaveAttribute("data-content-version", "fd-20260715-r1");
@@ -94,6 +104,13 @@ describe("TodayPageState", () => {
     await waitFor(() =>
       expect(mocks.write).toHaveBeenCalledWith(snapshot, undefined, 1_000, expect.any(Number)),
     );
+    expect(mocks.trackAnalyticsEvent).toHaveBeenCalledOnce();
+    expect(mocks.trackAnalyticsEvent).toHaveBeenCalledWith({
+      channelId: "wechat_official",
+      contentVersion: "fd-20260715-r1",
+      eventName: "view_today_summary",
+      fortuneDate: "2026-07-15",
+    });
   });
 
   it("uses one valid cached snapshot after a refresh failure and labels its source", async () => {
@@ -329,6 +346,11 @@ describe("TodayPageState", () => {
       ...snapshot,
       data: {
         ...snapshot.data,
+        publicContentContext: {
+          advancedFromCivilDate: true,
+          servedFortuneDate: "2026-07-15",
+          switchBoundary: "18:00",
+        },
         requestContext: {
           civilDate: "2026-07-14",
           crossedDayBoundary: true,
@@ -342,6 +364,11 @@ describe("TodayPageState", () => {
       ...snapshot,
       data: {
         ...snapshot.data,
+        publicContentContext: {
+          advancedFromCivilDate: false,
+          servedFortuneDate: "2026-07-15",
+          switchBoundary: "18:00",
+        },
         requestContext: {
           civilDate: "2026-07-15",
           crossedDayBoundary: false,
@@ -363,7 +390,7 @@ describe("TodayPageState", () => {
     expect(screen.getByRole("heading", { name: "2026-07-15" })).toBeVisible();
   });
 
-  it("withdraws the 22:59 context and announces the next fortune day after 23:00", async () => {
+  it("withdraws the 17:59 content and announces the next public date after 18:00", async () => {
     vi.useFakeTimers();
     mocks.remaining.mockReturnValueOnce(50).mockReturnValue(60_000);
     const beforeBoundary = {
@@ -373,30 +400,40 @@ describe("TodayPageState", () => {
         ...snapshot.data,
         content: { fortuneDate: "2026-07-14" },
         daJiCard: { contentVersion: "fd-20260714-r1" },
+        publicContentContext: {
+          advancedFromCivilDate: false,
+          servedFortuneDate: "2026-07-14",
+          switchBoundary: "18:00",
+        },
         requestContext: {
           civilDate: "2026-07-14",
           crossedDayBoundary: false,
           fortuneDate: "2026-07-14",
-          shichen: "亥",
+          shichen: "酉",
         },
       },
-      effectiveFrom: "2026-07-13T23:00:00+08:00",
-      effectiveTo: "2026-07-14T23:00:00+08:00",
+      effectiveFrom: "2026-07-13T18:00:00+08:00",
+      effectiveTo: "2026-07-14T18:00:00+08:00",
       fortuneDate: "2026-07-14",
-      responseGeneratedAt: "2026-07-14T22:59:59+08:00",
+      responseGeneratedAt: "2026-07-14T17:59:59+08:00",
     } as TodaySnapshot;
     const afterBoundary = {
       ...snapshot,
       data: {
         ...snapshot.data,
+        publicContentContext: {
+          advancedFromCivilDate: true,
+          servedFortuneDate: "2026-07-15",
+          switchBoundary: "18:00",
+        },
         requestContext: {
           civilDate: "2026-07-14",
-          crossedDayBoundary: true,
-          fortuneDate: "2026-07-15",
-          shichen: "子",
+          crossedDayBoundary: false,
+          fortuneDate: "2026-07-14",
+          shichen: "酉",
         },
       },
-      responseGeneratedAt: "2026-07-14T23:00:00+08:00",
+      responseGeneratedAt: "2026-07-14T18:00:00+08:00",
     } as TodaySnapshot;
     const view = renderResult({ kind: "ready", snapshot: beforeBoundary });
     await act(async () => undefined);
@@ -412,8 +449,8 @@ describe("TodayPageState", () => {
     await act(async () => undefined);
 
     expect(screen.getByRole("heading", { name: "2026-07-15" })).toBeVisible();
-    expect(screen.getByRole("status")).toHaveTextContent("已进入新命理日，今日内容已更新");
-    expect(screen.getByRole("status")).toHaveAttribute("data-update-kind", "fortune_day");
+    expect(screen.getByRole("status")).toHaveTextContent("明日建议已更新");
+    expect(screen.getByRole("status")).toHaveAttribute("data-update-kind", "public_content");
   });
 
   it("revalidates page recovery events once while one refresh is in flight", async () => {

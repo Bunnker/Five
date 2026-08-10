@@ -22,7 +22,7 @@ export function DailyDateRegion({ daily }: DailyDateRegionProps) {
       </div>
 
       <h1 id="daily-element-heading" aria-label={`当日${calendar.dayElementLabel}日`}>
-        当日<span>{calendar.dayElementLabel}</span>日
+        当日<strong>{calendar.dayElementLabel}</strong>日
       </h1>
 
       <dl className="today-date-card__details" aria-label="当日历法信息">

@@ -319,7 +319,9 @@ describe("ContentVersionReview", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "批准内容" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("必审检查或大师凭证尚未通过");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "内容暂时无法处理，请刷新页面后重试。",
+    );
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -414,8 +416,8 @@ describe("ContentVersionReview", () => {
             {
               contentVersion: version.contentVersion,
               createdAt: "2026-07-31T12:00:00+08:00",
-              effectiveFrom: "2026-07-31T23:00:00+08:00",
-              effectiveTo: "2026-08-01T23:00:00+08:00",
+              effectiveFrom: "2026-07-31T18:00:00+08:00",
+              effectiveTo: "2026-08-01T18:00:00+08:00",
               lifecycleRevision: 2,
               state: "approved",
             },
@@ -558,8 +560,8 @@ describe("ContentVersionReview", () => {
                 {
                   contentVersion: publishedVersion.contentVersion,
                   createdAt: "2026-07-31T12:00:00+08:00",
-                  effectiveFrom: "2026-07-31T23:00:00+08:00",
-                  effectiveTo: "2026-08-01T23:00:00+08:00",
+                  effectiveFrom: "2026-07-31T18:00:00+08:00",
+                  effectiveTo: "2026-08-01T18:00:00+08:00",
                   lifecycleRevision: 1,
                   state: "published",
                 },
@@ -637,8 +639,8 @@ describe("ContentVersionReview", () => {
             {
               contentVersion: approvedVersion.contentVersion,
               createdAt: "2026-07-31T12:00:00+08:00",
-              effectiveFrom: "2026-07-31T23:00:00+08:00",
-              effectiveTo: "2026-08-01T23:00:00+08:00",
+              effectiveFrom: "2026-07-31T18:00:00+08:00",
+              effectiveTo: "2026-08-01T18:00:00+08:00",
               lifecycleRevision: 1,
               state: "approved",
             },
@@ -677,8 +679,8 @@ describe("ContentVersionReview", () => {
             {
               contentVersion: withdrawnVersion.contentVersion,
               createdAt: "2026-07-31T12:00:00+08:00",
-              effectiveFrom: "2026-07-31T23:00:00+08:00",
-              effectiveTo: "2026-08-01T23:00:00+08:00",
+              effectiveFrom: "2026-07-31T18:00:00+08:00",
+              effectiveTo: "2026-08-01T18:00:00+08:00",
               lifecycleRevision: 7,
               state: "withdrawn",
             },

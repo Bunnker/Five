@@ -8,11 +8,13 @@ import {
   createIdempotencyKey,
   describeAdminContentApiError,
   type AdminContentVersion,
+  type AdminDailyImageSet,
   type AdminSession,
 } from "../../../admin-api";
 import { formatAdminDateTimeWithYear, shanghaiLocalDateTimeToIso } from "../../../admin-date-time";
 import { AdminSessionGate } from "../../../admin-session-gate";
 import { useAdminSession } from "../../../admin-session-context";
+import { DailyExperiencePreview, type AdminPreviewImage } from "../../daily-experience-preview";
 import { AdminDailyImageSetPanel } from "./admin-daily-image-set";
 import { ContentLifecycleActions } from "./content-lifecycle-actions";
 
@@ -52,6 +54,29 @@ const moduleLabels = {
   visual_and_rights: "视觉与权利",
 } as const;
 
+const previewSlotOrder = ["required_primary", "required_alternative", "optional"] as const;
+
+function previewImagesFromImageSet(imageSet: AdminDailyImageSet | null): AdminPreviewImage[] {
+  if (imageSet === null) return [];
+  const images: AdminPreviewImage[] = [];
+  const seenAssetIds = new Set<string>();
+  previewSlotOrder.forEach((imageSlot) => {
+    const slot = imageSet.slots.find((candidate) => candidate.imageSlot === imageSlot);
+    const assetId = slot?.servedCoverAssetId ?? slot?.coverAssetId;
+    if (assetId === undefined || assetId === null || seenAssetIds.has(assetId)) return;
+    const asset = imageSet.assets.find((candidate) => candidate.assetId === assetId);
+    if (asset === undefined) return;
+    seenAssetIds.add(assetId);
+    images.push({
+      asset,
+      imageSlot,
+      previewUrl: `/admin/api/v1/image-assets/${encodeURIComponent(assetId)}/preview`,
+      selectedForSlot: true,
+    });
+  });
+  return images;
+}
+
 function ContentVersionReviewContent({
   contentVersion,
   session,
@@ -62,6 +87,7 @@ function ContentVersionReviewContent({
   const { clearSession } = useAdminSession();
   const [version, setVersion] = useState<AdminContentVersion | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
+  const [previewImageSet, setPreviewImageSet] = useState<AdminDailyImageSet | null>(null);
   const [loadState, setLoadState] = useState<UiState>({ kind: "loading" });
   const [evidenceState, setEvidenceState] = useState<UiState>({ kind: "idle" });
   const [decisionState, setDecisionState] = useState<UiState>({ kind: "idle" });
@@ -120,6 +146,10 @@ function ContentVersionReviewContent({
     },
     [loadVersion],
   );
+
+  const synchronizePreviewImageSet = useCallback((imageSet: AdminDailyImageSet) => {
+    setPreviewImageSet(imageSet);
+  }, []);
 
   const synchronizeContentLifecycle = useCallback(
     (input: {
@@ -375,6 +405,14 @@ function ContentVersionReviewContent({
         </div>
       </header>
 
+      <DailyExperiencePreview
+        fortuneDate={version.fortuneDate}
+        images={previewImagesFromImageSet(previewImageSet)}
+        mode="version"
+        modules={version.snapshot}
+        revisionLabel={`${version.contentVersion}-${version.lifecycleRevision}`}
+      />
+
       <section className="admin-content-panel" aria-labelledby="snapshot-title">
         <div className="admin-section-heading">
           <p className="admin-kicker">01 · FROZEN SNAPSHOT</p>
@@ -404,6 +442,7 @@ function ContentVersionReviewContent({
         contentVersion={version.contentVersion}
         csrfToken={session.csrfToken}
         enabled={version.snapshot.visual_and_rights !== null}
+        onImageSetChange={synchronizePreviewImageSet}
         onLifecycleChange={synchronizeImageLifecycle}
         onUnauthorized={clearSession}
         versionState={version.state}

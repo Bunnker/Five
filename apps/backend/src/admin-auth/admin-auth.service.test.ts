@@ -23,39 +23,14 @@ describe("admin authentication configuration and evidence minimization", () => {
     expect(summarizeAdminUserAgent(raw)).not.toContain("7339");
   });
 
-  it("requires independent explicit HMAC and versioned encryption keys", () => {
+  it("starts password-only authentication with only the HMAC key configured", () => {
     const hmacKey = randomBytes(32);
-    const encryptionKey = randomBytes(32);
     const configured = adminSecurityCryptoFromEnvironment({
       FIVE_ADMIN_HMAC_KEY_BASE64: hmacKey.toString("base64"),
-      FIVE_ADMIN_TOTP_ACTIVE_KEY_VERSION: "2",
-      FIVE_ADMIN_TOTP_KEYS_JSON: JSON.stringify({
-        1: randomBytes(32).toString("base64"),
-        2: encryptionKey.toString("base64"),
-      }),
     });
     expect(configured.digester.digest("csrf-token", "session")).not.toEqual(
       configured.digester.digest("csrf-verifier", "session"),
     );
-    const encrypted = configured.secretCipher.encrypt(Buffer.from("secret"), "operator", 4);
-    expect(configured.secretCipher.decrypt(encrypted, "operator", 4)).toEqual(
-      Buffer.from("secret"),
-    );
-
-    expect(() =>
-      adminSecurityCryptoFromEnvironment({
-        FIVE_ADMIN_HMAC_KEY_BASE64: hmacKey.toString("base64"),
-        FIVE_ADMIN_TOTP_ACTIVE_KEY_VERSION: "3",
-        FIVE_ADMIN_TOTP_KEYS_JSON: JSON.stringify({ 2: encryptionKey.toString("base64") }),
-      }),
-    ).toThrow("active TOTP encryption key version is absent");
-
-    expect(() =>
-      adminSecurityCryptoFromEnvironment({
-        FIVE_ADMIN_HMAC_KEY_BASE64: hmacKey.toString("base64"),
-        FIVE_ADMIN_TOTP_ACTIVE_KEY_VERSION: "1",
-        FIVE_ADMIN_TOTP_KEYS_JSON: JSON.stringify({ 1: hmacKey.toString("base64") }),
-      }),
-    ).toThrow("must not be reused");
+    expect("secretCipher" in configured).toBe(false);
   });
 });

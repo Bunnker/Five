@@ -13,11 +13,8 @@ import { installAdminRequestProtection } from "./admin-request-protection";
 
 const authService = {
   authenticateSession: vi.fn(),
-  beginLogin: vi.fn(),
-  beginRecovery: vi.fn(),
-  completeLogin: vi.fn(),
-  completeRecovery: vi.fn(),
   getSession: vi.fn(),
+  login: vi.fn(),
   logout: vi.fn(),
   logoutAll: vi.fn(),
   preflight: vi.fn(),
@@ -33,7 +30,7 @@ const authService = {
 })
 class AdminAuthHttpTestModule {}
 
-function allowedPermit(action: "login" | "login_totp" | "recovery" | "recovery_complete") {
+function allowedPermit(action: "login") {
   return {
     action,
     evidence: {
@@ -64,7 +61,7 @@ describe("admin authentication HTTP", () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(authService.preflight).mockImplementation(async (action) => allowedPermit(action));
+    vi.mocked(authService.preflight).mockImplementation(async () => allowedPermit("login"));
     vi.mocked(authService.recordCsrfRejected).mockResolvedValue(undefined);
   });
 
@@ -85,35 +82,45 @@ describe("admin authentication HTTP", () => {
     expect(cookie).not.toContain("Domain=");
   });
 
-  it("creates a one-use password challenge without returning credential material", async () => {
-    vi.mocked(authService.beginLogin).mockResolvedValue({
-      challengeExpiresAt: new Date("2026-07-31T20:05:00.000Z"),
-      challengeToken: "challenge-token-".padEnd(43, "x"),
-      kind: "challenge",
+  it("establishes a session directly from the administrator username and password", async () => {
+    vi.mocked(authService.login).mockResolvedValue({
+      absoluteExpiresAt: new Date("2026-08-01T08:00:00.000Z"),
+      accountId: "admin-1",
+      credentialRevision: 4,
+      csrfToken: "csrf-token".padEnd(43, "c"),
+      idleExpiresAt: new Date("2026-07-31T20:30:00.000Z"),
+      issuedAt: new Date("2026-07-31T20:00:00.000Z"),
+      kind: "authenticated",
+      sessionToken: "session-token".padEnd(43, "s"),
+      username: "operator",
     });
 
     const response = await app.inject({
       headers: {
         origin: "http://127.0.0.1:3000",
-        "x-request-id": "admin-password-challenge",
+        "x-request-id": "admin-session-create",
       },
       method: "POST",
-      payload: { password: "correct horse battery staple", username: "Operator" },
-      url: "/admin/api/v1/auth/password-challenges",
+      payload: { password: "Passw0rd", username: "Operator" },
+      url: "/admin/api/v1/auth/sessions",
     });
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(201);
     expect(response.headers).toMatchObject({
       "cache-control": "no-store",
-      "x-request-id": "admin-password-challenge",
+      "x-request-id": "admin-session-create",
     });
-    expect(response.json()).toEqual({
-      challengeToken: "challenge-token-".padEnd(43, "x"),
-      expiresAt: "2026-07-31T20:05:00.000Z",
+    expect(response.headers["set-cookie"]).toContain(
+      `five_admin_session=${"session-token".padEnd(43, "s")}`,
+    );
+    expect(response.json()).toMatchObject({
+      credentialRevision: 4,
+      csrfToken: "csrf-token".padEnd(43, "c"),
+      username: "operator",
     });
-    expect(response.body).not.toMatch(/password|operator/iu);
-    expect(authService.beginLogin).toHaveBeenCalledWith({
-      password: "correct horse battery staple",
+    expect(response.body).not.toMatch(/password|session-token/iu);
+    expect(authService.login).toHaveBeenCalledWith({
+      password: "Passw0rd",
       permit: expect.objectContaining({ action: "login" }),
       username: "Operator",
     });
@@ -127,14 +134,14 @@ describe("admin authentication HTTP", () => {
       },
       method: "POST",
       payload: { password: "correct horse battery staple", username: ".admin" },
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
       error: { code: "INVALID_ARGUMENT", requestId: "admin-invalid-username" },
     });
-    expect(authService.beginLogin).not.toHaveBeenCalled();
+    expect(authService.login).not.toHaveBeenCalled();
   });
 
   it("maps malformed authentication JSON to the stable no-store error envelope", async () => {
@@ -146,7 +153,7 @@ describe("admin authentication HTTP", () => {
       },
       method: "POST",
       payload: "{",
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.statusCode).toBe(400);
@@ -171,7 +178,7 @@ describe("admin authentication HTTP", () => {
       },
       method: "POST",
       payload: { password: "x".repeat(1_100_000), username: "Operator" },
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.statusCode).toBe(400);
@@ -211,7 +218,7 @@ describe("admin authentication HTTP", () => {
         "x-request-id": `admin-parser-${_caseName.replaceAll(" ", "-")}`,
       },
       method: "POST",
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.statusCode).toBe(400);
@@ -222,7 +229,7 @@ describe("admin authentication HTTP", () => {
   });
 
   it("maps an unexpected admin store failure to a stable retryable 503", async () => {
-    vi.mocked(authService.beginLogin).mockRejectedValue(
+    vi.mocked(authService.login).mockRejectedValue(
       new Error("postgresql://admin-password@secret-host/five"),
     );
 
@@ -233,7 +240,7 @@ describe("admin authentication HTTP", () => {
       },
       method: "POST",
       payload: { password: "correct horse battery staple", username: "Operator" },
-      url: "/admin/api/v1/auth/password-challenges",
+      url: "/admin/api/v1/auth/sessions",
     });
 
     expect(response.statusCode).toBe(503);
@@ -248,52 +255,6 @@ describe("admin authentication HTTP", () => {
       },
     });
     expect(response.body).not.toContain("postgresql://admin-password@secret-host/five");
-  });
-
-  it("establishes the admin session in an HttpOnly strict same-site cookie", async () => {
-    vi.mocked(authService.completeLogin).mockResolvedValue({
-      absoluteExpiresAt: new Date("2026-08-01T08:00:00.000Z"),
-      accountId: "admin-1",
-      credentialRevision: 4,
-      csrfToken: "csrf-token".padEnd(43, "c"),
-      idleExpiresAt: new Date("2026-07-31T20:30:00.000Z"),
-      issuedAt: new Date("2026-07-31T20:00:00.000Z"),
-      kind: "authenticated",
-      sessionToken: "session-token".padEnd(43, "s"),
-      username: "operator",
-    });
-
-    const response = await app.inject({
-      headers: {
-        origin: "http://127.0.0.1:3000",
-        "x-request-id": "admin-session-create",
-      },
-      method: "POST",
-      payload: {
-        challengeToken: "challenge-token".padEnd(43, "x"),
-        totpCode: "123456",
-      },
-      url: "/admin/api/v1/auth/sessions",
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.headers["set-cookie"]).toContain(
-      `five_admin_session=${"session-token".padEnd(43, "s")}`,
-    );
-    expect(response.headers["set-cookie"]).toContain("HttpOnly");
-    expect(response.headers["set-cookie"]).toContain("SameSite=Strict");
-    expect(response.headers["set-cookie"]).toContain("Path=/admin");
-    expect(response.headers["set-cookie"]).toContain("Max-Age=43200");
-    expect(response.headers["set-cookie"]).not.toContain("Domain=");
-    expect(response.json()).toEqual({
-      absoluteExpiresAt: "2026-08-01T08:00:00.000Z",
-      credentialRevision: 4,
-      csrfToken: "csrf-token".padEnd(43, "c"),
-      idleExpiresAt: "2026-07-31T20:30:00.000Z",
-      issuedAt: "2026-07-31T20:00:00.000Z",
-      username: "operator",
-    });
-    expect(response.body).not.toContain("session-token");
   });
 
   it("returns the current session and its in-memory CSRF token", async () => {
@@ -392,95 +353,5 @@ describe("admin authentication HTTP", () => {
       context: expect.objectContaining({ requestId: "admin-logout-all" }),
       principal,
     });
-  });
-
-  it("consumes one recovery code and returns only the pending TOTP provisioning", async () => {
-    vi.mocked(authService.beginRecovery).mockResolvedValue({
-      challengeExpiresAt: new Date("2026-07-31T20:10:00.000Z"),
-      challengeToken: "recovery-challenge".padEnd(43, "r"),
-      kind: "challenge",
-      totpSetup: {
-        otpauthUri:
-          "otpauth://totp/Five%3Aoperator?secret=ABCDEFGHIJKLMNOPQRSTUVWXYZ234567&issuer=Five&algorithm=SHA1&digits=6&period=30",
-        secretBase32: "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
-      },
-    });
-
-    const response = await app.inject({
-      headers: {
-        origin: "http://127.0.0.1:3000",
-        "x-request-id": "admin-recovery-begin",
-      },
-      method: "POST",
-      payload: { recoveryCode: "RC-1234567890123456", username: "Operator" },
-      url: "/admin/api/v1/auth/recovery-challenges",
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      challengeToken: "recovery-challenge".padEnd(43, "r"),
-      expiresAt: "2026-07-31T20:10:00.000Z",
-      totpProvisioning: {
-        algorithm: "SHA1",
-        digits: 6,
-        otpauthUri:
-          "otpauth://totp/Five%3Aoperator?secret=ABCDEFGHIJKLMNOPQRSTUVWXYZ234567&issuer=Five&algorithm=SHA1&digits=6&period=30",
-        periodSeconds: 30,
-        secret: "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567",
-      },
-    });
-    expect(response.body).not.toContain("RC-1234567890123456");
-  });
-
-  it("completes recovery, creates a session, and displays exactly ten new codes once", async () => {
-    const sessionToken = "recovered-session".padEnd(43, "s");
-    const recoveryCodes = Array.from(
-      { length: 10 },
-      (_, index) => `RC-${String(index + 1).padStart(2, "0")}-${"x".repeat(24)}`,
-    );
-    vi.mocked(authService.completeRecovery).mockResolvedValue({
-      kind: "completed",
-      recoveryCodes,
-      session: {
-        absoluteExpiresAt: new Date("2026-08-01T08:00:00.000Z"),
-        accountId: "admin-1",
-        credentialRevision: 5,
-        csrfToken: "recovered-csrf".padEnd(43, "c"),
-        idleExpiresAt: new Date("2026-07-31T20:30:00.000Z"),
-        issuedAt: new Date("2026-07-31T20:00:00.000Z"),
-        sessionToken,
-        username: "operator",
-      },
-    });
-
-    const response = await app.inject({
-      headers: {
-        origin: "http://127.0.0.1:3000",
-        "x-request-id": "admin-recovery-complete",
-      },
-      method: "POST",
-      payload: {
-        challengeToken: "recovery-challenge".padEnd(43, "r"),
-        newPassword: "new correct horse battery staple",
-        totpCode: "654321",
-      },
-      url: "/admin/api/v1/auth/recovery-completions",
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.headers["set-cookie"]).toContain(`five_admin_session=${sessionToken}`);
-    expect(response.json()).toEqual({
-      recoveryCodes,
-      session: {
-        absoluteExpiresAt: "2026-08-01T08:00:00.000Z",
-        credentialRevision: 5,
-        csrfToken: "recovered-csrf".padEnd(43, "c"),
-        idleExpiresAt: "2026-07-31T20:30:00.000Z",
-        issuedAt: "2026-07-31T20:00:00.000Z",
-        username: "operator",
-      },
-    });
-    expect(response.body).not.toContain(sessionToken);
-    expect(authService.getSession).not.toHaveBeenCalled();
   });
 });

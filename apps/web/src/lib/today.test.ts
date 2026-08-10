@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   loadToday,
   loadTodayResult,
+  parseDailyExperienceViewData,
   type AttentionSectionData,
   type CiJiCardData,
   type DaJiCardData,
@@ -29,6 +30,11 @@ const dateData = {
       weekdayText: "星期三",
     },
     fortuneDate: "2026-07-15",
+  },
+  publicContentContext: {
+    advancedFromCivilDate: true,
+    servedFortuneDate: "2026-07-15",
+    switchBoundary: "18:00",
   },
   requestContext: {
     civilDate: "2026-07-14",
@@ -371,6 +377,7 @@ const apiTodayResponse = {
     tiers: [otherTiers[0], otherTiers[3], daJiTier, otherTiers[1], otherTiers[2]],
     versions,
   },
+  publicContentContext: dateData.publicContentContext,
   requestContext: dateData.requestContext,
 };
 
@@ -378,8 +385,8 @@ const cacheableApiTodayResponse = {
   ...apiTodayResponse,
   content: {
     ...apiTodayResponse.content,
-    effectiveFrom: "2026-07-14T23:00:00+08:00",
-    effectiveTo: "2026-07-15T23:00:00+08:00",
+    effectiveFrom: "2026-07-14T18:00:00+08:00",
+    effectiveTo: "2026-07-15T18:00:00+08:00",
   },
   requestContext: {
     ...apiTodayResponse.requestContext,
@@ -739,8 +746,8 @@ describe("loadToday", () => {
       snapshot: {
         contentVersion,
         data: pageData,
-        effectiveFrom: "2026-07-14T23:00:00+08:00",
-        effectiveTo: "2026-07-15T23:00:00+08:00",
+        effectiveFrom: "2026-07-14T18:00:00+08:00",
+        effectiveTo: "2026-07-15T18:00:00+08:00",
         fortuneDate: "2026-07-15",
         responseGeneratedAt: "2026-07-14T23:30:00+08:00",
         serverObservedAtMs: Date.parse("Tue, 14 Jul 2026 15:30:00 GMT") + 5_999,
@@ -802,8 +809,8 @@ describe("loadToday", () => {
 
   it.each([
     ["missing server observation", { date: null }],
-    ["server time before effectiveFrom", { age: "0", date: "Tue, 14 Jul 2026 14:59:59 GMT" }],
-    ["server time at effectiveTo", { age: "0", date: "Wed, 15 Jul 2026 15:00:00 GMT" }],
+    ["server time before effectiveFrom", { age: "0", date: "Tue, 14 Jul 2026 09:59:59 GMT" }],
+    ["server time at effectiveTo", { age: "0", date: "Wed, 15 Jul 2026 10:00:00 GMT" }],
   ])("rejects a complete 200 with %s", async (_label, responseOptions) => {
     vi.stubGlobal(
       "fetch",
@@ -824,7 +831,7 @@ describe("loadToday", () => {
           ...cacheableApiTodayResponse,
           requestContext: {
             ...cacheableApiTodayResponse.requestContext,
-            responseGeneratedAt: "2026-07-15T23:00:00+08:00",
+            responseGeneratedAt: "2026-07-15T18:00:00+08:00",
           },
         }),
       ),
@@ -851,6 +858,140 @@ describe("loadToday", () => {
           requestContext: {
             ...cacheableApiTodayResponse.requestContext,
             ...requestOverride,
+          },
+        }),
+      ),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toEqual({
+      kind: "refresh_failed",
+      reason: "invalid_response",
+    });
+  });
+
+  it.each([
+    {
+      advancedFromCivilDate: false,
+      civilDate: "2026-07-14",
+      crossedDayBoundary: false,
+      expectedFortuneDate: "2026-07-14",
+      generatedAt: "2026-07-14T17:59:59+08:00",
+      httpDate: "Tue, 14 Jul 2026 09:59:59 GMT",
+      label: "17:59 serves the civil date",
+      servedFortuneDate: "2026-07-14",
+      shichen: "酉",
+      window: ["2026-07-13T18:00:00+08:00", "2026-07-14T18:00:00+08:00"],
+    },
+    {
+      advancedFromCivilDate: true,
+      civilDate: "2026-07-14",
+      crossedDayBoundary: false,
+      expectedFortuneDate: "2026-07-14",
+      generatedAt: "2026-07-14T18:00:00+08:00",
+      httpDate: "Tue, 14 Jul 2026 10:00:00 GMT",
+      label: "18:00 serves the next public date without advancing the fortune day",
+      servedFortuneDate: "2026-07-15",
+      shichen: "酉",
+      window: ["2026-07-14T18:00:00+08:00", "2026-07-15T18:00:00+08:00"],
+    },
+    {
+      advancedFromCivilDate: true,
+      civilDate: "2026-07-14",
+      crossedDayBoundary: false,
+      expectedFortuneDate: "2026-07-14",
+      generatedAt: "2026-07-14T22:59:59+08:00",
+      httpDate: "Tue, 14 Jul 2026 14:59:59 GMT",
+      label: "22:59 still keeps the internal fortune day at the civil date",
+      servedFortuneDate: "2026-07-15",
+      shichen: "亥",
+      window: ["2026-07-14T18:00:00+08:00", "2026-07-15T18:00:00+08:00"],
+    },
+    {
+      advancedFromCivilDate: true,
+      civilDate: "2026-07-14",
+      crossedDayBoundary: true,
+      expectedFortuneDate: "2026-07-15",
+      generatedAt: "2026-07-14T23:00:00+08:00",
+      httpDate: "Tue, 14 Jul 2026 15:00:00 GMT",
+      label: "23:00 advances only the internal fortune context",
+      servedFortuneDate: "2026-07-15",
+      shichen: "子",
+      window: ["2026-07-14T18:00:00+08:00", "2026-07-15T18:00:00+08:00"],
+    },
+    {
+      advancedFromCivilDate: false,
+      civilDate: "2026-07-15",
+      crossedDayBoundary: false,
+      expectedFortuneDate: "2026-07-15",
+      generatedAt: "2026-07-15T00:00:00+08:00",
+      httpDate: "Tue, 14 Jul 2026 16:00:00 GMT",
+      label: "00:00 does not advance either date a second time",
+      servedFortuneDate: "2026-07-15",
+      shichen: "子",
+      window: ["2026-07-14T18:00:00+08:00", "2026-07-15T18:00:00+08:00"],
+    },
+  ])("accepts the independent 18:00 and 23:00 boundaries: $label", async (example) => {
+    const body = {
+      ...cacheableApiTodayResponse,
+      content: {
+        ...cacheableApiTodayResponse.content,
+        effectiveFrom: example.window[0],
+        effectiveTo: example.window[1],
+        fortuneDate: example.servedFortuneDate,
+      },
+      publicContentContext: {
+        advancedFromCivilDate: example.advancedFromCivilDate,
+        servedFortuneDate: example.servedFortuneDate,
+        switchBoundary: "18:00",
+      },
+      requestContext: {
+        ...cacheableApiTodayResponse.requestContext,
+        civilDate: example.civilDate,
+        crossedDayBoundary: example.crossedDayBoundary,
+        fortuneDate: example.expectedFortuneDate,
+        responseGeneratedAt: example.generatedAt,
+        shichen: example.shichen,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        cacheableResponse(body, {
+          age: "0",
+          date: example.httpDate,
+        }),
+      ),
+    );
+
+    await expect(loadTodayResult({ apiOrigin: "http://backend.test:3100" })).resolves.toMatchObject(
+      {
+        kind: "ready",
+        snapshot: {
+          data: {
+            content: { fortuneDate: example.servedFortuneDate },
+            publicContentContext: {
+              advancedFromCivilDate: example.advancedFromCivilDate,
+              servedFortuneDate: example.servedFortuneDate,
+              switchBoundary: "18:00",
+            },
+            requestContext: {
+              fortuneDate: example.expectedFortuneDate,
+            },
+          },
+        },
+      },
+    );
+  });
+
+  it("rejects a response whose public content date disagrees with the served date", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        cacheableResponse({
+          ...cacheableApiTodayResponse,
+          publicContentContext: {
+            ...cacheableApiTodayResponse.publicContentContext,
+            servedFortuneDate: "2026-07-16",
           },
         }),
       ),
@@ -1382,6 +1523,20 @@ describe("loadToday", () => {
     expect(result?.basis?.steps).toEqual(steps);
   });
 
+  it("accepts generated share copy that lists all five public tier labels", async () => {
+    const copyText =
+      "2026年8月7日 · 土日\n大吉：白色\n次吉：黄色\n平：绿色\n较差：红色\n不利：黑色\n内容基于传统文化规则整理，仅供穿搭参考。";
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        share: { ...share, copyText },
+      },
+    });
+
+    expect(result?.share?.copyText).toBe(copyText);
+  });
+
   it.each([
     ["missing share content", null],
     ["empty share summary", { ...share, summaryText: "" }],
@@ -1403,15 +1558,12 @@ describe("loadToday", () => {
     ).resolves.toBeNull();
   });
 
-  it("keeps the two required image previews when no supplemental image is published", async () => {
+  it("keeps the two required image previews when an unfilled supplemental look remains in the formula", async () => {
     const result = await loadFrom({
       ...apiTodayResponse,
       content: {
         ...apiTodayResponse.content,
         looks: [alternateLook, mainLook],
-        outfitFormulas: outfitFormulas.map((formula) =>
-          formula.kind === "mono" ? { ...formula, lookIds: [] } : formula,
-        ),
       },
     });
 
@@ -1543,13 +1695,6 @@ describe("loadToday", () => {
         outfitFormulas: outfitFormulas.map((formula) =>
           formula.kind === "dual" ? { ...formula, lookIds: [] } : formula,
         ),
-      },
-    ],
-    [
-      "formula reference to a look that is not published today",
-      {
-        looks: [mainLook, alternateLook],
-        outfitFormulas,
       },
     ],
     [
@@ -1964,6 +2109,23 @@ describe("loadToday", () => {
     expect(result?.pingCard).toEqual(pingCard);
   });
 
+  it("shows a safe operator-corrected balance suggestion without changing algorithm tiers", async () => {
+    const description = "已经穿好衣服时，可以用今日大吉色的普通配饰做少量点缀，不必整套更换。";
+    const result = await loadFrom({
+      ...apiTodayResponse,
+      content: {
+        ...apiTodayResponse.content,
+        balanceSuggestion: { ...balanceSuggestion, description },
+      },
+    });
+
+    expect(result?.attentionSection?.balanceSuggestion.description).toBe(description);
+    expect(result?.attentionSection?.groups).toEqual(attentionSection.groups);
+    expect(result?.daJiCard).toEqual(daJiCard);
+    expect(result?.ciJiCard).toEqual(ciJiCard);
+    expect(result?.pingCard).toEqual(pingCard);
+  });
+
   it("does not display ping by itself when ci_ji content is invalid", async () => {
     const result = await loadFrom({
       ...apiTodayResponse,
@@ -2287,5 +2449,22 @@ describe("loadToday", () => {
     await vi.advanceTimersByTimeAsync(50);
 
     await expect(result).resolves.toBeNull();
+  });
+});
+
+describe("parseDailyExperienceViewData", () => {
+  it("preserves the server preview public context after the 18:00 switch", () => {
+    const result = parseDailyExperienceViewData(
+      cacheableApiTodayResponse.content,
+      cacheableApiTodayResponse.requestContext,
+      cacheableApiTodayResponse.publicContentContext,
+      contentVersion,
+    );
+
+    expect(result?.publicContentContext).toEqual({
+      advancedFromCivilDate: true,
+      servedFortuneDate: "2026-07-15",
+      switchBoundary: "18:00",
+    });
   });
 });

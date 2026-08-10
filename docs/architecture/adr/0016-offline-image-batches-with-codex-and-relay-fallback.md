@@ -1,6 +1,6 @@
 # ADR-0016：提前批量生成每日图片，Codex 为主、中转为备用
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0023
 - 日期：2026-07-26
 - 补充：ADR-0006、ADR-0013
 

@@ -6,6 +6,7 @@ import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { PublicContentContextResolver } from "../public-content/public-content-context-resolver";
 import { RequestContextResolver } from "../request-context/request-context-resolver";
 import {
   DAILY_CONTENT_READER,
@@ -47,6 +48,7 @@ const resolveDailyContent = vi.fn<DailyContentResolutionReader["resolve"]>();
 @Module({
   controllers: [DailyContentController],
   providers: [
+    PublicContentContextResolver,
     TodayCachePolicy,
     {
       provide: RequestContextResolver,
@@ -67,14 +69,25 @@ const resolveDailyContent = vi.fn<DailyContentResolutionReader["resolve"]>();
       useValue: { resolve: resolveDailyContent } satisfies DailyContentResolutionReader,
     },
     {
-      inject: [RequestContextResolver, DAILY_CONTENT_RESOLUTION_READER, TodayCachePolicy],
+      inject: [
+        RequestContextResolver,
+        PublicContentContextResolver,
+        DAILY_CONTENT_RESOLUTION_READER,
+        TodayCachePolicy,
+      ],
       provide: DailyContentService,
       useFactory: (
         requestContextResolver: RequestContextResolver,
+        publicContentContextResolver: PublicContentContextResolver,
         dailyContentResolutionReader: DailyContentResolutionReader,
         cachePolicy: TodayCachePolicy,
       ) =>
-        new DailyContentService(requestContextResolver, dailyContentResolutionReader, cachePolicy),
+        new DailyContentService(
+          requestContextResolver,
+          publicContentContextResolver,
+          dailyContentResolutionReader,
+          cachePolicy,
+        ),
     },
     {
       inject: [DailyContentService],

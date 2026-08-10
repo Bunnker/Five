@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import type { StoredContentVersion } from "../content-lifecycle/content-lifecycle.store";
 import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
-import { projectPublishedDailyContent } from "./published-content-projector";
+import {
+  projectDailyContentSnapshot,
+  projectPublishedDailyContent,
+} from "./published-content-projector";
 
 type AdminImageAsset = components["schemas"]["AdminImageAsset"];
 type DraftModules = components["schemas"]["DraftModules"];
@@ -414,5 +417,21 @@ describe("projectPublishedDailyContent", () => {
     imageSet.assets[0] = { ...imageSet.assets[0]!, rightsStatus: "revoked" };
 
     expect(projectPublishedDailyContent(publishedVersion(), imageSet)).toBeNull();
+  });
+
+  it("projects a scheduled admin preview with only the two required named slots", () => {
+    const imageSet = activeImageSet();
+    imageSet.slots = imageSet.slots.filter((slot) => slot.imageSlot !== "optional");
+
+    const projected = projectDailyContentSnapshot(
+      publishedVersion({ state: "scheduled" }),
+      imageSet,
+      new Set(["scheduled"]),
+    );
+
+    expect(projected?.looks.map((look) => look.lookId)).toEqual([
+      "look-primary",
+      "look-alternative",
+    ]);
   });
 });

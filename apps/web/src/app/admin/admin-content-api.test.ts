@@ -165,7 +165,7 @@ describe("adminApi content workflow", () => {
 
     const result = await adminApi.scheduleContentVersion({
       body: {
-        effectiveFrom: "2026-07-31T23:00:00+08:00",
+        effectiveFrom: "2026-07-31T18:00:00+08:00",
         expectedActiveContentVersion: "fd-20260801-r0",
         reason: "按已确认的生效时间上线",
       },
@@ -180,7 +180,7 @@ describe("adminApi content workflow", () => {
       "/admin/api/v1/daily-content-versions/fd-20260801-r1/schedule",
       expect.objectContaining({
         body: JSON.stringify({
-          effectiveFrom: "2026-07-31T23:00:00+08:00",
+          effectiveFrom: "2026-07-31T18:00:00+08:00",
           expectedActiveContentVersion: "fd-20260801-r0",
           reason: "按已确认的生效时间上线",
         }),
@@ -494,8 +494,10 @@ describe("adminApi content workflow", () => {
           draftId: "draft-31",
           draftRevision: 2,
           fortuneDate: "2026-08-01",
+          imageSlot: "required_primary",
           previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
           reviewLocked: false,
+          selectedForSlot: true,
         },
         { headers: { ETag: '"draft:2"' }, status: 201 },
       ),
@@ -503,6 +505,7 @@ describe("adminApi content workflow", () => {
     vi.stubGlobal("fetch", fetchMock);
     const formData = new FormData();
     formData.append("file", new File(["image"], "outfit.webp", { type: "image/webp" }));
+    formData.append("imageSlot", "required_primary");
     formData.append("metadata", new Blob(["{}"], { type: "application/json" }));
 
     const result = await adminApi.uploadDraftImage({
@@ -549,8 +552,10 @@ describe("adminApi content workflow", () => {
           draftId: "draft-31",
           draftRevision: 3,
           fortuneDate: "2026-08-01",
+          imageSlot: null,
           previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
           reviewLocked: false,
+          selectedForSlot: false,
         },
         { headers: { ETag: '"draft:3"' } },
       ),

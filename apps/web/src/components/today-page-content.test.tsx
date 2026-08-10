@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import type { TodayPageData } from "../lib/today";
 import { TodayPageContent } from "./today-page-content";
+import { DailyExperienceView } from "./daily-experience-view";
 
 const baseToday = {
   content: {
@@ -15,6 +16,11 @@ const baseToday = {
       weekdayText: "星期三",
     },
     fortuneDate: "2026-07-15",
+  },
+  publicContentContext: {
+    advancedFromCivilDate: false,
+    servedFortuneDate: "2026-07-15",
+    switchBoundary: "18:00",
   },
   requestContext: {
     civilDate: "2026-07-15",
@@ -264,6 +270,43 @@ const completeToday = {
 };
 
 describe("TodayPageContent", () => {
+  it("uses the same public component tree while reporting only the last selected admin object", () => {
+    const onSelectionChange = vi.fn();
+    render(<DailyExperienceView today={completeToday} onSelectionChange={onSelectionChange} />);
+
+    fireEvent.click(screen.getByRole("heading", { name: "今日木日" }));
+    fireEvent.click(screen.getByText("今日木日，木生火，火为大吉。"));
+    fireEvent.click(screen.getByRole("heading", { name: "红色同色系" }));
+    fireEvent.click(screen.getByRole("link", { name: "分享今天" }));
+    const helpNavigationAllowed = fireEvent.click(
+      screen.getByRole("link", { name: "使用说明与反馈" }),
+    );
+
+    expect(onSelectionChange).toHaveBeenNthCalledWith(1, "calendar.summary");
+    expect(onSelectionChange).toHaveBeenNthCalledWith(2, "tier.da_ji.explanation");
+    expect(onSelectionChange).toHaveBeenNthCalledWith(3, "formula.formula-mono.title");
+    expect(onSelectionChange).toHaveBeenLastCalledWith("share.copy");
+    expect(helpNavigationAllowed).toBe(false);
+    expect(screen.getByRole("main")).toHaveClass("page-shell");
+  });
+
+  it("opens the visible tier body as editable copy while keeping the rank algorithm readonly", () => {
+    const onSelectionChange = vi.fn();
+    render(
+      <DailyExperienceView
+        mode="admin-preview"
+        today={completeToday}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("heading", { name: "今日优先" }));
+    fireEvent.click(screen.getByLabelText("第 1 档"));
+
+    expect(onSelectionChange).toHaveBeenNthCalledWith(1, "tier.da_ji.explanation");
+    expect(onSelectionChange).toHaveBeenNthCalledWith(2, "tier.da_ji.algorithm");
+  });
+
   it("keeps the fixed date, color decisions, formulas and image preview page order", () => {
     render(<TodayPageContent today={completeToday} />);
 
@@ -292,20 +335,42 @@ describe("TodayPageContent", () => {
     );
   });
 
-  it("offers real next steps and shows the reviewed reference statement after the images", () => {
+  it("emphasizes each tier element without exposing the professional relation label", () => {
     render(<TodayPageContent today={completeToday} />);
+
+    const daJi = screen.getByRole("article", { name: "今日优先" });
+    const ciJi = screen.getByRole("article", { name: "稳妥选择" });
+    const ping = screen.getByRole("article", { name: "日常可穿" });
+    const lowerTiers = screen.getByRole("region", { name: "较差 · 不利" });
+
+    expect(within(daJi).getByText("火", { selector: "strong" })).toBeVisible();
+    expect(within(ciJi).getByText("木", { selector: "strong" })).toBeVisible();
+    expect(within(ping).getByText("金", { selector: "strong" })).toBeVisible();
+    expect(within(lowerTiers).getByText("水", { selector: "strong" })).toBeVisible();
+    expect(within(lowerTiers).getByText("土", { selector: "strong" })).toBeVisible();
+
+    expect(within(daJi).queryByText("木生火")).not.toBeInTheDocument();
+    expect(within(ciJi).queryByText("木与木同类")).not.toBeInTheDocument();
+    expect(within(ping).queryByText("金克木")).not.toBeInTheDocument();
+    expect(within(lowerTiers).queryByText("水生木")).not.toBeInTheDocument();
+    expect(within(lowerTiers).queryByText("木克土")).not.toBeInTheDocument();
+    expect(within(daJi).getByText("今日木日，木生火，火为大吉。")).toBeVisible();
+  });
+
+  it("offers real next steps and shows the reviewed reference statement after the images", () => {
+    render(<TodayPageContent channelId="wechat_official" today={completeToday} />);
 
     expect(screen.getByRole("link", { name: "分享今天" })).toHaveAttribute(
       "href",
-      nextSteps.shareHref,
+      "/share?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=wechat_official",
     );
     expect(screen.getByRole("link", { name: "使用说明与反馈" })).toHaveAttribute(
       "href",
-      "/help?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=organic",
+      "/help?fortuneDate=2026-07-15&expectedContentVersion=fd-20260715-r1&channelId=wechat_official",
     );
     expect(screen.getByRole("link", { name: "查看今日颜色" })).toHaveAttribute(
       "href",
-      nextSteps.colorsHref,
+      `${nextSteps.colorsHref}&channelId=wechat_official`,
     );
     expect(screen.getByRole("link", { name: "查看今日颜色" })).toHaveClass(
       "foundation-action",
@@ -313,11 +378,15 @@ describe("TodayPageContent", () => {
     );
     expect(screen.getByRole("link", { name: "看看怎么搭" })).toHaveAttribute(
       "href",
-      nextSteps.outfitsHref,
+      `${nextSteps.outfitsHref}&channelId=wechat_official`,
     );
     expect(screen.getByRole("link", { name: "为什么这样排" })).toHaveAttribute(
       "href",
-      nextSteps.basisHref,
+      `${nextSteps.basisHref}&channelId=wechat_official`,
+    );
+    expect(screen.getByRole("link", { name: "查看单色穿法：红色同色系" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("channelId=wechat_official"),
     );
 
     const statement = screen.getByText(basis.disclaimer);

@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TodayPageData } from "../../lib/today";
@@ -11,6 +12,10 @@ const { headersMock, loadTodayMock } = vi.hoisted(() => ({
 
 vi.mock("next/headers", () => ({
   headers: headersMock,
+}));
+
+vi.mock("../../components/public-content-boundary-guard", () => ({
+  PublicContentBoundaryGuard: ({ children }: { children: ReactNode }) => children,
 }));
 
 vi.mock("../../lib/today", () => ({
@@ -106,11 +111,16 @@ const today = {
     relationText: "金克木",
     tierCode: "ping",
   },
+  publicContentContext: {
+    advancedFromCivilDate: true,
+    servedFortuneDate: "2026-07-15",
+    switchBoundary: "18:00",
+  },
   requestContext: {
-    civilDate: "2026-07-15",
+    civilDate: "2026-07-14",
     crossedDayBoundary: false,
-    fortuneDate: "2026-07-15",
-    shichen: "午",
+    fortuneDate: "2026-07-14",
+    shichen: "酉",
   },
 } as TodayPageData;
 
@@ -127,7 +137,7 @@ describe("BasisPage", () => {
     loadTodayMock.mockResolvedValue(today);
   });
 
-  it("explains the published day branch and all five color tiers from one active snapshot", async () => {
+  it("explains the served next-day content after 18:00 from one active snapshot", async () => {
     render(await BasisPage({ searchParams: Promise.resolve(validSearchParams) }));
 
     expect(loadTodayMock).toHaveBeenCalledWith({ requestId: "request-basis-page" });
@@ -198,6 +208,30 @@ describe("BasisPage", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("推算依据暂时无法打开");
     expect(screen.getByRole("status")).toHaveTextContent("当日依据还没有加载完整");
+  });
+
+  it("preserves a valid entry channel on the return path", async () => {
+    render(
+      await BasisPage({
+        searchParams: Promise.resolve({ ...validSearchParams, channelId: "wechat_official" }),
+      }),
+    );
+
+    expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute(
+      "href",
+      "/?channelId=wechat_official",
+    );
+  });
+
+  it("rejects an invalid optional channel without reflecting it", async () => {
+    render(
+      await BasisPage({
+        searchParams: Promise.resolve({ ...validSearchParams, channelId: ["organic", "wechat"] }),
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("暂时找不到这份推算依据");
+    expect(screen.getByRole("link", { name: "返回今日首页" })).toHaveAttribute("href", "/");
   });
 
   it.each([

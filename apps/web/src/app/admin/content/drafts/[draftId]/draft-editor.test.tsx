@@ -400,4 +400,56 @@ describe("DraftEditor", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("saves a visible tier correction without editing JSON", async () => {
+    const completeDraft = {
+      ...draft,
+      draftRevision: 4,
+      modules: completeModules,
+    };
+    const correctedCalendar = {
+      ...completeModules.calendar_algorithm,
+      tiers: completeModules.calendar_algorithm.tiers.map((tier) =>
+        tier.tierCode === "da_ji" ? { ...tier, explanation: "今天优先选择清爽木色。" } : tier,
+      ),
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(createAdminJsonResponse(session))
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(completeDraft, { headers: { ETag: '"draft:4"' } }),
+      )
+      .mockResolvedValueOnce(emptyCandidateResponse(4))
+      .mockResolvedValueOnce(
+        createAdminJsonResponse(
+          {
+            draftId: "draft-31",
+            draftRevision: 5,
+            module: correctedCalendar,
+            moduleCode: "calendar_algorithm",
+          },
+          { headers: { ETag: '"draft:5"' } },
+        ),
+      );
+
+    render(
+      <AdminSessionProvider>
+        <DraftEditor draftId="draft-31" />
+      </AdminSessionProvider>,
+    );
+
+    const explanation = await screen.findByLabelText("大吉说明");
+    fireEvent.change(explanation, { target: { value: "今天优先选择清爽木色。" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存五档说明" }));
+
+    expect(await screen.findByText("五档说明已保存，手机预览已更新。")).toBeInTheDocument();
+    const correctionRequest = fetchMock.mock.calls[3]?.[1];
+    expect(correctionRequest).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ "If-Match": '"draft:4"' }),
+        method: "PATCH",
+      }),
+    );
+    expect(JSON.parse(String(correctionRequest?.body))).toEqual(correctedCalendar);
+  });
 });

@@ -26,7 +26,7 @@ function securityAction(eventType: string): SecurityEventAction {
     return "login_password";
   }
   if (eventType.startsWith("login_totp_")) {
-    return "login_totp";
+    return "login_password";
   }
   if (eventType === "session_logged_out") {
     return "logout_current";
@@ -35,10 +35,10 @@ function securityAction(eventType: string): SecurityEventAction {
     return "logout_all";
   }
   if (eventType.startsWith("recovery_code_")) {
-    return "recovery_code";
+    return "offline_reset";
   }
   if (eventType.startsWith("recovery_completion_") || eventType === "recovery_completed") {
-    return "recovery_completed";
+    return "offline_reset";
   }
   if (eventType === "account_offline_reset") {
     return "offline_reset";
@@ -101,9 +101,8 @@ function isEmergencyRequest(
 ): value is {
   readonly confirmationPhrase: string;
   readonly reason: string;
-  readonly totpCode: string;
 } {
-  if (!hasExactlyKeys(value, ["confirmationPhrase", "reason", "totpCode"])) {
+  if (!hasExactlyKeys(value, ["confirmationPhrase", "reason"])) {
     return false;
   }
   const expectedPhrase = action === "stop" ? "停止全部公开内容" : "恢复全部公开内容";
@@ -111,9 +110,7 @@ function isEmergencyRequest(
     value.confirmationPhrase === expectedPhrase &&
     typeof value.reason === "string" &&
     value.reason.trim().length > 0 &&
-    codePointLength(value.reason) <= 2_000 &&
-    typeof value.totpCode === "string" &&
-    /^\d{6}$/u.test(value.totpCode)
+    codePointLength(value.reason) <= 2_000
   );
 }
 
@@ -241,7 +238,6 @@ export class AdminSecurityController {
       idempotencyKey,
       principal: request.adminPrincipal,
       reason: body.reason,
-      totpCode: body.totpCode,
     });
     if (result.kind === "applied" || result.kind === "existing") {
       reply.header("ETag", `"emergency-control:${result.state.revision}"`);
@@ -253,14 +249,6 @@ export class AdminSecurityController {
       return adminErrorEnvelope(
         "REVISION_MISMATCH",
         "紧急控制状态已变化，请刷新后重试。",
-        requestId,
-      );
-    }
-    if (result.kind === "totp_replayed") {
-      reply.status(409);
-      return adminErrorEnvelope(
-        "TOTP_REPLAYED",
-        "动态码已经使用，请等待新动态码后重试。",
         requestId,
       );
     }
@@ -277,14 +265,6 @@ export class AdminSecurityController {
       return adminErrorEnvelope(
         "EMERGENCY_CONTROL_CONFLICT",
         "公开内容已经处于目标状态，请刷新后确认。",
-        requestId,
-      );
-    }
-    if (result.kind === "invalid_totp") {
-      reply.status(401);
-      return adminErrorEnvelope(
-        "AUTHENTICATION_FAILED",
-        "账号或凭据无效，请检查后重试。",
         requestId,
       );
     }

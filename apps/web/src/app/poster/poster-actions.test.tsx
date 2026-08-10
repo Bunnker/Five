@@ -1,11 +1,18 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PosterActions } from "./poster-actions";
 
+const analyticsMocks = vi.hoisted(() => ({
+  generateAnalyticsReferralId: vi.fn(),
+  trackAnalyticsEvent: vi.fn(),
+}));
+
+vi.mock("../../lib/analytics", () => analyticsMocks);
+
 const props = {
-  channelId: "wechat_group",
-  copyText: "2026年7月15日 · 木日\n大吉：红色",
+  channelId: "user_share" as const,
   fortuneDate: "2026-07-15",
   posterJobEndpoint: "/api/v1/poster-jobs" as const,
   posterTemplateVersion: "poster-template-v3",
@@ -19,6 +26,13 @@ function jsonResponse(body: unknown, status = 200): Response {
       "x-request-id": "request-poster-job",
     },
     status,
+  });
+}
+
+function imageResponse(mediaType = "image/png"): Response {
+  return new Response(new Uint8Array([1, 2, 3]), {
+    headers: { "content-length": "3", "content-type": mediaType },
+    status: 200,
   });
 }
 
@@ -39,7 +53,7 @@ function posterJob(
     channelId: props.channelId,
     currentActiveContentVersion: props.sourceContentVersion,
     entry: null,
-    jobId: "poster-job-01",
+    jobId: "poster-job-00000001",
     posterInstanceId: null,
     posterTemplateVersion: props.posterTemplateVersion,
     sourceContentVersion: props.sourceContentVersion,
@@ -50,12 +64,428 @@ function posterJob(
 
 describe("PosterActions", () => {
   beforeEach(() => {
+    analyticsMocks.generateAnalyticsReferralId.mockReset();
+    analyticsMocks.trackAnalyticsEvent.mockReset();
+    analyticsMocks.generateAnalyticsReferralId.mockReturnValue(
+      "referral:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    );
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "018f47f2-b953-4ee1-91cc-018f47f2b953") });
+    window.history.replaceState({}, "", "/poster");
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("automatically starts one poster job when the share flow requests a ready-to-send image", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        posterJob("ready", {
+          assetUrl: "https://cdn.example.com/posters/poster-auto.svg",
+          entry: {
+            landingUrl:
+              "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+            type: "web_qr",
+          },
+          posterInstanceId: "poster-instance-auto",
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+
+    expect(await screen.findByRole("img", { name: "2026-07-15 日签海报" })).toHaveAttribute(
+      "src",
+      "https://cdn.example.com/posters/poster-auto.svg",
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "生成日签海报" })).not.toBeInTheDocument();
+  });
+
+  it("shares the prepared poster file through the system share sheet when supported", async () => {
+    const shareMock = vi.fn().mockResolvedValue(undefined);
+    const canShareMock = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("navigator", {
+      canShare: canShareMock,
+      share: shareMock,
+      userAgent: "Mozilla/5.0 (iPhone) Version/18.0 Mobile Safari/604.1",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          posterJob("ready", {
+            assetUrl: "https://cdn.example.com/posters/poster-share.svg",
+            entry: {
+              landingUrl:
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+              type: "web_qr",
+            },
+            posterInstanceId: "poster-instance-share",
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(imageResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+
+    const shareButton = await screen.findByRole("button", {
+      name: "分享到微信或更多应用",
+    });
+    await waitFor(() => expect(canShareMock).toHaveBeenCalledOnce());
+    fireEvent.click(shareButton);
+
+    await waitFor(() => expect(shareMock).toHaveBeenCalledOnce());
+    const shareData = shareMock.mock.calls[0]?.[0] as ShareData;
+    expect(shareData.url).toBeUndefined();
+    expect(shareData.title).toBe("Five · 2026-07-15 五行穿衣");
+    expect(shareData.files).toHaveLength(1);
+    expect(shareData.files?.[0]?.name).toBe("five-2026-07-15.png");
+    expect(shareData.files?.[0]?.type).toBe("image/png");
+    expect(analyticsMocks.trackAnalyticsEvent).toHaveBeenCalledWith({
+      channelId: "user_share",
+      contentVersion: props.sourceContentVersion,
+      eventName: "share_poster_initiated",
+      fortuneDate: props.fortuneDate,
+      posterInstanceId: "poster-instance-share",
+      referralId: "poster-job-00000001",
+    });
+    expect(analyticsMocks.generateAnalyticsReferralId).not.toHaveBeenCalled();
+    expect(analyticsMocks.trackAnalyticsEvent.mock.invocationCallOrder[0]).toBeLessThan(
+      shareMock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(await screen.findByText(/系统分享已结束/u)).toBeVisible();
+  });
+
+  it("uses the WeChat top-right menu path without pretending to send the poster", async () => {
+    const shareMock = vi.fn();
+    vi.stubGlobal("navigator", {
+      canShare: vi.fn().mockReturnValue(true),
+      share: shareMock,
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) MicroMessenger/8.0.60",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          posterJob("ready", {
+            assetUrl: "https://cdn.example.com/posters/poster-wechat.svg",
+            entry: {
+              landingUrl:
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+              type: "web_qr",
+            },
+            posterInstanceId: "poster-instance-wechat",
+          }),
+        ),
+      ),
+    );
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+    const shareButton = await screen.findByRole("button", {
+      name: "分享到微信或更多应用",
+    });
+    await waitFor(() => expect(shareButton).toBeEnabled());
+    fireEvent.click(shareButton);
+
+    expect(await screen.findByText(/微信右上角分享当前页面/u)).toBeVisible();
+    expect(window.location.pathname).toBe("/daily/2026-07-15");
+    expect(Object.fromEntries(new URL(window.location.href).searchParams)).toEqual({
+      channelId: "user_share",
+      expectedContentVersion: props.sourceContentVersion,
+      referralId: "poster-job-00000001",
+      referralKind: "poster",
+    });
+    expect(shareMock).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("shares the complete daily page when the browser cannot share the poster file", async () => {
+    const shareMock = vi.fn().mockResolvedValue(undefined);
+    const canShareMock = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("navigator", {
+      canShare: canShareMock,
+      share: shareMock,
+      userAgent: "Mozilla/5.0 (Linux; Android 16) Chrome/140 Mobile",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          posterJob("ready", {
+            assetUrl: "https://cdn.example.com/posters/poster-share.svg",
+            entry: {
+              landingUrl:
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+              type: "web_qr",
+            },
+            posterInstanceId: "poster-instance-url-share",
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(imageResponse("image/svg+xml"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+    const shareButton = await screen.findByRole("button", {
+      name: "分享到微信或更多应用",
+    });
+    await waitFor(() => expect(canShareMock).toHaveBeenCalledOnce());
+    fireEvent.click(shareButton);
+
+    await waitFor(() => expect(shareMock).toHaveBeenCalledOnce());
+    const shareData = shareMock.mock.calls[0]?.[0] as ShareData;
+    const sharedUrl = new URL(shareData.url ?? "");
+    expect(sharedUrl.pathname).toBe("/daily/2026-07-15");
+    expect(Object.fromEntries(sharedUrl.searchParams)).toEqual({
+      channelId: "user_share",
+      expectedContentVersion: props.sourceContentVersion,
+      referralId: "poster-job-00000001",
+      referralKind: "poster",
+    });
+    expect(shareData.files).toBeUndefined();
+  });
+
+  it("copies the complete daily page when the browser has no system share API", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText: writeTextMock },
+      userAgent: "Mozilla/5.0 Firefox/142",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          posterJob("ready", {
+            assetUrl: "https://cdn.example.com/posters/poster-no-share.png",
+            entry: {
+              landingUrl:
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+              type: "web_qr",
+            },
+            posterInstanceId: "poster-instance-no-share",
+          }),
+        ),
+      ),
+    );
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+    const shareButton = await screen.findByRole("button", {
+      name: "分享到微信或更多应用",
+    });
+    await waitFor(() => expect(shareButton).toBeEnabled());
+    fireEvent.click(shareButton);
+
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledOnce());
+    expect(new URL(writeTextMock.mock.calls[0]?.[0] as string).pathname).toBe("/daily/2026-07-15");
+    expect(await screen.findByText(/浏览器无法直接分享.*当日链接已复制/u)).toBeVisible();
+  });
+
+  it("treats closing the system share sheet as a cancellation without copying", async () => {
+    const writeTextMock = vi.fn();
+    const shareMock = vi.fn().mockRejectedValue(new DOMException("cancelled", "AbortError"));
+    vi.stubGlobal("navigator", {
+      canShare: vi.fn().mockReturnValue(false),
+      clipboard: { writeText: writeTextMock },
+      share: shareMock,
+      userAgent: "Mozilla/5.0 (Linux; Android 16) Chrome/140 Mobile",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(
+            posterJob("ready", {
+              assetUrl: "https://cdn.example.com/posters/poster-cancel.png",
+              entry: {
+                landingUrl:
+                  "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+                type: "web_qr",
+              },
+              posterInstanceId: "poster-instance-cancel",
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(imageResponse()),
+    );
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+    const shareButton = await screen.findByRole("button", {
+      name: "分享到微信或更多应用",
+    });
+    await waitFor(() => expect(shareButton).toBeEnabled());
+    fireEvent.click(shareButton);
+
+    expect(await screen.findByText(/已取消分享/u)).toBeVisible();
+    expect(writeTextMock).not.toHaveBeenCalled();
+  });
+
+  it("copies only the daily page URL after a non-cancellation share error", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    const shareMock = vi.fn().mockRejectedValue(new TypeError("share target unavailable"));
+    vi.stubGlobal("navigator", {
+      canShare: vi.fn().mockReturnValue(false),
+      clipboard: { writeText: writeTextMock },
+      share: shareMock,
+      userAgent: "Mozilla/5.0 (Linux; Android 16) Chrome/140 Mobile",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(
+            posterJob("ready", {
+              assetUrl: "https://cdn.example.com/posters/poster-share-error.png",
+              entry: {
+                landingUrl:
+                  "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+                type: "web_qr",
+              },
+              posterInstanceId: "poster-instance-share-error",
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(imageResponse()),
+    );
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+    const shareButton = await screen.findByRole("button", {
+      name: "分享到微信或更多应用",
+    });
+    await waitFor(() => expect(shareButton).toBeEnabled());
+    fireEvent.click(shareButton);
+
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledOnce());
+    const copiedUrl = new URL(writeTextMock.mock.calls[0]?.[0] as string);
+    expect(copiedUrl.pathname).toBe("/daily/2026-07-15");
+    expect(await screen.findByText("分享未完成，当日链接已复制。")).toBeVisible();
+  });
+
+  it("does not lose the click gesture by sharing before the poster file is prepared", async () => {
+    const shareMock = vi.fn().mockResolvedValue(undefined);
+    const canShareMock = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("navigator", {
+      canShare: canShareMock,
+      share: shareMock,
+      userAgent: "Mozilla/5.0 (iPhone) Mobile Safari/604.1",
+    });
+    const pendingAsset = deferred<Response>();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(
+            posterJob("ready", {
+              assetUrl: "https://cdn.example.com/posters/poster-pending.png",
+              entry: {
+                landingUrl:
+                  "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+                type: "web_qr",
+              },
+              posterInstanceId: "poster-instance-pending",
+            }),
+          ),
+        )
+        .mockReturnValueOnce(pendingAsset.promise),
+    );
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+    const shareButton = await screen.findByRole("button", { name: "正在准备分享" });
+    expect(shareButton).toBeDisabled();
+    fireEvent.click(shareButton);
+    expect(shareMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingAsset.resolve(imageResponse());
+      await pendingAsset.promise;
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "分享到微信或更多应用" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "分享到微信或更多应用" }));
+    await waitFor(() => expect(shareMock).toHaveBeenCalledOnce());
+    expect((shareMock.mock.calls[0]?.[0] as ShareData).files).toHaveLength(1);
+  });
+
+  it("does not share a prepared file after its preview fails", async () => {
+    const shareMock = vi.fn().mockResolvedValue(undefined);
+    const canShareMock = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("navigator", {
+      canShare: canShareMock,
+      share: shareMock,
+      userAgent: "Mozilla/5.0 (Linux; Android 16) Chrome/140 Mobile",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse(
+            posterJob("ready", {
+              assetUrl: "https://cdn.example.com/posters/poster-broken.png",
+              entry: {
+                landingUrl:
+                  "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+                type: "web_qr",
+              },
+              posterInstanceId: "poster-instance-broken-share",
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(imageResponse()),
+    );
+
+    render(<PosterActions {...props} autoStart pollIntervalMs={1} />);
+    await waitFor(() => expect(canShareMock).toHaveBeenCalledOnce());
+    fireEvent.error(await screen.findByRole("img", { name: "2026-07-15 日签海报" }));
+    const shareButton = screen.getByRole("button", { name: "分享到微信或更多应用" });
+    await waitFor(() => expect(shareButton).toBeEnabled());
+    fireEvent.click(shareButton);
+
+    await waitFor(() => expect(shareMock).toHaveBeenCalledOnce());
+    const shareData = shareMock.mock.calls[0]?.[0] as ShareData;
+    expect(shareData.files).toBeUndefined();
+    expect(new URL(shareData.url ?? "").pathname).toBe("/daily/2026-07-15");
+  });
+
+  it("restarts an aborted automatic request during React Strict Mode replay", async () => {
+    const firstCreate = deferred<Response>();
+    const fetchMock = vi
+      .fn()
+      .mockReturnValueOnce(firstCreate.promise)
+      .mockResolvedValueOnce(
+        jsonResponse(
+          posterJob("ready", {
+            assetUrl: "https://cdn.example.com/posters/poster-strict.png",
+            entry: {
+              landingUrl:
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
+              type: "web_qr",
+            },
+            posterInstanceId: "poster-instance-strict",
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <StrictMode>
+        <PosterActions {...props} autoStart pollIntervalMs={1} />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByRole("img", { name: "2026-07-15 日签海报" })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      firstCreate.resolve(jsonResponse(posterJob("processing"), 202));
+      await firstCreate.promise;
+    });
   });
 
   it("reuses one idempotency key when the same intent is retried", async () => {
@@ -68,7 +498,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-hash.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-01",
@@ -117,7 +547,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-hash.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-02",
@@ -150,7 +580,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-hash.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-01",
@@ -167,10 +597,10 @@ describe("PosterActions", () => {
     expect(preview).toHaveAttribute("src", "https://cdn.example.com/posters/poster-hash.svg");
     expect(screen.getByRole("button", { name: "下载海报" })).toBeEnabled();
     expect(screen.getByText(/海报已经准备好.*长按上方海报保存到手机/u)).toBeVisible();
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/poster-jobs/poster-job-01");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/poster-jobs/poster-job-00000001");
   });
 
-  it("hides a broken preview and keeps both copy fallbacks usable", async () => {
+  it("hides a broken preview and keeps page sharing plus the link fallback usable", async () => {
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText: writeTextMock } });
     vi.stubGlobal(
@@ -181,7 +611,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/broken-preview.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-broken-preview",
@@ -198,27 +628,23 @@ describe("PosterActions", () => {
     expect(screen.queryByRole("img", { name: "2026-07-15 日签海报" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "下载海报" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("海报预览加载失败");
-    fireEvent.click(screen.getByRole("button", { name: "复制今日文字" }));
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith(props.copyText));
+    expect(screen.getByRole("button", { name: "分享到微信或更多应用" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "复制当日链接" }));
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledOnce());
   });
 
-  it("offers selectable text when clipboard permission is denied after generation failure", async () => {
+  it("offers a selectable link when clipboard permission is denied after generation failure", async () => {
     const writeTextMock = vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
     vi.stubGlobal("navigator", { clipboard: { writeText: writeTextMock } });
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
 
     render(<PosterActions {...props} pollIntervalMs={1} />);
     fireEvent.click(screen.getByRole("button", { name: "生成日签海报" }));
-    await screen.findByText("海报暂时没有生成成功，今日页面和分享文字仍可使用。");
-    fireEvent.click(screen.getByRole("button", { name: "复制今日文字" }));
+    await screen.findByText("海报暂时没有生成成功，当日页面仍可正常分享。");
+    fireEvent.click(screen.getByRole("button", { name: "复制当日链接" }));
 
     expect(await screen.findByText("自动复制失败，请长按下方内容手动复制。")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "可手动复制的内容" })).toHaveValue(props.copyText);
-
-    fireEvent.click(screen.getByRole("button", { name: "复制当日链接" }));
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledOnce());
     const manualLink = new URL(
       (screen.getByRole("textbox", { name: "可手动复制的内容" }) as HTMLTextAreaElement).value,
     );
@@ -245,7 +671,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/invalid-pixels.png",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-invalid-pixels",
@@ -265,7 +691,7 @@ describe("PosterActions", () => {
       );
       expect(decodeMock).toHaveBeenCalledOnce();
       expect(screen.queryByRole("button", { name: "下载海报" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "复制今日文字" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "分享到微信或更多应用" })).toBeVisible();
       expect(screen.getByRole("button", { name: "复制当日链接" })).toBeVisible();
     } finally {
       if (originalDecode === undefined) {
@@ -285,7 +711,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/transient-preview.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-transient-preview",
@@ -310,7 +736,6 @@ describe("PosterActions", () => {
   it("clears failure state when the source content starts a new poster intent", async () => {
     const nextProps = {
       ...props,
-      copyText: "2026年7月15日 · 木日\n大吉：绿色",
       sourceContentVersion: "fd-20260715-r2",
     };
     const fetchMock = vi
@@ -321,7 +746,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/revision-one.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-revision-one",
@@ -335,7 +760,7 @@ describe("PosterActions", () => {
             currentActiveContentVersion: nextProps.sourceContentVersion,
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r2",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r2&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-revision-two",
@@ -369,7 +794,6 @@ describe("PosterActions", () => {
     vi.stubGlobal("fetch", fetchMock);
     const nextProps = {
       ...props,
-      copyText: "2026年7月15日 · 木日\n大吉：绿色",
       sourceContentVersion: "fd-20260715-r2",
     };
     const { rerender } = render(<PosterActions {...props} pollIntervalMs={1} />);
@@ -385,7 +809,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/stale-revision-one.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-stale-revision-one",
@@ -421,7 +845,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/stale-polled-revision-one.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-stale-polled-revision-one",
@@ -455,7 +879,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/revision-one.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-revision-one",
@@ -510,7 +934,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-hash.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-download",
@@ -545,8 +969,16 @@ describe("PosterActions", () => {
     expect(createObjectURL).toHaveBeenCalledOnce();
     expect(revokeObjectURL).not.toHaveBeenCalled();
     expect(screen.getByText(/已尝试开始下载/u)).toBeVisible();
-    expect(screen.getByRole("button", { name: "复制今日文字" })).toBeVisible();
     expect(screen.getByRole("button", { name: "复制当日链接" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "已保存到手机" }));
+    expect(analyticsMocks.trackAnalyticsEvent).toHaveBeenCalledWith({
+      channelId: props.channelId,
+      contentVersion: props.sourceContentVersion,
+      eventName: "poster_save_succeeded",
+      fortuneDate: props.fortuneDate,
+      posterInstanceId: "poster-instance-download",
+    });
+    expect(screen.getByText("已记录你的确认，谢谢。")).toBeVisible();
   });
 
   it("rejects a poster whose declared length exceeds the mobile download limit", async () => {
@@ -558,7 +990,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-too-large.png",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-declared-too-large",
@@ -607,7 +1039,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-stream-too-large.png",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-stream-too-large",
@@ -640,7 +1072,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/not-an-image.png",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-invalid-media",
@@ -674,7 +1106,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-hash.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-download-fallback",
@@ -690,8 +1122,8 @@ describe("PosterActions", () => {
 
     expect(await screen.findByText("自动下载未成功，请长按上方海报保存。")).toBeVisible();
     expect(screen.getByRole("img", { name: "2026-07-15 日签海报" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "复制今日文字" }));
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith(props.copyText));
+    fireEvent.click(screen.getByRole("button", { name: "复制当日链接" }));
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledOnce());
     expect(screen.getByRole("button", { name: "复制当日链接" })).toBeVisible();
     expect(screen.getByRole("link", { name: "返回当日内容" })).toBeVisible();
   });
@@ -720,7 +1152,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-no-download.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-no-download",
@@ -744,7 +1176,6 @@ describe("PosterActions", () => {
       expect(await screen.findByText("自动下载未成功，请长按上方海报保存。")).toBeVisible();
       expect(createObjectURL).not.toHaveBeenCalled();
       expect(downloadClick).not.toHaveBeenCalled();
-      expect(screen.getByRole("button", { name: "复制今日文字" })).toBeVisible();
       expect(screen.getByRole("button", { name: "复制当日链接" })).toBeVisible();
     } finally {
       if (downloadDescriptor !== undefined) {
@@ -769,7 +1200,7 @@ describe("PosterActions", () => {
             assetUrl: "https://cdn.example.com/posters/poster-download-retry.svg",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-download-retry",
@@ -790,12 +1221,10 @@ describe("PosterActions", () => {
     const download = await screen.findByRole("button", { name: "下载海报" });
     fireEvent.click(download);
     await screen.findByText("自动下载未成功，请长按上方海报保存。");
-    expect(screen.getByRole("button", { name: "复制今日文字" })).toBeVisible();
 
     fireEvent.click(download);
 
     expect(await screen.findByText(/已尝试开始下载/u)).toBeVisible();
-    expect(screen.getByRole("button", { name: "复制今日文字" })).toBeVisible();
     expect(screen.getByRole("button", { name: "复制当日链接" })).toBeVisible();
   });
 
@@ -810,7 +1239,7 @@ describe("PosterActions", () => {
           assetUrl: "https://cdn.example.com/posters/poster-after-worker-cycle.svg",
           entry: {
             landingUrl:
-              "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+              "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
             type: "web_qr",
           },
           posterInstanceId: "poster-instance-after-worker-cycle",
@@ -841,7 +1270,7 @@ describe("PosterActions", () => {
           assetUrl: "https://cdn.example.com/posters/poster-after-delay.svg",
           entry: {
             landingUrl:
-              "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+              "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&referralId=poster-job-00000001&referralKind=poster",
             type: "web_qr",
           },
           posterInstanceId: "poster-instance-after-delay",
@@ -894,7 +1323,7 @@ describe("PosterActions", () => {
     expect(screen.getByRole("link", { name: "返回当日内容" })).toBeVisible();
   });
 
-  it("rejects an unsafe ready payload and keeps text, link and return fallbacks usable", async () => {
+  it("rejects an unsafe ready payload and keeps link and return fallbacks usable", async () => {
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText: writeTextMock } });
     vi.stubGlobal(
@@ -905,7 +1334,7 @@ describe("PosterActions", () => {
             assetUrl: "javascript:alert(1)",
             entry: {
               landingUrl:
-                "https://five.example/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1&birthDate=1990-01-01",
+                "https://five.example/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1&birthDate=1990-01-01",
               type: "web_qr",
             },
             posterInstanceId: "poster-instance-01",
@@ -921,18 +1350,16 @@ describe("PosterActions", () => {
       expect(screen.getByRole("status")).toHaveTextContent("海报暂时没有生成成功"),
     );
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "复制今日文字" }));
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith(props.copyText));
     fireEvent.click(screen.getByRole("button", { name: "复制当日链接" }));
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalledTimes(2));
-    const copiedUrl = new URL(writeTextMock.mock.calls[1]?.[0] as string);
+    await waitFor(() => expect(writeTextMock).toHaveBeenCalledOnce());
+    const copiedUrl = new URL(writeTextMock.mock.calls[0]?.[0] as string);
     expect(Object.fromEntries(copiedUrl.searchParams)).toEqual({
       channelId: props.channelId,
       expectedContentVersion: props.sourceContentVersion,
     });
     expect(screen.getByRole("link", { name: "返回当日内容" })).toHaveAttribute(
       "href",
-      "/daily/2026-07-15?channelId=wechat_group&expectedContentVersion=fd-20260715-r1",
+      "/daily/2026-07-15?channelId=user_share&expectedContentVersion=fd-20260715-r1",
     );
   });
 

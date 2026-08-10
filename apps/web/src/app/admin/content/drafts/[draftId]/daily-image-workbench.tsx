@@ -21,6 +21,7 @@ import { shanghaiLocalDateTimeToIso } from "../../../admin-date-time";
 
 type VisualModule = NonNullable<ContentDraft["modules"]["visual_and_rights"]>;
 type Candidate = DraftImageAssetList["items"][number];
+type DailyImageSlot = NonNullable<Candidate["imageSlot"]>;
 type ReviewCheckKey =
   | "colorAndCopyConsistency"
   | "garmentAndPersonIntegrity"
@@ -43,6 +44,7 @@ type UploadIntent = {
   etag: string;
   file: File;
   idempotencyKey: string;
+  imageSlot: DailyImageSlot;
   metadata: ImageAssetUploadMetadata;
 };
 
@@ -58,6 +60,7 @@ type UploadForm = {
   declaredModel: string;
   generatedAt: string;
   generationMethod: ImageAssetUploadMetadata["generationMethod"];
+  imageSlot: DailyImageSlot;
   promptVersion: string;
   reproductionReference: string;
   rightsRecordIds: string;
@@ -72,6 +75,7 @@ type Props = {
   draftRevision: number;
   etag: string;
   fortuneDate: string;
+  onCandidatesChange: (candidates: DraftImageAssetList["items"]) => void;
   onConflict: (message: string) => void;
   onRevisionChange: (revision: { draftRevision: number; etag: string }) => void;
   onUnauthorized: () => void;
@@ -123,6 +127,7 @@ const initialUploadForm: UploadForm = {
   declaredModel: "",
   generatedAt: "",
   generationMethod: "licensed_upload",
+  imageSlot: "required_primary",
   promptVersion: "",
   reproductionReference: "",
   rightsRecordIds: "",
@@ -199,6 +204,7 @@ export function DailyImageWorkbench({
   draftRevision,
   etag,
   fortuneDate,
+  onCandidatesChange,
   onConflict,
   onRevisionChange,
   onUnauthorized,
@@ -224,6 +230,9 @@ export function DailyImageWorkbench({
   useEffect(() => {
     draftRevisionRef.current = draftRevision;
   }, [draftRevision]);
+  useEffect(() => {
+    onCandidatesChange(candidates);
+  }, [candidates, onCandidatesChange]);
 
   const syncRevision = useCallback(
     (nextRevision: number, response: Response) => {
@@ -349,11 +358,18 @@ export function DailyImageWorkbench({
         setUploadState({ kind: "error", message: "当前浏览器无法生成安全操作编号，不能上传。" });
         return;
       }
-      intent = { etag: currentEtag, file: uploadFile, idempotencyKey, metadata };
+      intent = {
+        etag: currentEtag,
+        file: uploadFile,
+        idempotencyKey,
+        imageSlot: uploadForm.imageSlot,
+        metadata,
+      };
       uploadIntentRef.current = intent;
     }
     const formData = new FormData();
     formData.append("file", intent.file);
+    formData.append("imageSlot", intent.imageSlot);
     // Keep metadata as a regular field: a Blob receives filename="blob" and Fastify treats it
     // as a second file, violating the one-file multipart contract in real browsers.
     formData.append("metadata", JSON.stringify(intent.metadata));
@@ -391,8 +407,10 @@ export function DailyImageWorkbench({
     syncRevision(result.data.draftRevision, result.response);
     const candidate = {
       asset: result.data.asset,
+      imageSlot: result.data.imageSlot,
       previewUrl: result.data.previewUrl,
       reviewLocked: result.data.reviewLocked,
+      selectedForSlot: result.data.selectedForSlot,
     };
     setCandidates((current) => replaceCandidate(current, candidate));
     setReviewForms((current) => ({
@@ -497,8 +515,10 @@ export function DailyImageWorkbench({
     syncRevision(result.data.draftRevision, result.response);
     const updatedCandidate = {
       asset: result.data.asset,
+      imageSlot: result.data.imageSlot,
       previewUrl: result.data.previewUrl,
       reviewLocked: result.data.reviewLocked,
+      selectedForSlot: result.data.selectedForSlot,
     };
     setCandidates((current) => replaceCandidate(current, updatedCandidate));
     setReviewForms((current) => ({
@@ -522,6 +542,23 @@ export function DailyImageWorkbench({
 
   return (
     <div className="admin-image-workbench">
+      <section className="admin-image-source-rail" aria-label="图片来源优先级">
+        <div data-active="true">
+          <span>01 · 默认</span>
+          <strong>GPT Image 2 自动生成</strong>
+          <small>Worker 提前生成并上传到 Five 图片存储。</small>
+        </div>
+        <div>
+          <span>02 · 补位</span>
+          <strong>手动上传</strong>
+          <small>缺图或生成结果不合适时直接替换候选。</small>
+        </div>
+        <div>
+          <span>03 · 后续</span>
+          <strong>搭配图库复用</strong>
+          <small>按颜色、场景和人群复用已有模特图。</small>
+        </div>
+      </section>
       <section className="admin-image-slots" aria-labelledby="image-slot-title">
         <header>
           <div>
@@ -588,6 +625,22 @@ export function DailyImageWorkbench({
           <p>文件只送往服务端；页面不保存文件、草稿或权利凭据。</p>
         </header>
         <div className="admin-image-upload__form">
+          <label className="admin-image-field">
+            <span>用于哪个位置</span>
+            <select
+              disabled={uploadControlsDisabled}
+              onChange={(event) =>
+                updateUploadForm("imageSlot", event.currentTarget.value as DailyImageSlot)
+              }
+              value={uploadForm.imageSlot}
+            >
+              {slotDefinitions.map(({ code, label }) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="admin-image-field admin-image-field--wide">
             <span>选择图片文件</span>
             <input
@@ -812,7 +865,10 @@ export function DailyImageWorkbench({
                       <h4>{asset.altText}</h4>
                       <code>{asset.assetId}</code>
                     </div>
-                    <strong>{sourceLabel(asset.sourceType)}</strong>
+                    <strong>
+                      {sourceLabel(asset.sourceType)} · {candidate.imageSlot ?? "未分槽"}
+                      {candidate.selectedForSlot ? " · 当前使用" : ""}
+                    </strong>
                   </header>
                   <dl className="admin-image-asset-facts">
                     <div>

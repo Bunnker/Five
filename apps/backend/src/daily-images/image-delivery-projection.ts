@@ -1,5 +1,5 @@
 import type { components } from "@five/api-contract";
-import { isDeliverableAdminImageAsset } from "@five/api-contract/runtime";
+import { isPublicationCandidateAdminImageAsset } from "@five/api-contract/runtime";
 
 import type { StoredDailyImageSet } from "./daily-image-asset.store";
 
@@ -33,11 +33,12 @@ export function projectDailyImageSet(
   const assets = new Map(imageSet.assets.map((asset) => [asset.assetId, asset]));
   const slots: StoredDailyImageSet["slots"] = imageSet.slots.map((slot) => {
     const servedDetailAssetIds = slot.detailAssetIds.filter(
-      (assetId) => !withdrawn.has(assetId) && isDeliverableAdminImageAsset(assets.get(assetId)),
+      (assetId) =>
+        !withdrawn.has(assetId) && isPublicationCandidateAdminImageAsset(assets.get(assetId)),
     );
     const coverUsable =
       !withdrawn.has(slot.coverAssetId) &&
-      isDeliverableAdminImageAsset(assets.get(slot.coverAssetId));
+      isPublicationCandidateAdminImageAsset(assets.get(slot.coverAssetId));
     const base = { ...slot, servedDetailAssetIds };
     if (slot.imageSlot === "optional") {
       return coverUsable
@@ -64,7 +65,7 @@ export function projectDailyImageSet(
     };
     const fallbackUsable =
       !withdrawn.has(slot.fallbackAssetId) &&
-      isDeliverableAdminImageAsset(assets.get(slot.fallbackAssetId));
+      isPublicationCandidateAdminImageAsset(assets.get(slot.fallbackAssetId));
     if (coverUsable) {
       return {
         ...requiredBase,
@@ -86,4 +87,11 @@ export function projectDailyImageSet(
     };
   });
   return { ...structuredClone(imageSet), slots, withdrawalEvents };
+}
+
+/** True only when the current delivery projection actually references the asset. */
+export function isDeliveredImageAsset(imageSet: StoredDailyImageSet, assetId: string): boolean {
+  return imageSet.slots.some(
+    (slot) => slot.servedCoverAssetId === assetId || slot.servedDetailAssetIds.includes(assetId),
+  );
 }

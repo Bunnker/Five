@@ -50,7 +50,11 @@ function isSafePublicUrl(value: unknown): value is string {
   }
 }
 
-function isExpectedLandingUrl(value: unknown, intent: PosterIntent): value is string {
+function isExpectedLandingUrl(
+  value: unknown,
+  intent: PosterIntent,
+  expectedReferralId: string,
+): value is string {
   if (!isSafePublicUrl(value)) {
     return false;
   }
@@ -59,11 +63,15 @@ function isExpectedLandingUrl(value: unknown, intent: PosterIntent): value is st
   const entries = [...url.searchParams.entries()];
   return (
     url.pathname === `/daily/${encodeURIComponent(intent.fortuneDate)}` &&
-    entries.length === 2 &&
+    entries.length === 4 &&
     url.searchParams.getAll("channelId").length === 1 &&
     url.searchParams.get("channelId") === intent.channelId &&
     url.searchParams.getAll("expectedContentVersion").length === 1 &&
-    url.searchParams.get("expectedContentVersion") === intent.expectedContentVersion
+    url.searchParams.get("expectedContentVersion") === intent.expectedContentVersion &&
+    url.searchParams.getAll("referralId").length === 1 &&
+    url.searchParams.get("referralId") === expectedReferralId &&
+    url.searchParams.getAll("referralKind").length === 1 &&
+    url.searchParams.get("referralKind") === "poster"
   );
 }
 
@@ -99,7 +107,7 @@ export function parsePosterJob(
       !isRecord(value.entry) ||
       Object.keys(value.entry).length !== 2 ||
       value.entry.type !== "web_qr" ||
-      !isExpectedLandingUrl(value.entry.landingUrl, intent)
+      !isExpectedLandingUrl(value.entry.landingUrl, intent, value.jobId)
     ) {
       return null;
     }

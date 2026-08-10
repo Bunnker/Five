@@ -98,6 +98,7 @@ describe("TodayImagePreviewSection", () => {
     expect(within(cards[0]).getByText("AI 生成穿搭示意图")).toBeVisible();
     expect(within(cards[1]).getByText("AI 生成穿搭示意图")).toBeVisible();
     expect(within(cards[2]).queryByText(/AI 生成/u)).not.toBeInTheDocument();
+    expect(preview).not.toHaveTextContent("2 张重点参考 · 最多 1 张补充");
     expect(within(preview).queryByRole("link")).not.toBeInTheDocument();
     expect(within(preview).queryByRole("button")).not.toBeInTheDocument();
   });
@@ -139,10 +140,10 @@ describe("TodayImagePreviewSection", () => {
     expect(within(mainCard).getByTestId("reviewed-image-fallback-white")).toHaveClass(
       "reviewed-image-fallback__swatch--light",
     );
-    const fallbackMetadata = within(fallback).getByRole("group", { name: "图片失败信息" });
-    expect(within(fallbackMetadata).getByText("原图说明 · AI 生成穿搭示意图")).toBeVisible();
-    expect(within(fallbackMetadata).getByText("内容版本 · fd-20260715-r1")).toBeVisible();
-    expect(fallback).toHaveTextContent("当前仅显示已审核配色，未使用替换图片");
+    const fallbackMetadata = within(fallback).getByRole("group", { name: "图片说明" });
+    expect(within(fallbackMetadata).getByText("AI 生成穿搭示意图")).toBeVisible();
+    expect(fallback).not.toHaveTextContent("fd-20260715-r1");
+    expect(fallback).toHaveTextContent("图片暂时无法显示，请参考下方配色");
     expect(within(alternateCard).getByRole("img")).toBeVisible();
     expect(
       within(screen.getByRole("region", { name: "今日图片示范" })).getAllByRole("img"),

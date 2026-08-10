@@ -32,6 +32,7 @@ type Props = {
   contentVersion: string;
   csrfToken: string;
   enabled?: boolean;
+  onImageSetChange: (imageSet: AdminDailyImageSet) => void;
   onLifecycleChange: (input: { etag: string; lifecycleRevision: number }) => void;
   onUnauthorized: () => void;
   versionState: AdminContentVersion["state"];
@@ -150,6 +151,7 @@ export function AdminDailyImageSetPanel({
   contentVersion,
   csrfToken,
   enabled = true,
+  onImageSetChange,
   onLifecycleChange,
   onUnauthorized,
 }: Props) {
@@ -187,6 +189,9 @@ export function AdminDailyImageSetPanel({
   useEffect(() => {
     if (enabled) void loadImageSet();
   }, [enabled, loadImageSet]);
+  useEffect(() => {
+    if (imageSet !== null) onImageSetChange(imageSet);
+  }, [imageSet, onImageSetChange]);
 
   const withdrawalEventsByAssetId = useMemo(
     () => new Map(imageSet?.withdrawalEvents.map((event) => [event.assetId, event]) ?? []),

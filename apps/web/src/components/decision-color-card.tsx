@@ -59,17 +59,23 @@ export function DecisionColorCard({ actionHref, tier }: DecisionColorCardProps) 
       data-tier-rank={tier.rank}
       aria-labelledby={cardId}
     >
-      <div className="decision-card__rank" aria-label={`第 ${tier.rank} 档`}>
+      <div
+        className="decision-card__rank"
+        data-admin-selection-key={`tier.${tier.tierCode}.algorithm`}
+        aria-label={`第 ${tier.rank} 档`}
+      >
         <span className="decision-card__number">{String(tier.rank).padStart(2, "0")}</span>
         <span className="decision-card__algorithm">{tier.algorithmLabel}</span>
       </div>
 
-      <div className="decision-card__body">
+      <div
+        className="decision-card__body"
+        data-admin-selection-key={`tier.${tier.tierCode}.explanation`}
+      >
         <header className="decision-card__header">
           <h2 id={cardId}>{headingLabel}</h2>
           <p className="decision-card__element">
-            <span>{tier.elementLabel}</span>
-            {tier.relationText}
+            <strong>{tier.elementLabel}</strong>
           </p>
         </header>
 
@@ -89,7 +95,12 @@ export function DecisionColorCard({ actionHref, tier }: DecisionColorCardProps) 
           })}
         </ul>
 
-        <p className="decision-card__explanation">{tier.explanation}</p>
+        <p
+          className="decision-card__explanation"
+          data-admin-selection-key={`tier.${tier.tierCode}.explanation`}
+        >
+          {tier.explanation}
+        </p>
 
         {actionHref === undefined ? null : (
           <a

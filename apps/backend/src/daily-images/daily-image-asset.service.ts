@@ -3,13 +3,15 @@ import { createHash, randomUUID } from "node:crypto";
 import type { components } from "@five/api-contract";
 import {
   isAdminDailyImageSet,
-  isDeliverableAdminImageAsset,
+  isDraftImageAssetResult,
   isImageAssetReviewRequest,
   isImageAssetUploadMetadata,
+  isPublicationCandidateAdminImageAsset,
   isWithdrawImageAssetRequest,
 } from "@five/api-contract/runtime";
 
 import type { ContentLifecycleStore } from "../content-lifecycle/content-lifecycle.store";
+import { prepareImmediatePublicationModules } from "../content-lifecycle/immediate-publication-modules";
 import { CONTENT_LIFECYCLE_IDEMPOTENCY_KEY_PATTERN } from "../content-lifecycle/content-lifecycle.values";
 import type {
   DraftImageAssetResult,
@@ -44,6 +46,7 @@ const SYSTEM_IDENTIFIERS: DailyImageAssetIdentifiers = {
   nextReviewId: () => `image-review-${randomUUID()}`,
   nextWithdrawalEventId: () => `image-withdrawal-${randomUUID()}`,
 };
+const DEFAULT_UPLOAD_SELECTION_REASON = "人工上传时明确选入图片槽位。";
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -75,6 +78,14 @@ function validMetadata(value: unknown): value is ImageAssetUploadMetadata {
 
 function previewUrl(assetId: string): string {
   return `/admin/api/v1/image-assets/${encodeURIComponent(assetId)}/preview`;
+}
+
+function normalizeDraftImageAssetResult(value: unknown): DraftImageAssetResult | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const withSlot = "imageSlot" in value ? value : { ...value, imageSlot: null };
+  const normalized =
+    "selectedForSlot" in withSlot ? withSlot : { ...withSlot, selectedForSlot: false };
+  return isDraftImageAssetResult(normalized) ? normalized : null;
 }
 
 function publicFileUrl(base: string, storageKey: string): string {
@@ -113,6 +124,12 @@ export type UploadDraftImageAssetResult =
 export type ReviewDraftImageAssetResult =
   | { readonly kind: "existing" | "reviewed"; readonly result: DraftImageAssetResult }
   | { readonly kind: "not_found" | "invalid_state" | "invalid_review" | "review_locked" }
+  | { readonly currentRevision: number; readonly kind: "revision_mismatch" }
+  | { readonly kind: "idempotency_conflict" };
+
+export type SelectDraftImageAssetResult =
+  | { readonly kind: "existing" | "selected"; readonly result: DraftImageAssetResult }
+  | { readonly kind: "not_found" | "invalid_state" | "invalid_argument" }
   | { readonly currentRevision: number; readonly kind: "revision_mismatch" }
   | { readonly kind: "idempotency_conflict" };
 
@@ -163,10 +180,12 @@ export class DailyImageAssetService {
       draftId,
       draftRevision: view.draft.draftRevision,
       fortuneDate: view.draft.fortuneDate,
-      items: view.candidates.map(({ asset, reviewLocked }) => ({
+      items: view.candidates.map(({ asset, imageSlot, reviewLocked, selectedForSlot }) => ({
         asset,
+        imageSlot,
         previewUrl: previewUrl(asset.assetId),
         reviewLocked,
+        selectedForSlot,
       })),
     };
   }
@@ -178,13 +197,19 @@ export class DailyImageAssetService {
     readonly draftId: string;
     readonly expectedDraftRevision: number;
     readonly idempotencyKey: string;
+    readonly imageSlot: components["schemas"]["DailyImageSlot"] | null;
     readonly metadata: ImageAssetUploadMetadata;
+    readonly materializeImmediateVisual?: boolean;
+    readonly reason?: string;
     readonly requestId: string;
+    readonly selectForSlot?: boolean;
   }): Promise<UploadDraftImageAssetResult> {
     if (
       !validRevision(input.expectedDraftRevision) ||
       !CONTENT_LIFECYCLE_IDEMPOTENCY_KEY_PATTERN.test(input.idempotencyKey) ||
-      !validMetadata(input.metadata)
+      !validMetadata(input.metadata) ||
+      (input.reason !== undefined &&
+        (input.reason.trim().length < 1 || Array.from(input.reason).length > 500))
     ) {
       return { kind: "invalid_metadata" };
     }
@@ -200,7 +225,25 @@ export class DailyImageAssetService {
         ? { code: error.code, kind: "file_error" }
         : { code: "invalid", kind: "file_error" };
     }
+    const imageSlot = input.imageSlot ?? null;
+    const reason = input.reason ?? DEFAULT_UPLOAD_SELECTION_REASON;
     const requestHash = hash({
+      draftId: input.draftId,
+      expectedDraftRevision: input.expectedDraftRevision,
+      imageSlot,
+      metadata: input.metadata,
+      materializeImmediateVisual: input.materializeImmediateVisual ?? false,
+      reason,
+      sha256: inspected.sha256,
+    });
+    const legacyReasonlessRequestHash = hash({
+      draftId: input.draftId,
+      expectedDraftRevision: input.expectedDraftRevision,
+      imageSlot,
+      metadata: input.metadata,
+      sha256: inspected.sha256,
+    });
+    const legacyNullSlotRequestHash = hash({
       draftId: input.draftId,
       expectedDraftRevision: input.expectedDraftRevision,
       metadata: input.metadata,
@@ -214,10 +257,21 @@ export class DailyImageAssetService {
         input.idempotencyKey,
       );
       if (prior !== null) {
-        return prior.requestHash === requestHash
-          ? { kind: "existing", result: prior.response as DraftImageAssetResult }
+        const response = normalizeDraftImageAssetResult(prior.response);
+        const matchingRequest =
+          prior.requestHash === requestHash ||
+          (input.reason === undefined && prior.requestHash === legacyReasonlessRequestHash) ||
+          (input.reason === undefined &&
+            imageSlot === null &&
+            prior.requestHash === legacyNullSlotRequestHash);
+        return matchingRequest && response !== null
+          ? { kind: "existing", result: response }
           : { kind: "idempotency_conflict" };
       }
+      // New uploads must be explicitly assigned to a slot. `null` remains accepted
+      // only above so a network retry can replay an idempotency record written by
+      // the pre-slot API without creating another binary or candidate.
+      if (imageSlot === null) return { kind: "invalid_metadata" } as const;
       const storedDraft = await transaction.findDraftForUpdate(input.draftId);
       if (storedDraft === null) return { kind: "not_found" } as const;
       if (storedDraft.submittedContentVersion !== null) return { kind: "invalid_state" } as const;
@@ -249,7 +303,10 @@ export class DailyImageAssetService {
         },
         draftId: input.draftId,
         fortuneDate: storedDraft.draft.fortuneDate,
+        imageSlot,
         reviewLocked: false,
+        selectionSource: null,
+        selectedForSlot: false,
         storageKey: storedBinary.storageKey,
         uploadedAt: now,
       };
@@ -259,14 +316,34 @@ export class DailyImageAssetService {
         draftId: input.draftId,
         draftRevision,
         fortuneDate: storedDraft.draft.fortuneDate,
+        imageSlot,
         previewUrl: previewUrl(assetId),
         reviewLocked: asset.reviewLocked,
+        selectedForSlot: imageSlot !== null && input.selectForSlot !== false,
       };
       await transaction.insertDraftImageAsset(asset);
+      if (imageSlot !== null && input.selectForSlot !== false) {
+        await transaction.selectDraftImageAssetForSlot({
+          actorId: input.actorId,
+          assetId,
+          draftId: input.draftId,
+          imageSlot,
+          reason,
+          requestId: input.requestId,
+          selectedAt: now,
+          selectionSource: "manual_upload",
+        });
+      }
+      const selectedCandidates = await transaction.listDraftImageAssets(input.draftId);
+      const preparedModules =
+        input.materializeImmediateVisual === true
+          ? prepareImmediatePublicationModules(storedDraft.draft.modules, selectedCandidates)
+          : null;
       await transaction.updateDraft({
         draft: {
           ...storedDraft.draft,
           draftRevision,
+          modules: preparedModules ?? storedDraft.draft.modules,
           updatedAt: now,
         },
         submittedContentVersion: null,
@@ -279,6 +356,116 @@ export class DailyImageAssetService {
         response: result,
       });
       return { kind: "uploaded", result } as const;
+    });
+  }
+
+  async selectDraftAssetForSlot(input: {
+    readonly actorId: string;
+    readonly assetId: string;
+    readonly draftId: string;
+    readonly expectedDraftRevision: number;
+    readonly idempotencyKey: string;
+    readonly imageSlot: components["schemas"]["DailyImageSlot"];
+    readonly materializeImmediateVisual?: boolean;
+    readonly reason: string;
+    readonly requestId: string;
+  }): Promise<SelectDraftImageAssetResult> {
+    if (
+      !validRevision(input.expectedDraftRevision) ||
+      !CONTENT_LIFECYCLE_IDEMPOTENCY_KEY_PATTERN.test(input.idempotencyKey) ||
+      input.reason.trim().length < 1 ||
+      input.reason.length > 500
+    ) {
+      return { kind: "invalid_argument" };
+    }
+    const requestHash = hash({
+      assetId: input.assetId,
+      draftId: input.draftId,
+      expectedDraftRevision: input.expectedDraftRevision,
+      imageSlot: input.imageSlot,
+      materializeImmediateVisual: input.materializeImmediateVisual ?? false,
+      reason: input.reason,
+    });
+    return this.store.transaction(async (transaction) => {
+      await transaction.lockIdempotency("image_selection", input.draftId, input.idempotencyKey);
+      const prior = await transaction.findIdempotency(
+        "image_selection",
+        input.draftId,
+        input.idempotencyKey,
+      );
+      if (prior !== null) {
+        const response = normalizeDraftImageAssetResult(prior.response);
+        return prior.requestHash === requestHash && response !== null
+          ? { kind: "existing", result: response }
+          : { kind: "idempotency_conflict" };
+      }
+      const storedDraft = await transaction.findDraftForUpdate(input.draftId);
+      if (storedDraft === null) return { kind: "not_found" } as const;
+      if (storedDraft.submittedContentVersion !== null) return { kind: "invalid_state" } as const;
+      if (storedDraft.draft.draftRevision !== input.expectedDraftRevision) {
+        return {
+          currentRevision: storedDraft.draft.draftRevision,
+          kind: "revision_mismatch",
+        } as const;
+      }
+      const candidate = await transaction.findDraftImageAssetForUpdate(
+        input.draftId,
+        input.assetId,
+      );
+      if (candidate === null || candidate.imageSlot !== input.imageSlot) {
+        return { kind: "not_found" } as const;
+      }
+      const now = this.clock.now().toISOString();
+      const changed =
+        candidate.selectedForSlot === false || candidate.selectionSource !== "manual_selection";
+      await transaction.selectDraftImageAssetForSlot({
+        actorId: input.actorId,
+        assetId: input.assetId,
+        draftId: input.draftId,
+        imageSlot: input.imageSlot,
+        reason: input.reason,
+        requestId: input.requestId,
+        selectedAt: now,
+        selectionSource: "manual_selection",
+      });
+      const selectedCandidates = await transaction.listDraftImageAssets(input.draftId);
+      const preparedModules =
+        input.materializeImmediateVisual === true
+          ? prepareImmediatePublicationModules(storedDraft.draft.modules, selectedCandidates)
+          : null;
+      const shouldUpdateDraft =
+        changed ||
+        (storedDraft.draft.modules.visual_and_rights === null && preparedModules !== null);
+      const draftRevision = storedDraft.draft.draftRevision + (shouldUpdateDraft ? 1 : 0);
+      if (shouldUpdateDraft) {
+        await transaction.updateDraft({
+          draft: {
+            ...storedDraft.draft,
+            draftRevision,
+            modules: preparedModules ?? storedDraft.draft.modules,
+            updatedAt: now,
+          },
+          submittedContentVersion: null,
+        });
+      }
+      const result: DraftImageAssetResult = {
+        asset: candidate.asset,
+        draftId: input.draftId,
+        draftRevision,
+        fortuneDate: storedDraft.draft.fortuneDate,
+        imageSlot: input.imageSlot,
+        previewUrl: previewUrl(candidate.asset.assetId),
+        reviewLocked: candidate.reviewLocked,
+        selectedForSlot: true,
+      };
+      await transaction.insertIdempotency({
+        idempotencyKey: input.idempotencyKey,
+        operation: "image_selection",
+        requestHash,
+        resourceId: input.draftId,
+        response: result,
+      });
+      return { kind: "selected", result } as const;
     });
   }
 
@@ -312,8 +499,9 @@ export class DailyImageAssetService {
         input.idempotencyKey,
       );
       if (prior !== null) {
-        return prior.requestHash === requestHash
-          ? { kind: "existing", result: prior.response as DraftImageAssetResult }
+        const response = normalizeDraftImageAssetResult(prior.response);
+        return prior.requestHash === requestHash && response !== null
+          ? { kind: "existing", result: response }
           : { kind: "idempotency_conflict" };
       }
       const storedDraft = await transaction.findDraftForUpdate(input.draftId);
@@ -373,8 +561,10 @@ export class DailyImageAssetService {
         draftId: input.draftId,
         draftRevision,
         fortuneDate: storedDraft.draft.fortuneDate,
+        imageSlot: updated.imageSlot,
         previewUrl: previewUrl(input.assetId),
         reviewLocked: updated.reviewLocked,
+        selectedForSlot: updated.selectedForSlot,
       };
       await transaction.updateDraftImageAsset(updated);
       await transaction.updateDraft({
@@ -401,6 +591,16 @@ export class DailyImageAssetService {
     readonly mediaType: StoredDraftImageAsset["asset"]["mediaType"];
   } | null> {
     const candidate = await this.store.readImageAsset(assetId);
+    if (candidate === null) return null;
+    const bytes = await this.binaryStore.read(candidate.storageKey);
+    return bytes === null ? null : { bytes, mediaType: candidate.asset.mediaType };
+  }
+
+  async readPublicAssetBinary(assetId: string): Promise<{
+    readonly bytes: Buffer;
+    readonly mediaType: StoredDraftImageAsset["asset"]["mediaType"];
+  } | null> {
+    const candidate = await this.store.readPublicImageAsset(assetId);
     if (candidate === null) return null;
     const bytes = await this.binaryStore.read(candidate.storageKey);
     return bytes === null ? null : { bytes, mediaType: candidate.asset.mediaType };
@@ -476,20 +676,17 @@ export class DailyImageAssetService {
         ),
       );
       if (globallyWithdrawn.has(input.assetId)) return { kind: "invalid_state" } as const;
+      const otherActiveImageSets = (
+        await transaction.listActiveDailyImageSetsReferencingAssetForUpdate(input.assetId)
+      ).filter((imageSet) => imageSet.contentVersion !== input.contentVersion);
       if (
-        projection.activeContentVersion !== null &&
-        projection.activeContentVersion !== input.contentVersion
+        otherActiveImageSets.some(
+          (imageSet) =>
+            !imageSet.withdrawalEvents.some((event) => event.assetId === input.assetId) &&
+            !requiredSlotsRemainAvailableAfterWithdrawal(imageSet, input.assetId),
+        )
       ) {
-        const activeImageSet = await transaction.findDailyImageSetForUpdate(
-          projection.activeContentVersion,
-        );
-        if (
-          activeImageSet?.assets.some((asset) => asset.assetId === input.assetId) === true &&
-          !activeImageSet.withdrawalEvents.some((event) => event.assetId === input.assetId) &&
-          !requiredSlotsRemainAvailableAfterWithdrawal(activeImageSet, input.assetId)
-        ) {
-          return { kind: "active_version_asset_reference" } as const;
-        }
+        return { kind: "active_version_asset_reference" } as const;
       }
       const withdrawn = new Set(current.withdrawalEvents.map((event) => event.assetId));
       if (withdrawn.has(input.assetId)) return { kind: "invalid_state" } as const;
@@ -536,7 +733,7 @@ export class DailyImageAssetService {
               slot.fallbackAssetId === null ||
               withdrawn.has(slot.fallbackAssetId) ||
               globallyWithdrawn.has(slot.fallbackAssetId) ||
-              !isDeliverableAdminImageAsset(fallback)
+              !isPublicationCandidateAdminImageAsset(fallback)
             ) {
               if (projection.activeContentVersion === input.contentVersion) {
                 blocked = true;

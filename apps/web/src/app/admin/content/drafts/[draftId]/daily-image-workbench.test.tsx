@@ -35,8 +35,10 @@ const candidateList = {
   items: [
     {
       asset: pendingAsset,
+      imageSlot: "required_primary",
       previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
       reviewLocked: false,
+      selectedForSlot: true,
     },
   ],
 };
@@ -100,6 +102,7 @@ const defaultProps = {
   draftRevision: 1,
   etag: '"draft:1"',
   fortuneDate: "2026-08-01",
+  onCandidatesChange: vi.fn(),
   onConflict: vi.fn(),
   onRevisionChange: vi.fn(),
   onUnauthorized: vi.fn(),
@@ -111,6 +114,7 @@ describe("DailyImageWorkbench", () => {
     vi.stubGlobal("fetch", vi.fn());
     localStorage.clear();
     sessionStorage.clear();
+    defaultProps.onCandidatesChange.mockReset();
     defaultProps.onConflict.mockReset();
     defaultProps.onRevisionChange.mockReset();
     defaultProps.onUnauthorized.mockReset();
@@ -132,8 +136,8 @@ describe("DailyImageWorkbench", () => {
       "src",
       "/admin/api/v1/image-assets/asset-primary/preview",
     );
-    expect(screen.getByText("必备主图")).toBeInTheDocument();
-    expect(screen.getByText("必备备选图")).toBeInTheDocument();
+    expect(screen.getAllByText("必备主图").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("必备备选图").length).toBeGreaterThan(0);
     expect(screen.getByText("可选图未配置")).toBeInTheDocument();
     expect(screen.getByText("asset-fallback")).toBeInTheDocument();
     expect(screen.getAllByText("降级素材尚未审核安全")).toHaveLength(2);
@@ -173,8 +177,10 @@ describe("DailyImageWorkbench", () => {
           items: [
             {
               asset: incompleteAsset,
+              imageSlot: "required_primary",
               previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
               reviewLocked: true,
+              selectedForSlot: true,
             },
           ],
         },
@@ -249,8 +255,10 @@ describe("DailyImageWorkbench", () => {
       draftId: "draft-31",
       draftRevision: 2,
       fortuneDate: "2026-08-01",
+      imageSlot: "required_primary" as const,
       previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
       reviewLocked: true,
+      selectedForSlot: true,
     };
     const fetchMock = vi.mocked(fetch);
     fetchMock
@@ -307,6 +315,7 @@ describe("DailyImageWorkbench", () => {
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
     const body = request.body as FormData;
     expect(body.get("file")).toBeInstanceOf(File);
+    expect(body.get("imageSlot")).toBe("required_primary");
     const metadataPart = body.get("metadata");
     expect(typeof metadataPart).toBe("string");
     const metadata = JSON.parse(String(metadataPart));
@@ -330,8 +339,10 @@ describe("DailyImageWorkbench", () => {
       draftId: "draft-31",
       draftRevision: 2,
       fortuneDate: "2026-08-01",
+      imageSlot: "required_primary" as const,
       previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
       reviewLocked: false,
+      selectedForSlot: true,
     };
     const fetchMock = vi.mocked(fetch);
     fetchMock
@@ -371,15 +382,20 @@ describe("DailyImageWorkbench", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("上传结果暂时无法确认");
     expect(screen.getByLabelText("选择图片文件")).toBeDisabled();
     expect(screen.getByLabelText("图片替代文字")).toBeDisabled();
+    expect(screen.getByLabelText("用于哪个位置")).toBeDisabled();
     expect(screen.getByRole("button", { name: "重试原上传" })).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText("图片替代文字"), {
       target: { value: "不得进入旧幂等键的新文案" },
     });
+    fireEvent.change(screen.getByLabelText("用于哪个位置"), {
+      target: { value: "required_alternative" },
+    });
     fireEvent.change(screen.getByLabelText("选择图片文件"), {
       target: { files: [new File(["changed"], "changed.webp", { type: "image/webp" })] },
     });
     expect(screen.getByLabelText("图片替代文字")).toHaveValue("首次请求的墨绿外套");
+    expect(screen.getByLabelText("用于哪个位置")).toHaveValue("required_primary");
     fireEvent.click(screen.getByRole("button", { name: "重试原上传" }));
 
     await screen.findByRole("img", { name: "墨绿外套日常穿搭" });
@@ -389,6 +405,8 @@ describe("DailyImageWorkbench", () => {
     const retryBody = retryRequest.body as FormData;
     expect(firstBody.get("file")).toBe(originalFile);
     expect(retryBody.get("file")).toBe(originalFile);
+    expect(firstBody.get("imageSlot")).toBe("required_primary");
+    expect(retryBody.get("imageSlot")).toBe(firstBody.get("imageSlot"));
     expect(retryBody.get("metadata")).toBe(firstBody.get("metadata"));
     expect(JSON.parse(String(retryBody.get("metadata")))).toEqual(
       expect.objectContaining({ altText: "首次请求的墨绿外套" }),
@@ -432,8 +450,10 @@ describe("DailyImageWorkbench", () => {
             draftId: "draft-31",
             draftRevision: 2,
             fortuneDate: "2026-08-01",
+            imageSlot: "required_primary",
             previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
             reviewLocked: true,
+            selectedForSlot: true,
           },
           { headers: { ETag: '"draft:2"' } },
         ),
@@ -520,8 +540,10 @@ describe("DailyImageWorkbench", () => {
             draftId: "draft-31",
             draftRevision: 2,
             fortuneDate: "2026-08-01",
+            imageSlot: "required_primary",
             previewUrl: "/admin/api/v1/image-assets/asset-primary/preview",
             reviewLocked: false,
+            selectedForSlot: true,
           },
           { headers: { ETag: '"draft:2"' } },
         ),

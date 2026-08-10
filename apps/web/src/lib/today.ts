@@ -9,6 +9,7 @@ import {
   hasAsciiControlCharacter,
   hasForbiddenPublicCopy,
   isSafeAttentionCopy,
+  isSafeBalanceSuggestionCopy,
   isSafeImageCopy,
   isSafeOutfitCopy,
 } from "./public-content-safety";
@@ -24,6 +25,7 @@ import {
 type TodayResponse =
   FiveApiPaths["/api/v1/today"]["get"]["responses"][200]["content"]["application/json"];
 type TodayRequestContext = TodayResponse["requestContext"];
+type TodayPublicContentContext = TodayResponse["publicContentContext"];
 type TodayCalendar = TodayResponse["content"]["calendar"];
 type TodayTier = TodayResponse["content"]["tiers"][number];
 type TodayBalanceSuggestion = TodayResponse["content"]["balanceSuggestion"];
@@ -210,15 +212,21 @@ export interface DailyDateData {
       TodayCalendar,
       "branch" | "dayElement" | "dayElementLabel" | "ganzhiDay" | "lunarDateText" | "weekdayText"
     >;
+    effectiveTo?: TodayResponse["content"]["effectiveTo"];
     fortuneDate: TodayResponse["content"]["fortuneDate"];
   };
 }
 
 export interface TodayDateData extends DailyDateData {
+  publicContentContext: Pick<
+    TodayPublicContentContext,
+    "advancedFromCivilDate" | "servedFortuneDate" | "switchBoundary"
+  >;
   requestContext: Pick<
     TodayRequestContext,
     "civilDate" | "crossedDayBoundary" | "fortuneDate" | "shichen"
-  >;
+  > &
+    Partial<Pick<TodayRequestContext, "responseGeneratedAt">>;
 }
 
 export interface PublicDailyContentData extends DailyDateData {
@@ -379,9 +387,6 @@ const reviewedBalanceAccessories = new Set<TodayBalanceAccessory>([
   "腰带",
   "首饰",
 ]);
-const reviewedBalanceDescription =
-  "可以用当日大吉色的普通配饰做小面积补充，不需要整套换衣。" as const;
-
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -558,6 +563,17 @@ function isSafeBasisCopy(value: unknown, maxLength: number): value is string {
   );
 }
 
+function isSafeShareCopy(value: unknown, maxLength: number): value is string {
+  return (
+    isNonEmptyString(value) &&
+    value.length <= maxLength &&
+    value.trim() === value &&
+    !hasAsciiControlCharacter(value.replace(/\r\n|\n/gu, "")) &&
+    !hasForbiddenPublicCopy(value) &&
+    !forbiddenBasisCopyPattern.test(value)
+  );
+}
+
 function toTodayBasisData(value: unknown, contentVersion: string): TodayBasisData | null {
   if (
     !isRecord(value) ||
@@ -592,10 +608,8 @@ function toTodayShareData(
   if (
     !isRecord(value) ||
     !isRecord(versions) ||
-    !isSafeImageCopy(value.summaryText, 200) ||
-    !isSafeImageCopy(value.copyText, 500) ||
-    forbiddenBasisCopyPattern.test(value.summaryText) ||
-    forbiddenBasisCopyPattern.test(value.copyText) ||
+    !isSafeShareCopy(value.summaryText, 200) ||
+    !isSafeShareCopy(value.copyText, 500) ||
     !isOpaqueId(value.posterTemplateVersion) ||
     value.posterTemplateVersion !== versions.posterTemplateVersion ||
     value.posterJobEndpoint !== publicPosterJobEndpoint
@@ -666,7 +680,7 @@ function toBalanceSuggestion(value: unknown): AttentionSectionData["balanceSugge
     !isRecord(value) ||
     value.title !== "已经穿了注意色" ||
     value.preferredTierCode !== "da_ji" ||
-    value.description !== reviewedBalanceDescription ||
+    !isSafeBalanceSuggestionCopy(value.description) ||
     !Array.isArray(value.accessoryExamples) ||
     value.accessoryExamples.length < 1 ||
     value.accessoryExamples.length > reviewedBalanceAccessories.size
@@ -1272,19 +1286,6 @@ function toTodayImagePreviewSectionData(
     return null;
   }
 
-  const publishedLookIds = new Set(
-    content.looks
-      .filter((look) => isRecord(look) && isOpaqueId(look.lookId))
-      .map((look) => (isRecord(look) ? String(look.lookId) : "")),
-  );
-  if (
-    [...formulas.values()].some((formula) =>
-      formula.lookIds.some((lookId) => !publishedLookIds.has(lookId)),
-    )
-  ) {
-    return null;
-  }
-
   const primaryCandidates = content.looks.filter(
     (look) => isRecord(look) && look.requiredForPublish === true && look.sortOrder === 1,
   );
@@ -1406,6 +1407,7 @@ function toDailyDateData(value: unknown): DailyDateData | null {
 
   const { calendar } = value;
   const branch = calendar.branch;
+  const effectiveTo = value.effectiveTo;
   const fortuneDate = value.fortuneDate;
   const dayElement = calendar.dayElement;
   const dayElementLabel = calendar.dayElementLabel;
@@ -1436,13 +1438,21 @@ function toDailyDateData(value: unknown): DailyDateData | null {
         lunarDateText,
         weekdayText,
       },
+      ...(isZonedDateTime(effectiveTo) ? { effectiveTo } : {}),
       fortuneDate,
     },
   };
 }
 
-function toTodayDateData(value: unknown): TodayDateData | null {
-  if (!isRecord(value) || !isRecord(value.requestContext)) {
+function toTodayDateData(
+  value: unknown,
+  enforceCurrentPublicRelation = true,
+): TodayDateData | null {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.publicContentContext) ||
+    !isRecord(value.requestContext)
+  ) {
     return null;
   }
 
@@ -1452,27 +1462,47 @@ function toTodayDateData(value: unknown): TodayDateData | null {
   }
 
   const { requestContext } = value;
+  const { publicContentContext } = value;
   const civilDate = requestContext.civilDate;
   const crossedDayBoundary = requestContext.crossedDayBoundary;
   const fortuneDate = requestContext.fortuneDate;
+  const responseGeneratedAt = requestContext.responseGeneratedAt;
   const shichen = requestContext.shichen;
+  const advancedFromCivilDate = publicContentContext.advancedFromCivilDate;
+  const servedFortuneDate = publicContentContext.servedFortuneDate;
+  const switchBoundary = publicContentContext.switchBoundary;
+  const nextCivilDate = isPublicFortuneDate(civilDate) ? nextPublicDate(civilDate) : null;
+  const expectedFortuneDate = crossedDayBoundary ? nextCivilDate : civilDate;
+  const expectedServedFortuneDate = advancedFromCivilDate ? nextCivilDate : civilDate;
 
   if (
+    Object.keys(publicContentContext).length !== 3 ||
     !isPublicFortuneDate(civilDate) ||
     !isPublicFortuneDate(fortuneDate) ||
-    fortuneDate !== dateData.content.fortuneDate ||
     typeof crossedDayBoundary !== "boolean" ||
-    !isMember(earthlyBranchNames, shichen)
+    !isMember(earthlyBranchNames, shichen) ||
+    fortuneDate !== expectedFortuneDate ||
+    !isPublicFortuneDate(servedFortuneDate) ||
+    switchBoundary !== "18:00" ||
+    typeof advancedFromCivilDate !== "boolean" ||
+    servedFortuneDate !== dateData.content.fortuneDate ||
+    (enforceCurrentPublicRelation && servedFortuneDate !== expectedServedFortuneDate)
   ) {
     return null;
   }
 
   return {
     ...dateData,
+    publicContentContext: {
+      advancedFromCivilDate,
+      servedFortuneDate,
+      switchBoundary,
+    },
     requestContext: {
       civilDate,
       crossedDayBoundary,
       fortuneDate,
+      ...(isZonedDateTime(responseGeneratedAt) ? { responseGeneratedAt } : {}),
       shichen,
     },
   };
@@ -1564,8 +1594,9 @@ export function parsePublicDailyContent(
 function parseTodayPageData(
   body: unknown,
   responseContentVersion: string | null,
+  enforceCurrentPublicRelation = true,
 ): TodayPageData | null {
-  const dateData = toTodayDateData(body);
+  const dateData = toTodayDateData(body, enforceCurrentPublicRelation);
   if (dateData === null || !isRecord(body)) {
     return null;
   }
@@ -1625,7 +1656,7 @@ function toCompleteTodayPageData(data: TodayPageData): CompleteTodayPageData | n
     data.share === undefined ||
     data.nextSteps === null ||
     data.nextSteps === undefined ||
-    data.content.fortuneDate !== data.requestContext.fortuneDate ||
+    data.content.fortuneDate !== data.publicContentContext.servedFortuneDate ||
     data.imagePreviewSection.cards.length < 2 ||
     [
       data.ciJiCard.contentVersion,
@@ -1641,6 +1672,26 @@ function toCompleteTodayPageData(data: TodayPageData): CompleteTodayPageData | n
     return null;
   }
   return data as CompleteTodayPageData;
+}
+
+export function parseDailyExperienceViewData(
+  content: unknown,
+  requestContext: unknown,
+  publicContentContext: unknown,
+  responseContentVersion: string | null,
+): CompleteTodayPageData | null {
+  if (!isRecord(content) || !isPublicFortuneDate(content.fortuneDate)) {
+    return null;
+  }
+  const parsed = parseTodayPageData(
+    {
+      content,
+      publicContentContext,
+      requestContext,
+    },
+    responseContentVersion,
+  );
+  return parsed === null ? null : toCompleteTodayPageData(parsed);
 }
 
 function isZonedDateTime(value: unknown): value is string {
@@ -1699,6 +1750,37 @@ function hasConsistentStrictRequestContext(value: unknown): boolean {
   );
 }
 
+function hasConsistentStrictPublicContentContext(value: unknown, requestContext: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 3 ||
+    !isRecord(requestContext) ||
+    !isPublicFortuneDate(requestContext.civilDate) ||
+    !isZonedDateTime(requestContext.responseGeneratedAt)
+  ) {
+    return false;
+  }
+  const servedFortuneDate = value.servedFortuneDate;
+  const advancedFromCivilDate = value.advancedFromCivilDate;
+  if (
+    !isPublicFortuneDate(servedFortuneDate) ||
+    value.switchBoundary !== "18:00" ||
+    typeof advancedFromCivilDate !== "boolean"
+  ) {
+    return false;
+  }
+  const responseGeneratedAtMs = Date.parse(requestContext.responseGeneratedAt);
+  const shanghaiWallClock = new Date(responseGeneratedAtMs + 8 * 60 * 60 * 1_000);
+  const publicContentAdvanced = shanghaiWallClock.getUTCHours() >= 18;
+  const expectedServedFortuneDate = publicContentAdvanced
+    ? nextPublicDate(requestContext.civilDate)
+    : requestContext.civilDate;
+  return (
+    advancedFromCivilDate === publicContentAdvanced &&
+    servedFortuneDate === expectedServedFortuneDate
+  );
+}
+
 function parseServerObservedAt(headers: Headers): number | null {
   const dateHeader = headers.get("date");
   const dateMilliseconds = dateHeader === null ? Number.NaN : Date.parse(dateHeader);
@@ -1728,7 +1810,8 @@ function toTodaySnapshot(
     completeData === null ||
     !isRecord(body) ||
     !isRecord(body.content) ||
-    !hasConsistentStrictRequestContext(body.requestContext)
+    !hasConsistentStrictRequestContext(body.requestContext) ||
+    !hasConsistentStrictPublicContentContext(body.publicContentContext, body.requestContext)
   ) {
     return null;
   }
@@ -1749,8 +1832,14 @@ function toTodaySnapshot(
   const effectiveFromMs = Date.parse(effectiveFrom);
   const effectiveToMs = Date.parse(effectiveTo);
   const responseGeneratedAtMs = Date.parse(responseGeneratedAt);
+  const expectedEffectiveToMs = Date.parse(
+    `${completeData.publicContentContext.servedFortuneDate}T18:00:00+08:00`,
+  );
+  const expectedEffectiveFromMs = expectedEffectiveToMs - 86_400_000;
   if (
     effectiveFromMs >= effectiveToMs ||
+    effectiveFromMs !== expectedEffectiveFromMs ||
+    effectiveToMs !== expectedEffectiveToMs ||
     serverObservedAtMs < effectiveFromMs ||
     serverObservedAtMs >= effectiveToMs ||
     responseGeneratedAtMs < effectiveFromMs ||

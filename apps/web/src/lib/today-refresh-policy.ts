@@ -5,7 +5,8 @@ const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 const DEFAULT_POLL_INTERVAL_MILLISECONDS = 60_000;
 const shichenBoundaryHours = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23] as const;
 
-export type TodayContextBoundaryReason = "civil_midnight" | "fortune_boundary" | "shichen_boundary";
+export type TodayContextBoundaryReason =
+  "civil_midnight" | "fortune_context_boundary" | "public_content_boundary" | "shichen_boundary";
 
 export interface TodayContextBoundary {
   atMs: number;
@@ -21,6 +22,25 @@ export interface TodayRefreshSchedule {
 function nextCivilMidnightMs(civilDate: string): number | null {
   const civilMidnightMs = Date.parse(`${civilDate}T00:00:00+08:00`);
   return Number.isFinite(civilMidnightMs) ? civilMidnightMs + MILLISECONDS_PER_DAY : null;
+}
+
+function nextFortuneContextBoundaryMs(responseGeneratedAt: string): number | null {
+  const responseGeneratedAtMs = Date.parse(responseGeneratedAt);
+  if (!Number.isFinite(responseGeneratedAtMs)) return null;
+  const shanghaiWallClock = new Date(responseGeneratedAtMs + SHANGHAI_OFFSET_MILLISECONDS);
+  const candidate =
+    Date.UTC(
+      shanghaiWallClock.getUTCFullYear(),
+      shanghaiWallClock.getUTCMonth(),
+      shanghaiWallClock.getUTCDate(),
+      23,
+    ) - SHANGHAI_OFFSET_MILLISECONDS;
+  return candidate > responseGeneratedAtMs ? candidate : candidate + MILLISECONDS_PER_DAY;
+}
+
+function nextPublicContentBoundaryMs(servedFortuneDate: string): number | null {
+  const boundary = Date.parse(`${servedFortuneDate}T18:00:00+08:00`);
+  return Number.isFinite(boundary) ? boundary : null;
 }
 
 function nextShichenBoundaryMs(responseGeneratedAt: string): number | null {
@@ -46,15 +66,27 @@ function nextShichenBoundaryMs(responseGeneratedAt: string): number | null {
 export function resolveTodayContextBoundary(snapshot: TodaySnapshot): TodayContextBoundary | null {
   const effectiveToMs = Date.parse(snapshot.effectiveTo);
   const civilMidnightMs = nextCivilMidnightMs(snapshot.data.requestContext.civilDate);
+  const fortuneContextBoundaryMs = nextFortuneContextBoundaryMs(snapshot.responseGeneratedAt);
+  const publicContentBoundaryMs = nextPublicContentBoundaryMs(
+    snapshot.data.publicContentContext.servedFortuneDate,
+  );
   const shichenBoundaryMs = nextShichenBoundaryMs(snapshot.responseGeneratedAt);
-  if (!Number.isFinite(effectiveToMs) || civilMidnightMs === null || shichenBoundaryMs === null) {
+  if (
+    !Number.isFinite(effectiveToMs) ||
+    publicContentBoundaryMs === null ||
+    effectiveToMs !== publicContentBoundaryMs ||
+    civilMidnightMs === null ||
+    fortuneContextBoundaryMs === null ||
+    shichenBoundaryMs === null
+  ) {
     return null;
   }
 
   const candidates: Array<TodayContextBoundary & { priority: number }> = [
-    { atMs: effectiveToMs, priority: 0, reason: "fortune_boundary" },
-    { atMs: civilMidnightMs, priority: 1, reason: "civil_midnight" },
-    { atMs: shichenBoundaryMs, priority: 2, reason: "shichen_boundary" },
+    { atMs: publicContentBoundaryMs, priority: 0, reason: "public_content_boundary" },
+    { atMs: fortuneContextBoundaryMs, priority: 1, reason: "fortune_context_boundary" },
+    { atMs: civilMidnightMs, priority: 2, reason: "civil_midnight" },
+    { atMs: shichenBoundaryMs, priority: 3, reason: "shichen_boundary" },
   ];
   candidates.sort((left, right) => left.atMs - right.atMs || left.priority - right.priority);
   const first = candidates[0];

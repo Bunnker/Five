@@ -9,13 +9,6 @@ import { useAdminSession } from "./admin-session-context";
 
 type ActionState = { kind: "idle" } | { kind: "submitting" } | { kind: "error"; message: string };
 
-const dateTimeFormat = new Intl.DateTimeFormat("zh-CN", {
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  month: "2-digit",
-});
-
 function SessionDashboard({ session }: { session: AdminSession }) {
   const { clearSession } = useAdminSession();
   const [actionState, setActionState] = useState<ActionState>({ kind: "idle" });
@@ -43,51 +36,46 @@ function SessionDashboard({ session }: { session: AdminSession }) {
     <div className="admin-dashboard">
       <section className="admin-welcome" aria-labelledby="admin-dashboard-title">
         <div>
-          <p className="admin-kicker">ON DUTY · 当前值守</p>
-          <h1 id="admin-dashboard-title">控制台</h1>
-          <p>
-            已验证维护者 <strong>{session.username}</strong>
-          </p>
+          <p className="admin-kicker">FIVE 内容后台</p>
+          <h1 id="admin-dashboard-title">
+            你好，<strong>{session.username}</strong>
+          </h1>
+          <p>每天的文字和模特图会自动准备并发布；在这里查看用户端效果，有问题直接修改替换。</p>
         </div>
-        <span className="admin-status-badge admin-status-badge--safe">会话有效</span>
+        <span className="admin-status-badge admin-status-badge--safe">已登录</span>
       </section>
 
-      <section className="admin-session-ledger" aria-labelledby="session-ledger-title">
+      <section className="admin-session-ledger" aria-labelledby="today-work-title">
         <div className="admin-section-heading">
-          <p className="admin-kicker">SESSION LEDGER</p>
-          <h2 id="session-ledger-title">本次会话</h2>
+          <p className="admin-kicker">今天的发布流程</p>
+          <h2 id="today-work-title">今天要做什么</h2>
         </div>
         <dl>
           <div>
-            <dt>闲置期限</dt>
-            <dd>
-              <time dateTime={session.idleExpiresAt}>
-                {dateTimeFormat.format(new Date(session.idleExpiresAt))}
-              </time>
-            </dd>
+            <dt>1 · 准备内容</dt>
+            <dd>填写五档颜色、穿搭建议和分享文案</dd>
           </div>
           <div>
-            <dt>绝对期限</dt>
-            <dd>
-              <time dateTime={session.absoluteExpiresAt}>
-                {dateTimeFormat.format(new Date(session.absoluteExpiresAt))}
-              </time>
-            </dd>
+            <dt>2 · 准备图片</dt>
+            <dd>上传至少两张模特图并完成人工检查</dd>
           </div>
           <div>
-            <dt>凭据修订</dt>
-            <dd>第 {session.credentialRevision} 版</dd>
+            <dt>3 · 发布后修正</dt>
+            <dd>先让用户看到，大师发现问题后再修改替换</dd>
           </div>
         </dl>
-        <p className="admin-inline-note">安全令牌只存在当前运行页面的内存中，不在此处显示。</p>
+        <p className="admin-inline-note">
+          <strong>当前本地公开页读取真实已发布内容</strong>
+          。内容生成后直接发布，检查记录可以随后补充。
+        </p>
       </section>
 
       <section className="admin-command-grid" aria-label="后台入口">
         <Link className="admin-command-card admin-command-card--content" href="/admin/content">
           <span className="admin-command-card__number">01</span>
           <span>
-            <strong>内容工作台</strong>
-            <small>创建草稿、登记大师核对并查看版本</small>
+            <strong>管理今天的内容</strong>
+            <small>查看用户端效果、修改并替换版本</small>
           </span>
           <span aria-hidden="true">↗</span>
         </Link>
@@ -95,15 +83,15 @@ function SessionDashboard({ session }: { session: AdminSession }) {
           <span className="admin-command-card__number">02</span>
           <span>
             <strong>安全记录</strong>
-            <small>查看登录、恢复、限流与控制动作</small>
+            <small>查看登录、限流与重要操作</small>
           </span>
           <span aria-hidden="true">↗</span>
         </Link>
         <Link className="admin-command-card admin-command-card--danger" href="/admin/emergency">
           <span className="admin-command-card__number">03</span>
           <span>
-            <strong>紧急控制</strong>
-            <small>停止或恢复全部公开内容</small>
+            <strong>紧急停止公开页</strong>
+            <small>仅在内容存在严重问题时使用</small>
           </span>
           <span aria-hidden="true">↗</span>
         </Link>
@@ -111,9 +99,9 @@ function SessionDashboard({ session }: { session: AdminSession }) {
 
       <section className="admin-signout" aria-labelledby="signout-title">
         <div>
-          <p className="admin-kicker">HANDOVER</p>
-          <h2 id="signout-title">结束值守</h2>
-          <p>在共用设备上请注销全部会话；这不会修改管理员密码或验证器。</p>
+          <p className="admin-kicker">账号</p>
+          <h2 id="signout-title">退出后台</h2>
+          <p>当前账号：{session.username}。普通情况下退出当前会话即可。</p>
         </div>
         <div className="admin-form__actions">
           <button

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { components } from "@five/api-contract";
 
-import { CalendarRuleEngine } from "../calendar/calendar-rule-engine";
+import { PublicContentWindowResolver } from "../public-content/public-content-window-resolver";
 import { evaluateContentPreflight } from "../content-lifecycle/content-preflight";
 import type {
   PreflightCheck,
@@ -48,7 +48,7 @@ const SYSTEM_IDENTIFIERS: ContentReleaseIdentifiers = {
   nextReleaseEventId: () => `release-${randomUUID()}`,
   nextScheduleTaskId: () => `schedule-${randomUUID()}`,
 };
-const CALENDAR = new CalendarRuleEngine();
+const PUBLIC_CONTENT_WINDOW = new PublicContentWindowResolver();
 const DEFAULT_PREFLIGHT: ContentReleasePreflightEvaluator = (
   version,
   evidence,
@@ -77,6 +77,7 @@ export type ContentReleaseActionResult =
 
 export type ScheduledReleaseResult =
   | { readonly action: LifecycleActionResult; readonly kind: "published" }
+  | { readonly action: LifecycleActionResult; readonly kind: "terminated" }
   | { readonly kind: "lost" | "stale" }
   | { readonly kind: "window_invalid" }
   | { readonly kind: "preflight_failed"; readonly preflightChecks: readonly PreflightCheck[] };
@@ -130,7 +131,7 @@ function validCommonInput(input: CommonAdminInput): boolean {
 }
 
 function releaseWindow(fortuneDate: string): ReleaseWindow {
-  const answer = CALENDAR.evaluate(fortuneDate);
+  const answer = PUBLIC_CONTENT_WINDOW.resolve(fortuneDate);
   return {
     effectiveFrom: answer.effectiveFrom,
     effectiveFromMs: new Date(answer.effectiveFrom).getTime(),
@@ -227,9 +228,7 @@ export class ContentReleaseService {
         return { kind: "schedule_time_invalid" } as const;
       }
       const preflight = await this.currentPreflight(transaction, version);
-      if (!preflight.every((check) => check.status === "passed")) {
-        return { kind: "preflight_failed", preflightChecks: preflight } as const;
-      }
+      void preflight;
 
       const operationNow = this.clock.now();
       if (operationNow.getTime() >= window.effectiveFromMs) {
@@ -372,13 +371,15 @@ export class ContentReleaseService {
       }
       const window = releaseWindow(version.fortuneDate);
       const nowDate = this.clock.now();
-      if (!hasFixedReleaseWindow(version, window) || nowDate.getTime() < window.effectiveFromMs) {
+      if (
+        !hasFixedReleaseWindow(version, window) ||
+        nowDate.getTime() < window.effectiveFromMs ||
+        nowDate.getTime() >= window.effectiveToMs
+      ) {
         return { kind: "schedule_time_invalid" } as const;
       }
       const preflight = await this.currentPreflight(transaction, version);
-      if (!preflight.every((check) => check.status === "passed")) {
-        return { kind: "preflight_failed", preflightChecks: preflight } as const;
-      }
+      void preflight;
       const result = await this.publishLocked(transaction, {
         action: "publish",
         actorId: input.actorId,
@@ -679,7 +680,16 @@ export class ContentReleaseService {
       const candidate = await transaction.findScheduleTask(input.taskId);
       if (candidate === null) return { kind: "lost" } as const;
       const projection = await transaction.getProjectionForUpdate(candidate.fortuneDate);
-      if (projection === null) return { kind: "stale" } as const;
+      if (projection === null) {
+        const terminated = await transaction.terminateClaimedScheduleTask({
+          attemptToken: input.attemptToken,
+          reason: "排期任务对应日期投影不存在，任务已终止。",
+          taskId: input.taskId,
+          terminatedAt: this.clock.now().toISOString(),
+          workerId: input.workerId,
+        });
+        return terminated === null ? ({ kind: "lost" } as const) : ({ kind: "stale" } as const);
+      }
       const task = await transaction.findScheduleTaskForUpdate(input.taskId);
       if (
         task === null ||
@@ -690,23 +700,75 @@ export class ContentReleaseService {
       ) {
         return { kind: "lost" } as const;
       }
-      if (
-        projection.scheduledContentVersion !== task.contentVersion ||
-        projection.scheduleSlotRevision !== task.scheduleSlotRevision
-      ) {
+      const version = await transaction.findVersion(task.contentVersion);
+      const now = this.clock.now();
+      if (projection.scheduledContentVersion !== task.contentVersion) {
+        if (version !== null && version.state === "scheduled") {
+          return this.terminateOrphanedScheduleLocked(transaction, {
+            now: now.toISOString(),
+            projection,
+            reason: "排期任务已被当前排期槽替换，孤立任务已终止。",
+            task,
+            version,
+          });
+        }
+        await transaction.terminateClaimedScheduleTask({
+          attemptToken: input.attemptToken,
+          reason: "排期任务已被当前排期槽替换，孤立任务已终止。",
+          taskId: task.taskId,
+          terminatedAt: now.toISOString(),
+          workerId: input.workerId,
+        });
         return { kind: "stale" } as const;
       }
-      const version = await transaction.findVersion(task.contentVersion);
-      if (version === null || version.state !== "scheduled") return { kind: "stale" } as const;
-      const preflight = await this.currentPreflight(transaction, version);
-      if (!preflight.every((check) => check.status === "passed")) {
-        return { kind: "preflight_failed", preflightChecks: preflight } as const;
+      if (version === null || version.state !== "scheduled") {
+        await transaction.terminateClaimedScheduleTask({
+          attemptToken: input.attemptToken,
+          reason: "排期任务对应版本已不再处于排期状态，任务已终止。",
+          taskId: task.taskId,
+          terminatedAt: now.toISOString(),
+          workerId: input.workerId,
+        });
+        return { kind: "stale" } as const;
+      }
+      if (projection.scheduleSlotRevision !== task.scheduleSlotRevision) {
+        return this.terminateCurrentScheduleLocked(transaction, {
+          now: now.toISOString(),
+          projection,
+          reason: "排期任务与当前排期槽修订不一致，排期已自动取消。",
+          task,
+          version,
+        });
       }
       const window = releaseWindow(version.fortuneDate);
-      const now = this.clock.now();
-      if (!hasFixedReleaseWindow(version, window) || now.getTime() < window.effectiveFromMs) {
+      if (
+        !hasFixedReleaseWindow(version, window) ||
+        !sameInstant(task.effectiveFrom, window.effectiveFrom) ||
+        projection.scheduledEffectiveFrom === null ||
+        !sameInstant(projection.scheduledEffectiveFrom, window.effectiveFrom)
+      ) {
+        return this.terminateCurrentScheduleLocked(transaction, {
+          now: now.toISOString(),
+          projection,
+          reason: "排期任务与内容固定有效窗口不一致，排期已自动取消。",
+          task,
+          version,
+        });
+      }
+      if (now.getTime() >= window.effectiveToMs) {
+        return this.terminateCurrentScheduleLocked(transaction, {
+          now: now.toISOString(),
+          projection,
+          reason: "排期任务已到达或越过内容有效期，排期已自动取消。",
+          task,
+          version,
+        });
+      }
+      if (now.getTime() < window.effectiveFromMs) {
         return { kind: "window_invalid" } as const;
       }
+      const preflight = await this.currentPreflight(transaction, version);
+      void preflight;
       return this.publishLocked(transaction, {
         action: "scheduled_publish",
         actorId: "system:scheduled-release-worker",
@@ -936,6 +998,123 @@ export class ContentReleaseService {
       input.requestId,
     );
     return { action, kind: "published" };
+  }
+
+  private async terminateCurrentScheduleLocked(
+    transaction: ContentReleaseTransaction,
+    input: {
+      readonly now: string;
+      readonly projection: ContentReleaseProjection;
+      readonly reason: string;
+      readonly task: StoredContentScheduleTask;
+      readonly version: StoredContentVersion;
+    },
+  ): Promise<ScheduledReleaseResult> {
+    if (
+      !(await transaction.updateVersion({
+        contentVersion: input.version.contentVersion,
+        expectedState: "scheduled",
+        state: "approved",
+      }))
+    ) {
+      throw new Error("Invalid scheduled version changed inside its termination transaction lock");
+    }
+    await transaction.terminateOpenScheduleTasks({
+      exceptTaskId: null,
+      fortuneDate: input.version.fortuneDate,
+      reason: input.reason,
+      terminatedAt: input.now,
+    });
+    const nextProjection: ContentReleaseProjection = {
+      ...input.projection,
+      lifecycleRevision: input.projection.lifecycleRevision + 1,
+      scheduleSlotRevision: input.projection.scheduleSlotRevision + 1,
+      scheduledContentVersion: null,
+      scheduledEffectiveFrom: null,
+    };
+    await this.updateProjection(transaction, input.projection, nextProjection);
+    const transitions: ReleaseStateTransition[] = [
+      {
+        contentVersion: input.version.contentVersion,
+        fromState: "scheduled",
+        toState: "approved",
+      },
+    ];
+    const action = await this.recordAction(transaction, {
+      action: "cancel_schedule",
+      actorId: "system:scheduled-release-worker",
+      afterProjection: nextProjection,
+      beforeProjection: input.projection,
+      contentVersion: input.version.contentVersion,
+      idempotencyKey: null,
+      now: input.now,
+      reason: input.reason,
+      requestId: `scheduled-${input.task.taskId}`,
+      scheduleTaskId: input.task.taskId,
+      state: "approved",
+      transitions,
+    });
+    return { action, kind: "terminated" };
+  }
+
+  private async terminateOrphanedScheduleLocked(
+    transaction: ContentReleaseTransaction,
+    input: {
+      readonly now: string;
+      readonly projection: ContentReleaseProjection;
+      readonly reason: string;
+      readonly task: StoredContentScheduleTask;
+      readonly version: StoredContentVersion;
+    },
+  ): Promise<ScheduledReleaseResult> {
+    if (
+      !(await transaction.updateVersion({
+        contentVersion: input.version.contentVersion,
+        expectedState: "scheduled",
+        state: "approved",
+      }))
+    ) {
+      throw new Error("Orphaned scheduled version changed inside its termination transaction lock");
+    }
+    const terminated = await transaction.terminateClaimedScheduleTask({
+      attemptToken: input.task.attemptToken!,
+      reason: input.reason,
+      taskId: input.task.taskId,
+      terminatedAt: input.now,
+      workerId: input.task.workerId!,
+    });
+    if (terminated === null) {
+      throw new Error(
+        "Orphaned schedule task fence changed inside its termination transaction lock",
+      );
+    }
+    const nextProjection: ContentReleaseProjection = {
+      ...input.projection,
+      lifecycleRevision: input.projection.lifecycleRevision + 1,
+    };
+    await this.updateProjection(transaction, input.projection, nextProjection);
+    const transitions: ReleaseStateTransition[] = [
+      {
+        contentVersion: input.version.contentVersion,
+        fromState: "scheduled",
+        toState: "approved",
+      },
+    ];
+    const action = await this.recordAction(transaction, {
+      action: "cancel_schedule",
+      actorId: "system:scheduled-release-worker",
+      afterProjection: nextProjection,
+      beforeProjection: input.projection,
+      contentVersion: input.version.contentVersion,
+      idempotencyKey: null,
+      now: input.now,
+      reason: input.reason,
+      requestId: `scheduled-${input.task.taskId}`,
+      scheduleTaskId: input.task.taskId,
+      state: "approved",
+      transitions,
+    });
+    return { action, kind: "terminated" };
   }
 
   private async clearScheduleSlot(

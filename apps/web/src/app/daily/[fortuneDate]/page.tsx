@@ -7,7 +7,9 @@ import { DaJiColorCard } from "../../../components/da-ji-color-card";
 import { OutfitPreviewSection } from "../../../components/outfit-preview-section";
 import { PingColorCard } from "../../../components/ping-color-card";
 import { TodayImagePreviewSection } from "../../../components/today-image-preview-section";
+import { parsePublicChannelId } from "../../../lib/channel-links";
 import { loadDailyResult, type LoadDailyResult } from "../../../lib/daily";
+import { DailyAnalyticsReporter } from "./daily-analytics-reporter";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +22,15 @@ interface DailyPageProps {
   searchParams: Promise<{
     channelId?: SearchParamValue;
     expectedContentVersion?: SearchParamValue;
+    referralId?: SearchParamValue;
+    referralKind?: SearchParamValue;
   }>;
+}
+
+const ANALYTICS_ID_PATTERN = /^[-A-Za-z0-9_:.]{16,128}$/u;
+
+function analyticsReferralId(value: SearchParamValue): string | null {
+  return typeof value === "string" && ANALYTICS_ID_PATTERN.test(value) ? value : null;
 }
 
 function DailyUnavailable() {
@@ -44,8 +54,21 @@ function DailyExpired() {
   );
 }
 
-function DailyLandingContent({ result }: { result: LoadDailyResult }) {
+function DailyLandingContent({
+  channelId,
+  landingEventName,
+  referralId,
+  result,
+  sourceContentVersion,
+}: {
+  channelId: string;
+  landingEventName: "poster_landing_view" | "share_link_landing_view";
+  referralId: string | null;
+  result: LoadDailyResult;
+  sourceContentVersion: string | null;
+}) {
   const daily = result.kind === "ready" ? result.daily : null;
+  const contentVersion = daily?.basis?.contentVersion ?? daily?.daJiCard?.contentVersion ?? null;
 
   return (
     <main className="page-shell">
@@ -69,6 +92,28 @@ function DailyLandingContent({ result }: { result: LoadDailyResult }) {
           <DailyUnavailable />
         ) : (
           <>
+            {contentVersion === null ? null : (
+              <>
+                <DailyAnalyticsReporter
+                  channelId={channelId}
+                  contentVersion={contentVersion}
+                  eventName="view_daily_look"
+                  fortuneDate={daily.content.fortuneDate}
+                  referralId={null}
+                  sourceContentVersion={null}
+                />
+                {referralId === null ? null : (
+                  <DailyAnalyticsReporter
+                    channelId={channelId}
+                    contentVersion={contentVersion}
+                    eventName={landingEventName}
+                    fortuneDate={daily.content.fortuneDate}
+                    referralId={referralId}
+                    sourceContentVersion={sourceContentVersion}
+                  />
+                )}
+              </>
+            )}
             {daily.versionChanged ? (
               <aside className="daily-version-notice" role="status">
                 <strong>这份日期内容已更新</strong>
@@ -127,7 +172,15 @@ export default async function DailyPage({ params, searchParams }: DailyPageProps
   const expectedContentVersion = query.expectedContentVersion;
 
   if (expectedContentVersion !== undefined && typeof expectedContentVersion !== "string") {
-    return <DailyLandingContent result={{ kind: "unavailable" }} />;
+    return (
+      <DailyLandingContent
+        channelId="organic"
+        landingEventName="share_link_landing_view"
+        referralId={null}
+        result={{ kind: "unavailable" }}
+        sourceContentVersion={null}
+      />
+    );
   }
 
   const result = await loadDailyResult({
@@ -135,6 +188,22 @@ export default async function DailyPage({ params, searchParams }: DailyPageProps
     fortuneDate: route.fortuneDate,
     requestId: requestHeaders.get("x-request-id"),
   });
+  const channelId = parsePublicChannelId(query.channelId);
+  const referralId = analyticsReferralId(query.referralId);
+  const referralKind = query.referralKind;
+  const hasValidReferralKind = referralKind === undefined || referralKind === "poster";
+  const hasValidShareAttribution =
+    channelId !== null && referralId !== null && hasValidReferralKind;
 
-  return <DailyLandingContent result={result} />;
+  return (
+    <DailyLandingContent
+      channelId={channelId ?? "organic"}
+      landingEventName={
+        referralKind === "poster" ? "poster_landing_view" : "share_link_landing_view"
+      }
+      referralId={hasValidShareAttribution ? referralId : null}
+      result={result}
+      sourceContentVersion={hasValidShareAttribution ? (expectedContentVersion ?? null) : null}
+    />
+  );
 }

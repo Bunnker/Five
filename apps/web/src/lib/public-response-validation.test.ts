@@ -22,6 +22,12 @@ describe("public response validation", () => {
     expect(parsePublicImage(image)).toEqual(image);
   });
 
+  it("accepts an immutable same-origin image route", () => {
+    const localImage = { ...image, url: "/api/v1/image-assets/asset-main-01" };
+
+    expect(parsePublicImage(localImage)).toEqual(localImage);
+  });
+
   it.each([
     ["a missing AI disclosure", { ...image, aiDisclosure: null }],
     ["a credentialed URL", { ...image, url: "https://user:secret@cdn.five.test/main.webp" }],
@@ -51,5 +57,8 @@ describe("public response validation", () => {
 
   it("compares image URLs without fragments", () => {
     expect(publicImageResourceIdentity(image.url)).toBe("https://cdn.five.test/assets/main.webp");
+    expect(publicImageResourceIdentity("/api/v1/image-assets/asset-main-01#preview")).toBe(
+      "https://five.invalid/api/v1/image-assets/asset-main-01",
+    );
   });
 });

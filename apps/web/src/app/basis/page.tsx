@@ -1,8 +1,10 @@
 import { headers } from "next/headers";
 
 import { ColorSwatch } from "../../components/visual-foundation";
+import { PublicContentBoundaryGuard } from "../../components/public-content-boundary-guard";
 import { toBasisGuideData, type BasisTierData } from "../../lib/basis-guide";
 import { reviewedColorPalette } from "../../lib/color-palette";
+import { parsePublicChannelId, withPublicChannelId } from "../../lib/channel-links";
 import { loadToday } from "../../lib/today";
 import {
   resolveTodayEntry,
@@ -58,7 +60,13 @@ function BasisTier({ tier }: { tier: BasisTierData }) {
   );
 }
 
-function BasisNotice({ status }: { status: Exclude<TodayEntryResolution["status"], "ready"> }) {
+function BasisNotice({
+  channelId,
+  status,
+}: {
+  channelId: string | null;
+  status: Exclude<TodayEntryResolution["status"], "ready">;
+}) {
   const notices = {
     invalid: {
       description: "链接信息不完整，请从首页重新进入。",
@@ -81,7 +89,10 @@ function BasisNotice({ status }: { status: Exclude<TodayEntryResolution["status"
         <p className="outfit-page__eyebrow">为什么这样排</p>
         <h1>{notice.title}</h1>
         <p>{notice.description}</p>
-        <a className="outfit-page__back outfit-page__back--button" href="/">
+        <a
+          className="outfit-page__back outfit-page__back--button"
+          href={withPublicChannelId("/", channelId)}
+        >
           返回今日首页
         </a>
       </section>
@@ -91,6 +102,7 @@ function BasisNotice({ status }: { status: Exclude<TodayEntryResolution["status"
 
 export default async function BasisPage({ searchParams }: BasisPageProps) {
   const [params, requestHeaders] = await Promise.all([searchParams, headers()]);
+  const entryChannelId = parsePublicChannelId(params.channelId);
   const today = await loadToday({ requestId: requestHeaders.get("x-request-id") });
   const guide = toBasisGuideData(today);
   const resolution = resolveTodayEntry(today, params, {
@@ -98,72 +110,77 @@ export default async function BasisPage({ searchParams }: BasisPageProps) {
   });
 
   if (resolution.status !== "ready") {
-    return <BasisNotice status={resolution.status} />;
+    return <BasisNotice channelId={entryChannelId} status={resolution.status} />;
   }
 
   if (guide === null || guide.contentVersion !== resolution.contentVersion) {
-    return <BasisNotice status="unavailable" />;
+    return <BasisNotice channelId={entryChannelId} status="unavailable" />;
   }
 
   return (
-    <main className="outfit-page basis-page">
-      <article
-        aria-labelledby="basis-page-title"
-        className="outfit-page__sheet basis-page__sheet"
-        data-content-version={resolution.contentVersion}
-      >
-        <a className="outfit-page__back" href="/">
-          <span aria-hidden="true">←</span>
-          返回今日首页
-        </a>
+    <PublicContentBoundaryGuard
+      effectiveTo={resolution.today.content.effectiveTo}
+      responseGeneratedAt={resolution.today.requestContext.responseGeneratedAt}
+    >
+      <main className="outfit-page basis-page">
+        <article
+          aria-labelledby="basis-page-title"
+          className="outfit-page__sheet basis-page__sheet"
+          data-content-version={resolution.contentVersion}
+        >
+          <a className="outfit-page__back" href={withPublicChannelId("/", resolution.channelId)}>
+            <span aria-hidden="true">←</span>
+            返回今日首页
+          </a>
 
-        <header className="outfit-page__header">
-          <p className="outfit-page__eyebrow">当天公开推算依据</p>
-          <h1 id="basis-page-title">为什么这样排</h1>
-          <p>
-            {resolution.fortuneDate} · {guide.dayElementLabel}日
+          <header className="outfit-page__header">
+            <p className="outfit-page__eyebrow">当天公开推算依据</p>
+            <h1 id="basis-page-title">为什么这样排</h1>
+            <p>
+              {resolution.fortuneDate} · {guide.dayElementLabel}日
+            </p>
+          </header>
+
+          <p className="basis-page__source-note">
+            日期干支按固定历法规则计算；穿衣分档依据本产品采用的传统五行规则整理。
           </p>
-        </header>
 
-        <p className="basis-page__source-note">
-          日期干支按固定历法规则计算；穿衣分档依据本产品采用的传统五行规则整理。
-        </p>
+          <section aria-labelledby="basis-steps-title" className="basis-section">
+            <header className="basis-section__heading">
+              <p>按顺序看</p>
+              <h2 id="basis-steps-title">三步看懂当天五行</h2>
+            </header>
+            <ol className="basis-steps">
+              {guide.steps.map((step, index) => (
+                <li key={step.label}>
+                  <span aria-hidden="true" className="basis-step__number">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <p>{step.label}</p>
+                    <strong>{step.value}</strong>
+                    <span>{step.description}</span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
 
-        <section aria-labelledby="basis-steps-title" className="basis-section">
-          <header className="basis-section__heading">
-            <p>按顺序看</p>
-            <h2 id="basis-steps-title">三步看懂当天五行</h2>
-          </header>
-          <ol className="basis-steps">
-            {guide.steps.map((step, index) => (
-              <li key={step.label}>
-                <span aria-hidden="true" className="basis-step__number">
-                  {index + 1}
-                </span>
-                <div>
-                  <p>{step.label}</p>
-                  <strong>{step.value}</strong>
-                  <span>{step.description}</span>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
+          <section aria-labelledby="basis-tiers-title" className="basis-section">
+            <header className="basis-section__heading">
+              <p>从{guide.dayElementLabel}日到穿衣建议</p>
+              <h2 id="basis-tiers-title">五档与颜色</h2>
+            </header>
+            <ol className="basis-tiers">
+              {guide.tiers.map((tier) => (
+                <BasisTier key={tier.tierCode} tier={tier} />
+              ))}
+            </ol>
+          </section>
 
-        <section aria-labelledby="basis-tiers-title" className="basis-section">
-          <header className="basis-section__heading">
-            <p>从{guide.dayElementLabel}日到穿衣建议</p>
-            <h2 id="basis-tiers-title">五档与颜色</h2>
-          </header>
-          <ol className="basis-tiers">
-            {guide.tiers.map((tier) => (
-              <BasisTier key={tier.tierCode} tier={tier} />
-            ))}
-          </ol>
-        </section>
-
-        <p className="basis-page__disclaimer">{guide.basis.disclaimer}</p>
-      </article>
-    </main>
+          <p className="basis-page__disclaimer">{guide.basis.disclaimer}</p>
+        </article>
+      </main>
+    </PublicContentBoundaryGuard>
   );
 }

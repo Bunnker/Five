@@ -493,6 +493,31 @@ export class InMemoryContentReleaseStore implements ContentReleaseStore {
         }
         return changed;
       },
+      terminateClaimedScheduleTask: async (input) => {
+        const task = this.scheduleTasks.get(input.taskId);
+        if (
+          task === undefined ||
+          task.status !== "processing" ||
+          task.workerId !== input.workerId ||
+          task.attemptToken !== input.attemptToken
+        ) {
+          return null;
+        }
+        const terminated: StoredContentScheduleTask = {
+          ...task,
+          attemptToken: null,
+          claimedAt: null,
+          leaseExpiresAt: null,
+          status: "terminated",
+          terminatedAt: input.terminatedAt,
+          terminationReason: input.reason,
+          updatedAt: input.terminatedAt,
+          workerId: null,
+        };
+        this.scheduleTasks.set(task.taskId, clone(terminated));
+        this.appendScheduleTaskEvent(terminated, "terminated", input.terminatedAt, input.reason);
+        return clone(terminated);
+      },
       terminateOpenScheduleTasks: async ({ exceptTaskId, fortuneDate, reason, terminatedAt }) => {
         const terminated: StoredContentScheduleTask[] = [];
         for (const [taskId, task] of this.scheduleTasks) {

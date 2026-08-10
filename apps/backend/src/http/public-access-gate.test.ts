@@ -81,6 +81,7 @@ describe("public access emergency gate", () => {
     ["GET", "/api/v1/today"],
     ["GET", "/api/v1/daily/2026-07-31"],
     ["GET", "/api/v1/daily/2026-07-31/looks/look-1?expectedContentVersion=v1"],
+    ["GET", "/api/v1/image-assets/asset-1"],
     ["POST", "/api/v1/poster-jobs"],
     ["GET", "/api/v1/poster-jobs/job-1"],
     ["GET", "/api/v1/poster-assets/poster-1.svg"],

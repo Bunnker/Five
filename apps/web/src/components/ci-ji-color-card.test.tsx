@@ -33,8 +33,8 @@ describe("CiJiColorCard", () => {
     expect(screen.getByText("02")).toBeVisible();
     expect(screen.getByText("次吉")).toBeVisible();
     expect(screen.getByText("稳妥选择")).toBeVisible();
-    expect(screen.getByText("木")).toBeVisible();
-    expect(screen.getByText("木与木同类")).toBeVisible();
+    expect(screen.getByText("木", { selector: "strong" })).toBeVisible();
+    expect(screen.queryByText("木与木同类")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "湖蓝",
       "绿色",

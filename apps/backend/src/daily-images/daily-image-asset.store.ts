@@ -7,13 +7,43 @@ export type ImageAssetReviewRequest = components["schemas"]["ImageAssetReviewReq
 export type ImageAssetUploadMetadata = components["schemas"]["ImageAssetUploadMetadata"];
 export type ImageAssetWithdrawalResult = components["schemas"]["ImageAssetWithdrawalResult"];
 
+export type StoredDraftImageSelectionSource =
+  | "automatic_generation"
+  | "correction_draft_copy"
+  | "correction_library"
+  | "manual_selection"
+  | "manual_upload"
+  | "migration_unique"
+  | "version_copy";
+
 export interface StoredDraftImageAsset {
   readonly asset: AdminImageAsset;
   readonly draftId: string;
   readonly fortuneDate: string;
+  readonly imageSlot: components["schemas"]["DailyImageSlot"] | null;
   readonly reviewLocked: boolean;
+  readonly selectionSource: StoredDraftImageSelectionSource | null;
+  readonly selectedForSlot: boolean;
   readonly storageKey: string;
   readonly uploadedAt: string;
+}
+
+export interface StoredDraftImageSlotSelection {
+  readonly actorId: string;
+  readonly assetId: string;
+  readonly draftId: string;
+  readonly imageSlot: components["schemas"]["DailyImageSlot"];
+  readonly reason: string;
+  readonly requestId: string;
+  readonly selectedAt: string;
+  readonly selectionSource: Extract<
+    StoredDraftImageSelectionSource,
+    | "correction_draft_copy"
+    | "correction_library"
+    | "manual_selection"
+    | "manual_upload"
+    | "version_copy"
+  >;
 }
 
 export type StoredDailyImageSet = AdminDailyImageSet;

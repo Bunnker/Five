@@ -25,11 +25,15 @@ import type {
   StoredCachePurgeIntent,
   StoredDailyImageSet,
   StoredDraftImageAsset,
+  StoredDraftImageSlotSelection,
   StoredImageCachePurgeIntent,
   StoredImageAssetWithdrawalEvent,
 } from "../daily-images/daily-image-asset.store";
 import type { ImageCachePurgeStore } from "../daily-images/image-cache-purge.store";
-import { projectDailyImageSet } from "../daily-images/image-delivery-projection";
+import {
+  isDeliveredImageAsset,
+  projectDailyImageSet,
+} from "../daily-images/image-delivery-projection";
 
 interface DraftRow {
   created_at: Date | string;
@@ -97,7 +101,10 @@ interface DraftImageAssetRow {
   asset_json: unknown;
   draft_id: string;
   fortune_date: string;
+  image_slot: StoredDraftImageAsset["imageSlot"];
   review_locked: boolean;
+  selection_source: StoredDraftImageAsset["selectionSource"];
+  selected_for_slot: boolean;
   storage_key: string;
   uploaded_at: Date | string;
 }
@@ -174,7 +181,22 @@ const EVIDENCE_COLUMNS = `
 const DRAFT_IMAGE_ASSET_COLUMNS = `
   candidate.draft_id,
   candidate.fortune_date::text,
+  candidate.image_slot,
   candidate.review_locked,
+  EXISTS (
+    SELECT 1
+      FROM draft_image_slot_selections AS selection
+     WHERE selection.draft_id = candidate.draft_id
+       AND selection.image_slot = candidate.image_slot
+       AND selection.asset_id = candidate.asset_id
+  ) AS selected_for_slot,
+  (
+    SELECT selection.selection_source
+      FROM draft_image_slot_selections AS selection
+     WHERE selection.draft_id = candidate.draft_id
+       AND selection.image_slot = candidate.image_slot
+       AND selection.asset_id = candidate.asset_id
+  ) AS selection_source,
   asset.storage_key,
   asset.asset_json,
   candidate.uploaded_at
@@ -315,7 +337,10 @@ function mapDraftImageAsset(row: DraftImageAssetRow): StoredDraftImageAsset {
     asset: structuredClone(row.asset_json as StoredDraftImageAsset["asset"]),
     draftId: row.draft_id,
     fortuneDate: row.fortune_date,
+    imageSlot: row.image_slot,
     reviewLocked: row.review_locked,
+    selectionSource: row.selection_source,
+    selectedForSlot: row.selected_for_slot,
     storageKey: row.storage_key,
     uploadedAt: asIso(row.uploaded_at),
   };
@@ -445,6 +470,44 @@ class PostgresContentLifecycleTransaction implements ContentLifecycleTransaction
       row,
       await readWithdrawalRows(this.client, row.assets_json as StoredDailyImageSet["assets"]),
     );
+  }
+
+  async listActiveDailyImageSetsReferencingAssetForUpdate(
+    assetId: string,
+  ): Promise<StoredDailyImageSet[]> {
+    const result = await this.client.query<DailyImageSetRow>(
+      `SELECT image_set.assets_json,
+              image_set.content_version,
+              image_set.fortune_date::text,
+              image_set.lifecycle_revision,
+              image_set.slots_json
+         FROM content_lifecycle_days AS day
+         JOIN content_versions AS version
+           ON version.content_version = day.active_content_version
+          AND version.fortune_date = day.fortune_date
+          AND version.state = 'published'
+         JOIN daily_image_sets AS image_set
+           ON image_set.content_version = version.content_version
+          AND image_set.fortune_date = version.fortune_date
+        WHERE EXISTS (
+          SELECT 1
+            FROM jsonb_array_elements(image_set.assets_json) AS listed(asset)
+           WHERE listed.asset ->> 'assetId' = $1
+        )
+        ORDER BY image_set.fortune_date, image_set.content_version
+        FOR UPDATE OF day, image_set`,
+      [assetId],
+    );
+    const imageSets: StoredDailyImageSet[] = [];
+    for (const row of result.rows) {
+      imageSets.push(
+        mapDailyImageSet(
+          row,
+          await readWithdrawalRows(this.client, row.assets_json as StoredDailyImageSet["assets"]),
+        ),
+      );
+    }
+    return imageSets;
   }
 
   async listGloballyWithdrawnAssetIds(assetIds: readonly string[]): Promise<string[]> {
@@ -584,17 +647,18 @@ class PostgresContentLifecycleTransaction implements ContentLifecycleTransaction
     );
     const association = await this.client.query(
       `INSERT INTO draft_image_candidates (
-         draft_id, asset_id, fortune_date, review_locked, uploaded_at
+         draft_id, asset_id, fortune_date, image_slot, review_locked, uploaded_at
        )
-       SELECT $1, asset_id, $2::date, $3, $4::timestamptz
+       SELECT $1, asset_id, $2::date, $3, $4, $5::timestamptz
          FROM daily_image_assets
-        WHERE asset_id = $5
-          AND storage_key = $6
-          AND sha256 = $7
-          AND asset_json = $8::jsonb`,
+        WHERE asset_id = $6
+          AND storage_key = $7
+          AND sha256 = $8
+          AND asset_json = $9::jsonb`,
       [
         candidate.draftId,
         candidate.fortuneDate,
+        candidate.imageSlot,
         candidate.reviewLocked === true,
         candidate.uploadedAt,
         candidate.asset.assetId,
@@ -730,6 +794,35 @@ class PostgresContentLifecycleTransaction implements ContentLifecycleTransaction
       [contentVersion, submittedAt, draftId],
     );
     if (result.rowCount !== 1) throw new Error("Draft submission lost its transaction lock");
+  }
+
+  async selectDraftImageAssetForSlot(selection: StoredDraftImageSlotSelection): Promise<void> {
+    const result = await this.client.query(
+      `INSERT INTO draft_image_slot_selections (
+         draft_id, image_slot, asset_id, selection_revision, selection_source,
+         source_job_id, actor_id, reason, request_id, selected_at
+       ) VALUES ($1, $2, $3, 1, $4, NULL, $5, $6, $7, $8)
+       ON CONFLICT (draft_id, image_slot) DO UPDATE
+         SET asset_id = EXCLUDED.asset_id,
+             selection_revision = draft_image_slot_selections.selection_revision + 1,
+             selection_source = EXCLUDED.selection_source,
+             source_job_id = NULL,
+             actor_id = EXCLUDED.actor_id,
+             reason = EXCLUDED.reason,
+             request_id = EXCLUDED.request_id,
+             selected_at = EXCLUDED.selected_at`,
+      [
+        selection.draftId,
+        selection.imageSlot,
+        selection.assetId,
+        selection.selectionSource,
+        selection.actorId,
+        selection.reason,
+        selection.requestId,
+        selection.selectedAt,
+      ],
+    );
+    if (result.rowCount !== 1) throw new Error("Draft image slot selection was not stored");
   }
 
   async updateDraft(stored: StoredDraft): Promise<void> {
@@ -1028,6 +1121,58 @@ export class PostgresContentLifecycleStore implements ContentLifecycleStore, Ima
     );
     const row = result.rows[0];
     return row === undefined ? null : mapDraftImageAsset(row);
+  }
+
+  async readPublicImageAsset(assetId: string): Promise<StoredDraftImageAsset | null> {
+    return this.repeatableRead(async (client) => {
+      const candidateResult = await client.query<DraftImageAssetRow>(
+        `SELECT ${DRAFT_IMAGE_ASSET_COLUMNS}
+           FROM draft_image_candidates AS candidate
+           JOIN daily_image_assets AS asset USING (asset_id)
+          WHERE candidate.asset_id = $1
+          ORDER BY candidate.uploaded_at, candidate.draft_id
+          LIMIT 1`,
+        [assetId],
+      );
+      const candidateRow = candidateResult.rows[0];
+      if (candidateRow === undefined) return null;
+
+      const imageSetResult = await client.query<DailyImageSetRow>(
+        `SELECT image_set.assets_json,
+                image_set.content_version,
+                image_set.fortune_date::text,
+                image_set.lifecycle_revision,
+                image_set.slots_json
+           FROM daily_image_sets AS image_set
+           JOIN content_versions AS version
+             ON version.content_version = image_set.content_version
+            AND version.fortune_date = image_set.fortune_date
+           JOIN content_lifecycle_days AS day
+             ON day.fortune_date = image_set.fortune_date
+            AND day.active_content_version = image_set.content_version
+          WHERE version.state = 'published'
+            AND EXISTS (
+              SELECT 1
+                FROM jsonb_array_elements(image_set.assets_json) AS listed(asset)
+               WHERE listed.asset ->> 'assetId' = $1
+            )
+          ORDER BY image_set.fortune_date, image_set.content_version`,
+        [assetId],
+      );
+      for (const imageSetRow of imageSetResult.rows) {
+        const imageSet = mapDailyImageSet(
+          imageSetRow,
+          await readWithdrawalRows(
+            client,
+            imageSetRow.assets_json as StoredDailyImageSet["assets"],
+          ),
+        );
+        if (isDeliveredImageAsset(imageSet, assetId)) {
+          return mapDraftImageAsset(candidateRow);
+        }
+      }
+      return null;
+    });
   }
 
   async listAuditEvents(input: {

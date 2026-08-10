@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyLandingData } from "../../../lib/daily";
 import DailyPage from "./page";
 
-const { headersMock, loadDailyResultMock } = vi.hoisted(() => ({
+const { analyticsReporterMock, headersMock, loadDailyResultMock } = vi.hoisted(() => ({
+  analyticsReporterMock: vi.fn(),
   headersMock: vi.fn(),
   loadDailyResultMock: vi.fn(),
 }));
@@ -15,6 +16,13 @@ vi.mock("next/headers", () => ({
 
 vi.mock("../../../lib/daily", () => ({
   loadDailyResult: loadDailyResultMock,
+}));
+
+vi.mock("./daily-analytics-reporter", () => ({
+  DailyAnalyticsReporter: (props: unknown) => {
+    analyticsReporterMock(props);
+    return null;
+  },
 }));
 
 const contentVersion = "fd-20260715-r4";
@@ -81,6 +89,7 @@ describe("DailyPage", () => {
   beforeEach(() => {
     headersMock.mockReset();
     loadDailyResultMock.mockReset();
+    analyticsReporterMock.mockReset();
     headersMock.mockResolvedValue(new Headers({ "x-request-id": "request-daily-page" }));
     loadDailyResultMock.mockResolvedValue({ daily, kind: "ready" });
   });
@@ -90,8 +99,9 @@ describe("DailyPage", () => {
       await DailyPage({
         params: Promise.resolve({ fortuneDate: "2026-07-15" }),
         searchParams: Promise.resolve({
-          channelId: "organic",
+          channelId: "user_share",
           expectedContentVersion: "fd-20260715-r3",
+          referralId: "referral:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         }),
       }),
     );
@@ -109,6 +119,23 @@ describe("DailyPage", () => {
     expect(screen.getByText("白色")).toBeVisible();
     expect(screen.queryByText("当前时辰")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看今日参考" })).toHaveAttribute("href", "/");
+    expect(analyticsReporterMock).toHaveBeenNthCalledWith(1, {
+      channelId: "user_share",
+      contentVersion: "fd-20260715-r4",
+      eventName: "view_daily_look",
+      fortuneDate: "2026-07-15",
+      referralId: null,
+      sourceContentVersion: null,
+    });
+    expect(analyticsReporterMock).toHaveBeenNthCalledWith(2, {
+      channelId: "user_share",
+      contentVersion: "fd-20260715-r4",
+      eventName: "share_link_landing_view",
+      fortuneDate: "2026-07-15",
+      referralId: "referral:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      sourceContentVersion: "fd-20260715-r3",
+    });
+    expect(analyticsReporterMock).toHaveBeenCalledTimes(2);
   });
 
   it("does not add history, date browsing, or previous and next date entry points", async () => {
@@ -125,6 +152,59 @@ describe("DailyPage", () => {
       expect(link.getAttribute("href") ?? "").not.toMatch(/history|calendar|date-picker/iu);
     }
     expect(screen.queryByRole("button", { name: forbidden })).not.toBeInTheDocument();
+  });
+
+  it("does not count a crafted referral when its channel attribution is ambiguous", async () => {
+    render(
+      await DailyPage({
+        params: Promise.resolve({ fortuneDate: "2026-07-15" }),
+        searchParams: Promise.resolve({
+          channelId: ["user_share", "organic"],
+          referralId: "referral:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        }),
+      }),
+    );
+
+    expect(analyticsReporterMock).toHaveBeenCalledWith({
+      channelId: "organic",
+      contentVersion: "fd-20260715-r4",
+      eventName: "view_daily_look",
+      fortuneDate: "2026-07-15",
+      referralId: null,
+      sourceContentVersion: null,
+    });
+  });
+
+  it("records a poster landing separately while preserving the ordinary daily view", async () => {
+    render(
+      await DailyPage({
+        params: Promise.resolve({ fortuneDate: "2026-07-15" }),
+        searchParams: Promise.resolve({
+          channelId: "user_share",
+          expectedContentVersion: "fd-20260715-r3",
+          referralId: "poster-job-00000001",
+          referralKind: "poster",
+        }),
+      }),
+    );
+
+    expect(analyticsReporterMock).toHaveBeenNthCalledWith(1, {
+      channelId: "user_share",
+      contentVersion: "fd-20260715-r4",
+      eventName: "view_daily_look",
+      fortuneDate: "2026-07-15",
+      referralId: null,
+      sourceContentVersion: null,
+    });
+    expect(analyticsReporterMock).toHaveBeenNthCalledWith(2, {
+      channelId: "user_share",
+      contentVersion: "fd-20260715-r4",
+      eventName: "poster_landing_view",
+      fortuneDate: "2026-07-15",
+      referralId: "poster-job-00000001",
+      sourceContentVersion: "fd-20260715-r3",
+    });
+    expect(analyticsReporterMock).toHaveBeenCalledTimes(2);
   });
 
   it("shows one safe state when the target is not public", async () => {

@@ -39,7 +39,7 @@ export function OutfitDetailImage({
             aiDisclosure={image.aiDisclosure}
             contentVersion={contentVersion}
             items={items}
-            note="图片暂时无法显示，已审核的颜色与穿法仍可参考。"
+            note="图片暂时无法显示，下方颜色与穿法仍可参考。"
           />
         ) : (
           <>

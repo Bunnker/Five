@@ -186,6 +186,13 @@ export interface ContentReleaseTransaction {
     readonly currentActiveContentVersion: string | null;
     readonly fortuneDate: string;
   }): Promise<number>;
+  terminateClaimedScheduleTask(input: {
+    readonly attemptToken: string;
+    readonly reason: string;
+    readonly taskId: string;
+    readonly terminatedAt: string;
+    readonly workerId: string;
+  }): Promise<StoredContentScheduleTask | null>;
   terminateOpenScheduleTasks(input: {
     readonly exceptTaskId: string | null;
     readonly fortuneDate: string;

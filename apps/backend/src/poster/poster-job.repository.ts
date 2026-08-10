@@ -14,6 +14,31 @@ export interface PosterJobRecord extends PosterJob {
   lockedBy: string | null;
 }
 
+export function hasCurrentPosterLandingContract(
+  record: Pick<
+    PosterJobRecord,
+    "channelId" | "fortuneDate" | "jobId" | "landingUrl" | "sourceContentVersion"
+  >,
+): boolean {
+  try {
+    const url = new URL(record.landingUrl);
+    const parameters = url.searchParams;
+    return (
+      url.pathname === `/daily/${record.fortuneDate}` &&
+      parameters.getAll("channelId").length === 1 &&
+      parameters.get("channelId") === record.channelId &&
+      parameters.getAll("expectedContentVersion").length === 1 &&
+      parameters.get("expectedContentVersion") === record.sourceContentVersion &&
+      parameters.getAll("referralId").length === 1 &&
+      parameters.get("referralId") === record.jobId &&
+      parameters.getAll("referralKind").length === 1 &&
+      parameters.get("referralKind") === "poster"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export interface CreatePosterJobRecordInput extends CreatePosterJobRequest {
   currentActiveContentVersion: string;
   idempotencyKey: string;
@@ -128,16 +153,23 @@ export class InMemoryPosterJobRepository implements PosterJobRepository {
       if (record === undefined) {
         throw new Error("Poster idempotency record points to a missing job");
       }
-      return Promise.resolve({ kind: "existing", record });
+      if (hasCurrentPosterLandingContract(record)) {
+        return Promise.resolve({ kind: "existing", record });
+      }
+      this.invalidateLegacyLandingJob(record);
     }
 
-    const reusable = [...this.jobs.values()].find(
+    let reusable = [...this.jobs.values()].find(
       (candidate) =>
         candidate.sourceContentVersion === input.expectedContentVersion &&
         candidate.posterTemplateVersion === input.posterTemplateVersion &&
         candidate.channelId === input.channelId &&
         (candidate.status === "processing" || candidate.status === "ready"),
     );
+    if (reusable !== undefined && !hasCurrentPosterLandingContract(reusable)) {
+      this.invalidateLegacyLandingJob(reusable);
+      reusable = undefined;
+    }
     if (reusable !== undefined) {
       this.idempotency.set(input.idempotencyKey, {
         jobId: reusable.jobId,
@@ -212,6 +244,9 @@ export class InMemoryPosterJobRepository implements PosterJobRepository {
     const record = this.jobs.get(previous.jobId);
     if (record === undefined) {
       throw new Error("Poster idempotency record points to a missing job");
+    }
+    if (!hasCurrentPosterLandingContract(record)) {
+      return Promise.resolve({ kind: "missing" });
     }
     return Promise.resolve({ kind: "existing", record });
   }
@@ -370,5 +405,20 @@ export class InMemoryPosterJobRepository implements PosterJobRepository {
       record.attemptToken === attemptToken
       ? record
       : null;
+  }
+
+  private invalidateLegacyLandingJob(record: PosterJobRecord): void {
+    if (record.status !== "processing" && record.status !== "ready") return;
+    this.jobs.set(record.jobId, {
+      ...record,
+      assetKey: null,
+      assetUrl: null,
+      attemptToken: null,
+      entry: null,
+      lockedBy: null,
+      posterInstanceId: null,
+      status: "version_changed",
+    });
+    this.lockedAt.delete(record.jobId);
   }
 }

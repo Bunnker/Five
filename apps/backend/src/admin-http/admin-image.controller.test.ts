@@ -35,6 +35,7 @@ const imageService = {
   listDraftAssets: vi.fn(),
   readAssetBinary: vi.fn(),
   reviewDraftAsset: vi.fn(),
+  selectDraftAssetForSlot: vi.fn(),
   uploadDraftAsset: vi.fn(),
   withdrawVersionAsset: vi.fn(),
 } as unknown as DailyImageAssetService;
@@ -68,8 +69,10 @@ const uploadResult: components["schemas"]["DraftImageAssetResult"] = {
   draftId: "draft-1",
   draftRevision: 2,
   fortuneDate: "2026-08-03",
+  imageSlot: "required_primary",
   previewUrl: "/admin/api/v1/image-assets/asset-1/preview",
   reviewLocked: false,
+  selectedForSlot: true,
 };
 const passedReview: components["schemas"]["ImageAssetReviewRequest"] = {
   aiLabelCompliance: "passed",
@@ -106,10 +109,19 @@ function multipart(order: "file-first" | "metadata-first") {
     JSON.stringify(metadata),
     "\r\n",
   ].join("");
+  const slotPart = [
+    `--${boundary}\r\n`,
+    'Content-Disposition: form-data; name="imageSlot"\r\n',
+    "\r\n",
+    "required_primary",
+    "\r\n",
+  ].join("");
   return {
     boundary,
     payload: Buffer.from(
-      `${order === "file-first" ? file + metadataPart : metadataPart + file}--${boundary}--\r\n`,
+      `${
+        order === "file-first" ? file + slotPart + metadataPart : metadataPart + slotPart + file
+      }--${boundary}--\r\n`,
     ),
   };
 }
@@ -219,11 +231,66 @@ describe("admin image HTTP boundary", () => {
         draftId: "draft-1",
         expectedDraftRevision: 1,
         idempotencyKey: "upload-image-http-0001",
+        imageSlot: "required_primary",
         metadata,
         requestId: `request-${order}`,
       });
     },
   );
+
+  it("rejects a new multipart upload when imageSlot is missing", async () => {
+    const body = multipartParts([
+      { bytes: Buffer.from(JSON.stringify(metadata)), fieldname: "metadata" },
+      {
+        bytes: Buffer.from("PNG"),
+        contentType: "image/png",
+        fieldname: "file",
+        filename: "look.png",
+      },
+    ]);
+    const response = await app.inject({
+      headers: imageUploadHeaders(body.boundary, "request-missing-image-slot"),
+      method: "POST",
+      payload: body.payload,
+      url: "/admin/api/v1/daily-content-drafts/draft-1/image-assets",
+    });
+
+    expect(response.statusCode, response.body).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: "IMAGE_FILE_INVALID" } });
+    expect(imageService.uploadDraftAsset).not.toHaveBeenCalled();
+  });
+
+  it("selects one existing candidate for a named slot with the draft ETag", async () => {
+    vi.mocked(imageService.selectDraftAssetForSlot).mockResolvedValue({
+      kind: "selected",
+      result: uploadResult,
+    });
+    const response = await app.inject({
+      headers: {
+        ...protectedHeaders,
+        "content-type": "application/json",
+        "idempotency-key": "select-image-http-0001",
+        "if-match": '"draft:1"',
+        "x-request-id": "request-select-image",
+      },
+      method: "POST",
+      payload: { imageSlot: "required_primary", reason: "切换为人工确认的候选。" },
+      url: "/admin/api/v1/daily-content-drafts/draft-1/image-assets/asset-1/selection",
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.headers.etag).toBe('"draft:2"');
+    expect(imageService.selectDraftAssetForSlot).toHaveBeenCalledWith({
+      actorId: "admin-1",
+      assetId: "asset-1",
+      draftId: "draft-1",
+      expectedDraftRevision: 1,
+      idempotencyKey: "select-image-http-0001",
+      imageSlot: "required_primary",
+      reason: "切换为人工确认的候选。",
+      requestId: "request-select-image",
+    });
+  });
 
   it("rejects an unauthenticated multipart write before parsing its invalid body", async () => {
     vi.mocked(authService.authenticateSession).mockResolvedValue(null);
@@ -334,6 +401,7 @@ describe("admin image HTTP boundary", () => {
     const largeBytes = Buffer.alloc(1_100_000, 0x61);
     const body = multipartParts([
       { bytes: Buffer.from(JSON.stringify(metadata)), fieldname: "metadata" },
+      { bytes: Buffer.from("required_primary"), fieldname: "imageSlot" },
       { bytes: largeBytes, contentType: "image/png", fieldname: "file", filename: "large.png" },
     ]);
     const response = await app.inject({

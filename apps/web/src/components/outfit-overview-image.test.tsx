@@ -47,10 +47,10 @@ describe("OutfitOverviewImage", () => {
     expect(screen.getByText("红色")).toBeVisible();
     expect(screen.getByText("绿色")).toBeVisible();
     expect(screen.getByText("白色")).toBeVisible();
-    const fallbackMetadata = screen.getByRole("group", { name: "图片失败信息" });
-    expect(fallbackMetadata).toHaveTextContent("原图说明 · AI 生成穿搭示意图");
-    expect(fallbackMetadata).toHaveTextContent("内容版本 · fd-20260715-r1");
-    expect(screen.getByRole("status")).toHaveTextContent("当前仅显示已审核配色，未使用替换图片");
+    const fallbackMetadata = screen.getByRole("group", { name: "图片说明" });
+    expect(fallbackMetadata).toHaveTextContent("AI 生成穿搭示意图");
+    expect(screen.getByRole("status")).not.toHaveTextContent("fd-20260715-r1");
+    expect(screen.getByRole("status")).toHaveTextContent("图片暂时无法显示，请参考下方配色");
   });
 
   it("retries when navigation supplies a different reviewed image", () => {
@@ -102,10 +102,9 @@ describe("OutfitOverviewImage", () => {
     fireEvent.error(screen.getByRole("img"));
 
     const fallback = screen.getByRole("status");
-    const metadata = screen.getByRole("group", { name: "图片失败信息" });
     expect(fallback).toHaveAttribute("data-content-version", contentVersion);
-    expect(metadata).toHaveTextContent(`内容版本 · ${contentVersion}`);
-    expect(metadata).not.toHaveTextContent("原图说明");
+    expect(screen.queryByRole("group", { name: "图片说明" })).not.toBeInTheDocument();
+    expect(fallback).not.toHaveTextContent(contentVersion);
     expect(fallback).not.toHaveTextContent(/AI/u);
   });
 });
