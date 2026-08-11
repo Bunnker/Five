@@ -11,7 +11,7 @@ import type {
   ContentReleaseProjection,
   StoredContentReleaseEvent,
 } from "../content-release/content-release.store";
-import { projectDailyContentSnapshot } from "../today/published-content-projector";
+import { projectAdminDailyContentSnapshot } from "../today/published-content-projector";
 import { AdminOperationsDateResolver } from "./admin-operations-date.resolver";
 import type {
   AdminOperationsStoredDay,
@@ -132,7 +132,11 @@ function toStoredVersion(view: ContentVersionReadView | null): AdminOperationsSt
     preview:
       view.imageSet === null
         ? null
-        : projectDailyContentSnapshot(view.version, view.imageSet, new Set([view.version.state])),
+        : projectAdminDailyContentSnapshot(
+            view.version,
+            view.imageSet,
+            new Set([view.version.state]),
+          ),
     state: view.version.state,
   };
 }

@@ -1,14 +1,18 @@
 import type { Pool } from "pg";
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
+import { prepareImmediatePublicationModules } from "../content-lifecycle/immediate-publication-modules";
 import type {
   ContentVersionListReadView,
   ContentVersionReadView,
 } from "../content-lifecycle/content-lifecycle.store";
+import { DeterministicDraftGenerator } from "../content-production/deterministic-draft.generator";
 import type {
   ContentReleaseProjection,
   StoredContentReleaseEvent,
 } from "../content-release/content-release.store";
+import type { StoredDraftImageAsset } from "../daily-images/daily-image-asset.store";
 import { RequestContextResolver } from "../request-context/request-context-resolver";
 import { AdminOperationsDateResolver } from "./admin-operations-date.resolver";
 import {
@@ -19,6 +23,44 @@ import {
 const dateResolver = new AdminOperationsDateResolver(
   new RequestContextResolver({ now: () => new Date("2026-08-06T00:00:00.000Z") }),
 );
+
+function selectedCandidate(
+  fortuneDate: string,
+  imageSlot: "required_alternative" | "required_primary",
+): StoredDraftImageAsset {
+  const sha256 = createHash("sha256").update(`${fortuneDate}:${imageSlot}`).digest("hex");
+  return {
+    asset: {
+      aiLabelStatus: "pending",
+      altText: `${imageSlot} 后台预览图`,
+      assetId: `asset-${imageSlot}`,
+      declaredModel: "gpt-image-2",
+      fileUrl: `https://assets.example.test/${imageSlot}.png`,
+      generatedAt: "2026-08-06T10:00:00.000Z",
+      generationMethod: "external_tool",
+      height: 1600,
+      manualReview: null,
+      mediaType: "image/png",
+      promptVersion: "five-look-v1",
+      reproductionReference: `request-${fortuneDate}-${imageSlot}`,
+      reviewStatus: "pending",
+      rightsRecordIds: [`rights-${imageSlot}`],
+      rightsStatus: "pending",
+      sha256,
+      sourceMaterialReferences: [`source-${imageSlot}`],
+      sourceType: "ai_generated",
+      width: 1200,
+    },
+    draftId: `draft-${fortuneDate}`,
+    fortuneDate,
+    imageSlot,
+    reviewLocked: false,
+    selectionSource: "automatic_generation",
+    selectedForSlot: true,
+    storageKey: `${sha256.slice(0, 2)}/${sha256}.png`,
+    uploadedAt: "2026-08-06T10:00:00.000Z",
+  };
+}
 
 function releaseEvent(
   action: StoredContentReleaseEvent["action"],
@@ -281,6 +323,31 @@ describe("PostgresAdminOperationsStore", () => {
   });
 
   it("keeps named required image slots and treats an absent optional job as not requested", async () => {
+    const candidates = [
+      selectedCandidate("2026-08-07", "required_primary"),
+      selectedCandidate("2026-08-07", "required_alternative"),
+    ];
+    const snapshot = prepareImmediatePublicationModules(
+      new DeterministicDraftGenerator().generate("2026-08-07"),
+      candidates,
+    );
+    if (snapshot === null || snapshot.visual_and_rights === null) {
+      throw new Error("scheduled preview fixture must be publishable");
+    }
+    const primaryLook = snapshot.visual_and_rights.looks.find(
+      (look) => look.imageSlot === "required_primary",
+    );
+    const alternativeLook = snapshot.visual_and_rights.looks.find(
+      (look) => look.imageSlot === "required_alternative",
+    );
+    if (
+      primaryLook === undefined ||
+      primaryLook.fallbackAssetId === null ||
+      alternativeLook === undefined ||
+      alternativeLook.fallbackAssetId === null
+    ) {
+      throw new Error("scheduled preview fixture must include both required looks");
+    }
     const version = {
       contentVersion: "content-2026-08-07",
       createdAt: "2026-08-06T10:00:00.000Z",
@@ -289,7 +356,7 @@ describe("PostgresAdminOperationsStore", () => {
       effectiveTo: "2026-08-07T23:00:00+08:00",
       fortuneDate: "2026-08-07",
       preflightChecks: [],
-      snapshot: {},
+      snapshot,
       state: "scheduled" as const,
     } as unknown as ContentVersionReadView["version"];
     const versionList: ContentVersionListReadView = {
@@ -311,29 +378,29 @@ describe("PostgresAdminOperationsStore", () => {
     const readVersionView = vi.fn().mockResolvedValue({
       evidence: [],
       imageSet: {
-        assets: [],
+        assets: snapshot.visual_and_rights.assets,
         contentVersion: version.contentVersion,
         fortuneDate: version.fortuneDate,
         lifecycleRevision: 5,
         slots: [
           {
-            coverAssetId: "asset-primary",
+            coverAssetId: primaryLook.coverAssetId,
             deliveryStatus: "active",
             detailAssetIds: [],
-            fallbackAssetId: "fallback-primary",
+            fallbackAssetId: primaryLook.fallbackAssetId,
             imageSlot: "required_primary",
-            lookId: "look-primary",
-            servedCoverAssetId: "asset-primary",
+            lookId: primaryLook.lookId,
+            servedCoverAssetId: primaryLook.coverAssetId,
             servedDetailAssetIds: [],
           },
           {
-            coverAssetId: "asset-alternative",
+            coverAssetId: alternativeLook.coverAssetId,
             deliveryStatus: "active",
             detailAssetIds: [],
-            fallbackAssetId: "fallback-alternative",
+            fallbackAssetId: alternativeLook.fallbackAssetId,
             imageSlot: "required_alternative",
-            lookId: "look-alternative",
-            servedCoverAssetId: "asset-alternative",
+            lookId: alternativeLook.lookId,
+            servedCoverAssetId: alternativeLook.coverAssetId,
             servedDetailAssetIds: [],
           },
         ],
@@ -410,6 +477,10 @@ describe("PostgresAdminOperationsStore", () => {
     expect(day?.scheduled?.imageSlots.map((slot) => slot.imageSlot)).toEqual([
       "required_primary",
       "required_alternative",
+    ]);
+    expect(day?.scheduled?.preview?.looks.map((look) => look.coverImage.url)).toEqual([
+      "/admin/api/v1/image-assets/asset-required_primary/preview",
+      "/admin/api/v1/image-assets/asset-required_alternative/preview",
     ]);
     expect(day?.production?.optionalJobStatus).toBe("not_requested");
     expect(day?.production?.requiredJobs).toEqual([

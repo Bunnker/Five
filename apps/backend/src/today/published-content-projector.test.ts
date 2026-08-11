@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { StoredContentVersion } from "../content-lifecycle/content-lifecycle.store";
 import type { StoredDailyImageSet } from "../daily-images/daily-image-asset.store";
 import {
-  projectDailyContentSnapshot,
+  projectAdminDailyContentSnapshot,
   projectPublishedDailyContent,
 } from "./published-content-projector";
 
@@ -423,7 +423,7 @@ describe("projectPublishedDailyContent", () => {
     const imageSet = activeImageSet();
     imageSet.slots = imageSet.slots.filter((slot) => slot.imageSlot !== "optional");
 
-    const projected = projectDailyContentSnapshot(
+    const projected = projectAdminDailyContentSnapshot(
       publishedVersion({ state: "scheduled" }),
       imageSet,
       new Set(["scheduled"]),
@@ -432,6 +432,16 @@ describe("projectPublishedDailyContent", () => {
     expect(projected?.looks.map((look) => look.lookId)).toEqual([
       "look-primary",
       "look-alternative",
+    ]);
+    expect(
+      projected?.looks.flatMap((look) => [
+        look.coverImage.url,
+        ...look.detailImages.map((image) => image.url),
+      ]),
+    ).toEqual([
+      "/admin/api/v1/image-assets/asset-primary-cover/preview",
+      "/admin/api/v1/image-assets/asset-primary-detail/preview",
+      "/admin/api/v1/image-assets/asset-alternative-cover/preview",
     ]);
   });
 });

@@ -3332,6 +3332,7 @@ components:
         current:
           $ref: "#/components/schemas/AdminDaySummary"
         currentPreview:
+          description: 后台展示投影；图片 URL 必须使用需要后台会话的同源预览接口，不得把尚未公开的排期或草稿素材暴露为公共图片 URL。
           oneOf:
             - $ref: "#/components/schemas/DailyContent"
             - type: "null"
@@ -3343,6 +3344,7 @@ components:
         next:
           $ref: "#/components/schemas/AdminDaySummary"
         nextPreview:
+          description: 后台展示投影；图片 URL 必须使用需要后台会话的同源预览接口，不得把尚未公开的排期或草稿素材暴露为公共图片 URL。
           oneOf:
             - $ref: "#/components/schemas/DailyContent"
             - type: "null"
@@ -3477,6 +3479,7 @@ components:
           type: string
           enum: [published, scheduled, approved, draft, none]
         preview:
+          description: 后台展示投影；图片 URL 必须使用需要后台会话的同源预览接口，不得把尚未公开的排期或草稿素材暴露为公共图片 URL。
           oneOf:
             - $ref: "#/components/schemas/DailyContent"
             - type: "null"

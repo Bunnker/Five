@@ -1335,11 +1335,13 @@ export interface components {
             health: "healthy" | "attention" | "unavailable";
             issueCount: number;
             current: components["schemas"]["AdminDaySummary"];
+            /** @description 后台展示投影；图片 URL 必须使用需要后台会话的同源预览接口，不得把尚未公开的排期或草稿素材暴露为公共图片 URL。 */
             currentPreview: components["schemas"]["DailyContent"] | null;
             currentPreviewRequestContext: components["schemas"]["RequestContext"];
             /** @description 服务端基于 currentPreviewRequestContext 解析的真实公开交付上下文；当前预览必须与本响应 publicContentContext 一致。 */
             currentPreviewPublicContentContext: components["schemas"]["PublicContentContext"];
             next: components["schemas"]["AdminDaySummary"];
+            /** @description 后台展示投影；图片 URL 必须使用需要后台会话的同源预览接口，不得把尚未公开的排期或草稿素材暴露为公共图片 URL。 */
             nextPreview: components["schemas"]["DailyContent"] | null;
             nextPreviewRequestContext: components["schemas"]["RequestContext"];
             /** @description 服务端基于 nextPreviewRequestContext 解析的预览公开交付上下文，客户端不得自行假定 advancedFromCivilDate。 */
@@ -1386,6 +1388,7 @@ export interface components {
             summary: components["schemas"]["AdminDaySummary"];
             /** @enum {string} */
             previewSource: "published" | "scheduled" | "approved" | "draft" | "none";
+            /** @description 后台展示投影；图片 URL 必须使用需要后台会话的同源预览接口，不得把尚未公开的排期或草稿素材暴露为公共图片 URL。 */
             preview: components["schemas"]["DailyContent"] | null;
             previewRequestContext: components["schemas"]["RequestContext"];
             /** @description 服务端基于 previewRequestContext 解析的预览公开交付上下文，客户端不得自行计算 servedFortuneDate 或 advancedFromCivilDate。 */

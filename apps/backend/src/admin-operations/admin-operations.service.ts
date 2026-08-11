@@ -11,7 +11,7 @@ import type { StoredDraftImageAsset } from "../daily-images/daily-image-asset.st
 import type { PublicContentContext } from "../public-content/public-content-context-resolver";
 import { PublicContentWindowResolver } from "../public-content/public-content-window-resolver";
 import type { RequestContext } from "../request-context/request-context-resolver";
-import { projectDailyContentSnapshot } from "../today/published-content-projector";
+import { projectAdminDailyContentSnapshot } from "../today/published-content-projector";
 import { AdminOperationsDateResolver } from "./admin-operations-date.resolver";
 
 type DailyContent = components["schemas"]["DailyContent"];
@@ -198,7 +198,7 @@ function projectDraft(
     withdrawalEvents: [],
   };
   if (!isAdminDailyImageSet(dailyImageSet)) return null;
-  const preview = projectDailyContentSnapshot(version, dailyImageSet, new Set(["approved"]));
+  const preview = projectAdminDailyContentSnapshot(version, dailyImageSet, new Set(["approved"]));
   if (preview === null) return null;
   return {
     imageSlots: dailyImageSet.slots.map((slot) => ({

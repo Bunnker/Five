@@ -11,7 +11,12 @@ type PublicLook = components["schemas"]["PublicLook"];
 
 const REVIEWED_AI_DISCLOSURE = "AI 生成穿搭示意图";
 
-function publicImage(asset: AdminImageAsset | undefined): PublicImageAsset | null {
+type ImageUrlResolver = (asset: AdminImageAsset) => string;
+
+function publicImage(
+  asset: AdminImageAsset | undefined,
+  resolveUrl: ImageUrlResolver,
+): PublicImageAsset | null {
   if (asset === undefined) return null;
 
   const aiGenerated = asset.sourceType === "ai_generated";
@@ -22,15 +27,16 @@ function publicImage(asset: AdminImageAsset | undefined): PublicImageAsset | nul
     assetId: asset.assetId,
     height: asset.height,
     mediaType: asset.mediaType,
-    url: asset.fileUrl ?? `/api/v1/image-assets/${encodeURIComponent(asset.assetId)}`,
+    url: resolveUrl(asset),
     width: asset.width,
   };
 }
 
-export function projectDailyContentSnapshot(
+function projectDailyContentSnapshotWithUrls(
   version: StoredContentVersion,
   imageSet: StoredDailyImageSet,
   allowedStates: ReadonlySet<StoredContentVersion["state"]>,
+  resolveUrl: ImageUrlResolver,
 ): DailyContent | null {
   const calendar = version.snapshot.calendar_algorithm;
   const copy = version.snapshot.copy_and_formula;
@@ -62,10 +68,10 @@ export function projectDailyContentSnapshot(
     if (slot.deliveryStatus === "omitted" && look.imageSlot === "optional") continue;
     if (slot.servedCoverAssetId === null) return null;
 
-    const coverImage = publicImage(assets.get(slot.servedCoverAssetId));
+    const coverImage = publicImage(assets.get(slot.servedCoverAssetId), resolveUrl);
     if (coverImage === null) return null;
     const detailImages = slot.servedDetailAssetIds.map((assetId) =>
-      publicImage(assets.get(assetId)),
+      publicImage(assets.get(assetId), resolveUrl),
     );
     if (detailImages.some((asset) => asset === null)) return null;
 
@@ -106,6 +112,32 @@ export function projectDailyContentSnapshot(
       posterTemplateVersion: poster.posterTemplateVersion,
     },
   };
+}
+
+export function projectDailyContentSnapshot(
+  version: StoredContentVersion,
+  imageSet: StoredDailyImageSet,
+  allowedStates: ReadonlySet<StoredContentVersion["state"]>,
+): DailyContent | null {
+  return projectDailyContentSnapshotWithUrls(
+    version,
+    imageSet,
+    allowedStates,
+    (asset) => asset.fileUrl ?? `/api/v1/image-assets/${encodeURIComponent(asset.assetId)}`,
+  );
+}
+
+export function projectAdminDailyContentSnapshot(
+  version: StoredContentVersion,
+  imageSet: StoredDailyImageSet,
+  allowedStates: ReadonlySet<StoredContentVersion["state"]>,
+): DailyContent | null {
+  return projectDailyContentSnapshotWithUrls(
+    version,
+    imageSet,
+    allowedStates,
+    (asset) => `/admin/api/v1/image-assets/${encodeURIComponent(asset.assetId)}/preview`,
+  );
 }
 
 export function projectPublishedDailyContent(

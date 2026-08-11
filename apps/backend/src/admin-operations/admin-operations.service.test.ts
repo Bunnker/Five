@@ -391,6 +391,10 @@ describe("AdminOperationsService", () => {
       "asset-2026-08-07-required_primary",
       "asset-2026-08-07-required_alternative",
     ]);
+    expect(overview.nextPreview?.looks.map((look) => look.coverImage.url)).toEqual([
+      "/admin/api/v1/image-assets/asset-2026-08-07-required_primary/preview",
+      "/admin/api/v1/image-assets/asset-2026-08-07-required_alternative/preview",
+    ]);
     expect(overview.next.requiredImages).toEqual({
       deliverySafeCount: 2,
       modelReadyCount: 2,
