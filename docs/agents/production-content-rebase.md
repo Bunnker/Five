@@ -10,6 +10,7 @@
 - `apply` 取得同一 maintenance advisory lock 的独占锁，但该锁也不能证明服务已停止。
 - `apply` 前必须由独立操作步骤停止 HTTP 和 Worker，并生成不超过 15 分钟的停机证据。
 - 完整 30 日必须先完成一次只读分类：`rebase`、唯一 active/published 的 `protected`，或相关状态完全为空的 `missing`。其他状态一律阻断且零写入。
+- `rebase` 只接受旧 tree 创建的精确三槽原始状态：production 为 `generating`、计数 `0/3`，三张 `five-look-v1` job 均为从未尝试的 `queued`/revision 1，三个 current 均指向各自 job，且创建与更新时间完全一致。缺槽、现代 `0/2` 形态、认领/重试/完成、时间漂移或任何图片候选与选择都会阻断。
 - 所有 `rebase` 日在第一笔写入前再次完成全量 preflight；随后每日期在独立 PostgreSQL 事务中原子更新两个确定性模块并追加不可变事件。
 - 事件与幂等请求冻结 `sourceCreatedAt`、完整前后模块、canonical hashes、来源 tree、计划、批次和操作者原因。
 - CLI 不发布内容、不选择图片、不启动 Worker，也不调用付费生图。
@@ -122,6 +123,11 @@ unset FIVE_CONTENT_REBASE_CONFIRMATION
 重算完成后只启动 HTTP，Worker 继续保持停止。用新的 Admin importer ledger 执行
 `production-batch:import`；它只会采用算法完全一致的 production、上传两张必备图并停在
 `images_verified`。之后逐日回读确认 `2/2`。
+
+当前 `29 rebase + 1 missing` 基线完成导入后的预期口径是 89 条 job 记录（29 日各保留
+3 条 legacy job，新建日有 2 条 required job）和 60 条 required 图片选择。legacy optional
+job 仍为未选择的队列证据，不能把 89 条 job 误报为 89 张图片；正式 automatic submit 后，
+已提交草稿才会被图片 claim 查询排除。
 
 运行一次自动提交前，再次确认图片生成 provider 未配置。`FIVE_IMAGE_OPENAI_API_KEY` 必须
 为空，使图片 Worker 在 claim 前返回 `not_configured`；同一轮

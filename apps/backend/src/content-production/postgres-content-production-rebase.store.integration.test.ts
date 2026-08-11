@@ -112,6 +112,25 @@ async function createFixture(pool: Pool, input: ContentProductionRebaseApplyInpu
       WHERE draft_id = $1`,
     [input.draftId, JSON.stringify(legacyModules(input.fortuneDate))],
   );
+  await pool.query(
+    `INSERT INTO daily_content_image_jobs (
+       job_id, fortune_date, image_slot, prompt_version, status, attempts,
+       available_at, attempt_limit, generation_revision
+     ) VALUES ($1, $2::date, 'optional', 'five-look-v1', 'queued', 0, $3::timestamptz, 3, 1)`,
+    [`job-${input.draftId}-optional`, input.fortuneDate, OCCURRED_AT],
+  );
+  await pool.query(
+    `UPDATE daily_content_image_slot_currents
+        SET current_job_id = $2, generation_revision = 1, updated_at = $3::timestamptz
+      WHERE fortune_date = $1::date AND image_slot = 'optional'`,
+    [input.fortuneDate, `job-${input.draftId}-optional`, OCCURRED_AT],
+  );
+  await pool.query(
+    `UPDATE daily_content_productions
+        SET pending_image_slots = 3
+      WHERE fortune_date = $1::date`,
+    [input.fortuneDate],
+  );
 }
 
 async function submitFixtureVersion(
@@ -177,14 +196,20 @@ describeDatabase("PostgresContentProductionRebaseStore", () => {
 
   afterAll(async () => pool?.end());
 
-  it("atomically rebases both deterministic modules and appends one replayable event", async () => {
+  it("accepts the exact pristine legacy three-slot footprint and atomically rebases both modules", async () => {
     const input = applyInput("2026-08-20", "atomic");
     await createFixture(pool, input);
+    const store = new PostgresContentProductionRebaseStore(pool);
     const service = new ContentProductionRebaseService(
-      new PostgresContentProductionRebaseStore(pool),
+      store,
       runtime(input),
       new DeterministicDraftGenerator(),
     );
+
+    await expect(store.inspect(input.fortuneDate)).resolves.toMatchObject({
+      draftId: input.draftId,
+      kind: "eligible",
+    });
 
     await expect(service.apply(input)).resolves.toMatchObject({
       event: {
@@ -581,7 +606,105 @@ describeDatabase("PostgresContentProductionRebaseStore", () => {
   it.each([
     {
       code: "image_jobs_not_pristine",
-      date: "2026-08-28",
+      date: "2026-10-01",
+      mutate: (testPool: Pool, value: ContentProductionRebaseApplyInput) =>
+        testPool.query(
+          "UPDATE daily_content_productions SET pending_image_slots = 2 WHERE fortune_date = $1::date",
+          [value.fortuneDate],
+        ),
+      name: "legacy production with a two-slot pending counter",
+    },
+    {
+      code: "image_jobs_not_pristine",
+      date: "2026-10-02",
+      mutate: async (testPool: Pool, value: ContentProductionRebaseApplyInput) => {
+        await testPool.query(
+          `UPDATE daily_content_image_slot_currents
+              SET current_job_id = NULL, generation_revision = 0
+            WHERE fortune_date = $1::date AND image_slot = 'optional'`,
+          [value.fortuneDate],
+        );
+        await testPool.query(
+          "DELETE FROM daily_content_image_jobs WHERE fortune_date = $1::date AND image_slot = 'optional'",
+          [value.fortuneDate],
+        );
+        await testPool.query(
+          "UPDATE daily_content_productions SET pending_image_slots = 2 WHERE fortune_date = $1::date",
+          [value.fortuneDate],
+        );
+      },
+      name: "modern two-slot production footprint",
+    },
+    {
+      code: "image_jobs_not_pristine",
+      date: "2026-10-09",
+      mutate: async (testPool: Pool, value: ContentProductionRebaseApplyInput) => {
+        await testPool.query(
+          `UPDATE daily_content_image_slot_currents
+              SET current_job_id = NULL, generation_revision = 0
+            WHERE fortune_date = $1::date AND image_slot = 'optional'`,
+          [value.fortuneDate],
+        );
+        await testPool.query(
+          "DELETE FROM daily_content_image_jobs WHERE fortune_date = $1::date AND image_slot = 'optional'",
+          [value.fortuneDate],
+        );
+      },
+      name: "legacy production missing its optional job",
+    },
+    {
+      code: "image_jobs_not_pristine",
+      date: "2026-10-03",
+      mutate: (testPool: Pool, value: ContentProductionRebaseApplyInput) =>
+        testPool.query(
+          `UPDATE daily_content_image_slot_currents
+              SET current_job_id = NULL, generation_revision = 0
+            WHERE fortune_date = $1::date AND image_slot = 'optional'`,
+          [value.fortuneDate],
+        ),
+      name: "legacy optional slot without its current job",
+    },
+    {
+      code: "image_jobs_not_pristine",
+      date: "2026-10-04",
+      mutate: (testPool: Pool, value: ContentProductionRebaseApplyInput) =>
+        testPool.query(
+          `UPDATE daily_content_image_jobs
+              SET attempts = 1
+            WHERE fortune_date = $1::date AND image_slot = 'optional'`,
+          [value.fortuneDate],
+        ),
+      name: "attempted legacy optional job",
+    },
+    {
+      code: "image_jobs_not_pristine",
+      date: "2026-10-05",
+      mutate: (testPool: Pool, value: ContentProductionRebaseApplyInput) =>
+        testPool.query(
+          `UPDATE daily_content_image_jobs
+              SET status = 'claimed', attempts = 1, claimed_at = $2::timestamptz,
+                  lease_expires_at = ($2::timestamptz + interval '10 minutes'),
+                  worker_id = 'tampered-worker', attempt_token = 'tampered-attempt-token'
+            WHERE fortune_date = $1::date AND image_slot = 'optional'`,
+          [value.fortuneDate, OCCURRED_AT],
+        ),
+      name: "claimed legacy optional job",
+    },
+    {
+      code: "image_jobs_not_pristine",
+      date: "2026-10-06",
+      mutate: (testPool: Pool, value: ContentProductionRebaseApplyInput) =>
+        testPool.query(
+          `UPDATE daily_content_image_jobs
+              SET status = 'completed'
+            WHERE fortune_date = $1::date AND image_slot = 'optional'`,
+          [value.fortuneDate],
+        ),
+      name: "completed legacy optional job",
+    },
+    {
+      code: "image_jobs_not_pristine",
+      date: "2026-10-07",
       mutate: (testPool: Pool, value: ContentProductionRebaseApplyInput) =>
         testPool.query(
           "UPDATE daily_content_image_jobs SET available_at = available_at + interval '1 second' WHERE fortune_date = $1::date",
@@ -591,7 +714,7 @@ describeDatabase("PostgresContentProductionRebaseStore", () => {
     },
     {
       code: "image_jobs_not_pristine",
-      date: "2026-08-29",
+      date: "2026-10-08",
       mutate: (testPool: Pool, value: ContentProductionRebaseApplyInput) =>
         testPool.query(
           "UPDATE daily_content_image_slot_currents SET updated_at = updated_at + interval '1 second' WHERE fortune_date = $1::date",
@@ -640,11 +763,25 @@ describeDatabase("PostgresContentProductionRebaseStore", () => {
     const input = applyInput(date, `provenance-${date.replaceAll("-", "")}`);
     await createFixture(pool, input);
     await mutate(pool, input);
+    const store = new PostgresContentProductionRebaseStore(pool);
+    await expect(store.inspect(input.fortuneDate)).resolves.toEqual({
+      code,
+      kind: "state_conflict",
+    });
     const service = new ContentProductionRebaseService(
-      new PostgresContentProductionRebaseStore(pool),
+      store,
       runtime(input),
       new DeterministicDraftGenerator(),
     );
     await expect(service.apply(input)).resolves.toEqual({ code, kind: "state_conflict" });
+    await expect(
+      pool.query("SELECT draft_revision FROM content_drafts WHERE draft_id = $1", [input.draftId]),
+    ).resolves.toMatchObject({ rows: [{ draft_revision: "1" }] });
+    await expect(
+      pool.query(
+        "SELECT count(*)::text AS count FROM content_draft_rebase_events WHERE draft_id = $1",
+        [input.draftId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: "0" }] });
   });
 });

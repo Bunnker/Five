@@ -420,7 +420,7 @@ export class PostgresContentProductionRebaseStore implements ContentProductionRe
       if (
         draft.status !== "generating" ||
         Number(draft.completed_image_slots) !== 0 ||
-        Number(draft.pending_image_slots) !== 2 ||
+        Number(draft.pending_image_slots) !== 3 ||
         draft.last_error !== null
       ) {
         return await this.finishInspection(client, conflict("image_jobs_not_pristine"));
@@ -516,7 +516,7 @@ export class PostgresContentProductionRebaseStore implements ContentProductionRe
       if (images.rows[0]?.selections !== "0") {
         return await this.finishInspection(client, conflict("image_selections_present"));
       }
-      if (!this.pristineImages(jobs.rows, currents.rows, iso(draft.created_at))) {
+      if (!this.pristineLegacyImages(jobs.rows, currents.rows, iso(draft.created_at))) {
         return await this.finishInspection(client, conflict("image_jobs_not_pristine"));
       }
       const source = canonicalModulePair(draft.modules);
@@ -657,7 +657,7 @@ export class PostgresContentProductionRebaseStore implements ContentProductionRe
       if (
         draft.status !== "generating" ||
         Number(draft.completed_image_slots) !== 0 ||
-        Number(draft.pending_image_slots) !== 2 ||
+        Number(draft.pending_image_slots) !== 3 ||
         draft.last_error !== null
       ) {
         await client.query("COMMIT");
@@ -765,7 +765,7 @@ export class PostgresContentProductionRebaseStore implements ContentProductionRe
         await client.query("COMMIT");
         return conflict("image_selections_present");
       }
-      if (!this.pristineImages(jobs.rows, currents.rows, iso(draft.created_at))) {
+      if (!this.pristineLegacyImages(jobs.rows, currents.rows, iso(draft.created_at))) {
         await client.query("COMMIT");
         return conflict("image_jobs_not_pristine");
       }
@@ -866,18 +866,20 @@ export class PostgresContentProductionRebaseStore implements ContentProductionRe
     }
   }
 
-  private pristineImages(
+  // The frozen legacy tree queued all three slots at creation. Accepting the modern two-slot
+  // footprint here would weaken the provenance proof for this one-off maintenance path.
+  private pristineLegacyImages(
     jobs: readonly ImageJobRow[],
     currents: readonly ImageCurrentRow[],
     createdAt: string,
   ): boolean {
-    if (jobs.length !== 2 || currents.length !== 3) return false;
+    if (jobs.length !== 3 || currents.length !== 3) return false;
     const jobsBySlot = new Map(jobs.map((job) => [job.image_slot, job]));
     if (
-      jobsBySlot.size !== 2 ||
+      jobsBySlot.size !== 3 ||
       !jobsBySlot.has("required_primary") ||
       !jobsBySlot.has("required_alternative") ||
-      jobsBySlot.has("optional")
+      !jobsBySlot.has("optional")
     ) {
       return false;
     }
@@ -906,7 +908,7 @@ export class PostgresContentProductionRebaseStore implements ContentProductionRe
     ) {
       return false;
     }
-    for (const slot of ["required_primary", "required_alternative"] as const) {
+    for (const slot of ["required_primary", "required_alternative", "optional"] as const) {
       const job = jobsBySlot.get(slot);
       const current = currentsBySlot.get(slot);
       if (
@@ -918,12 +920,7 @@ export class PostgresContentProductionRebaseStore implements ContentProductionRe
         return false;
       }
     }
-    const optional = currentsBySlot.get("optional");
-    return (
-      optional !== undefined &&
-      optional.current_job_id === null &&
-      Number(optional.generation_revision) === 0
-    );
+    return true;
   }
 
   private productionRequestHash(fortuneDate: string): string {
