@@ -754,11 +754,11 @@ describe("production batch admin import", () => {
     });
   });
 
-  it("strictly adopts one existing unsubmitted deterministic production and records its origin", async () => {
+  it("adopts a revision-two rebase handoff, uploads 2/2, and reaches images_verified", async () => {
     const batchRoot = await createBatchFixture();
     const ledgerPath = join(batchRoot, "adopt-ledger.json");
     const generated = new DeterministicDraftGenerator().generate(FORTUNE_DATE);
-    let draftRevision = 4;
+    let draftRevision = 2;
     const selected = new Map<"optional" | "required_alternative" | "required_primary", string>();
     const metadataOverrides = new Map<FixtureImageSlot, Partial<ImageAssetUploadMetadata>>();
     let failDraftRead = false;

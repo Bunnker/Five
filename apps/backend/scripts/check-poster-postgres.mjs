@@ -8,6 +8,7 @@ import pg from "pg";
 const { Client } = pg;
 const databaseName = `five_integration_test_${process.pid}_${randomUUID().replaceAll("-", "")}`;
 const productionDatabaseName = `five_prod_test_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+const rebaseDatabaseName = `five_rebase_test_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const createdDatabaseNames = new Set();
 let activeChild = null;
@@ -132,6 +133,25 @@ async function createDisposableDatabase(baseUrl, targetDatabaseName) {
   }
 }
 
+async function assertEmptyAppliedRebaseMigration(databaseUrl) {
+  const client = new Client({ connectionString: databaseUrl.toString() });
+  try {
+    await client.connect();
+    const result = await client.query(`
+      SELECT
+        (SELECT count(*)::text FROM content_draft_rebase_events) AS event_count,
+        (SELECT count(*)::text
+           FROM pgmigrations
+          WHERE name = '000019_create_content_draft_rebase_events') AS migration_count
+    `);
+    if (result.rows[0]?.event_count !== "0" || result.rows[0]?.migration_count !== "1") {
+      throw new Error("Refusing to roll back a non-empty or unapplied rebase audit migration");
+    }
+  } finally {
+    await client.end();
+  }
+}
+
 async function main() {
   const baseUrl = checkedDatabaseUrl(process.env.DATABASE_URL);
   baseUrlForCleanup = baseUrl;
@@ -174,6 +194,14 @@ async function main() {
         FIVE_PUBLIC_WINDOW_MIGRATION_TEST_DATABASE_URL: testUrl.toString(),
       },
     );
+    // The rebase event table is intentionally append-only and rejects TRUNCATE, including
+    // parent-table CASCADE. Older repository fixtures own this disposable database and reset
+    // parent tables between tests, so keep them on their pre-rebase schema. Migration 000019 and
+    // its rollback refusal are exercised below in a dedicated isolated database.
+    await assertEmptyAppliedRebaseMigration(testUrl);
+    await run(["--filter", "@five/backend", "exec", "node-pg-migrate", "-j", "mts", "down"], {
+      DATABASE_URL: testUrl.toString(),
+    });
     await run(
       [
         "--filter",
@@ -222,6 +250,10 @@ async function main() {
     await run(["--filter", "@five/backend", "exec", "node-pg-migrate", "-j", "mts", "up"], {
       DATABASE_URL: productionTestUrl.toString(),
     });
+    await assertEmptyAppliedRebaseMigration(productionTestUrl);
+    await run(["--filter", "@five/backend", "exec", "node-pg-migrate", "-j", "mts", "down"], {
+      DATABASE_URL: productionTestUrl.toString(),
+    });
     await run(
       [
         "--filter",
@@ -237,9 +269,33 @@ async function main() {
       },
     );
     await dropDisposableDatabase(baseUrl, productionDatabaseName);
+    const rebaseTestUrl = new URL(baseUrl);
+    rebaseTestUrl.pathname = `/${rebaseDatabaseName}`;
+    await createDisposableDatabase(baseUrl, rebaseDatabaseName);
+    await run(["--filter", "@five/backend", "exec", "node-pg-migrate", "-j", "mts", "up", "18"], {
+      DATABASE_URL: rebaseTestUrl.toString(),
+    });
+    await run(["--filter", "@five/backend", "exec", "node-pg-migrate", "-j", "mts", "up", "1"], {
+      DATABASE_URL: rebaseTestUrl.toString(),
+    });
+    await run(
+      [
+        "--filter",
+        "@five/backend",
+        "exec",
+        "vitest",
+        "run",
+        "--no-file-parallelism",
+        "src/content-production/postgres-content-production-rebase.store.integration.test.ts",
+      ],
+      {
+        FIVE_CONTENT_REBASE_TEST_DATABASE_URL: rebaseTestUrl.toString(),
+      },
+    );
+    await dropDisposableDatabase(baseUrl, rebaseDatabaseName);
     assertNotInterrupted();
     process.stdout.write(
-      "Poster, feedback, admin-security, content-lifecycle, daily-image, content-release, and anonymous-analytics PostgreSQL integration checks passed in an isolated disposable database.\n",
+      "Poster, feedback, admin-security, content-lifecycle, daily-image, content-release, content-production-rebase, and anonymous-analytics PostgreSQL integration checks passed in isolated disposable databases.\n",
     );
   } finally {
     await cleanupDisposableDatabase();

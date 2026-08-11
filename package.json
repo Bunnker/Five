@@ -31,6 +31,7 @@
     "postgres:integration:check": "dotenv -e .env -- node apps/backend/scripts/check-poster-postgres.mjs",
     "poster:postgres:check": "pnpm postgres:integration:check",
     "production-batch:import": "pnpm --filter @five/backend production-batch:import",
+    "production-batch:rebase": "pnpm --filter @five/backend production-batch:rebase",
     "feedback:postgres:check": "pnpm postgres:integration:check",
     "local:setup": "node scripts/ensure-local-env.mjs && pnpm infra:up && pnpm db:migrate",
     "smoke": "pnpm local:setup && pnpm postgres:integration:check && pnpm build && dotenv -e .env -- node scripts/smoke.mjs"

@@ -17,6 +17,23 @@ describeDatabase("18:00 public-window data migration", () => {
   });
 
   afterEach(async () => {
+    const { runner } = await import("node-pg-migrate");
+    const appliedRebaseAndSuccessors = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM pgmigrations WHERE name >= '000019_'",
+    );
+    const rebaseRollbackCount = Number(appliedRebaseAndSuccessors.rows[0]?.count ?? "0");
+    if (rebaseRollbackCount > 0) {
+      // The rebase audit intentionally rejects TRUNCATE, including parent-table CASCADE.
+      // Roll back the empty successor before this disposable migration fixture is reset.
+      await runner({
+        databaseUrl: databaseUrl!,
+        dir: resolve(process.cwd(), "migrations"),
+        log: () => undefined,
+        migrationsTable: "pgmigrations",
+        count: rebaseRollbackCount,
+        direction: "down",
+      });
+    }
     await pool.query(`
       DO $$
       BEGIN
@@ -28,7 +45,6 @@ describeDatabase("18:00 public-window data migration", () => {
     `);
     await pool.query("TRUNCATE TABLE poster_jobs, content_drafts, content_lifecycle_days CASCADE");
     await pool.query("DELETE FROM daily_image_assets WHERE asset_id = 'legacy-shared-image'");
-    const { runner } = await import("node-pg-migrate");
     await runner({
       databaseUrl: databaseUrl!,
       dir: resolve(process.cwd(), "migrations"),

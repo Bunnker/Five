@@ -16,6 +16,7 @@
     "admin:credentials": "node -r ts-node/register/transpile-only scripts/admin-credentials.ts",
     "local-preview:configure": "node -r ts-node/register/transpile-only scripts/configure-local-preview-batch.ts",
     "production-batch:import": "node -r ts-node/register/transpile-only scripts/import-production-batch-via-admin.ts",
+    "production-batch:rebase": "node -r ts-node/register/transpile-only scripts/rebase-production-drafts.ts",
     "db:migrate": "node-pg-migrate -j mts --envPath ../../.env up",
     "db:rollback": "node-pg-migrate -j mts --envPath ../../.env down"
   },
